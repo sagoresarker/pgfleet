@@ -43,6 +43,21 @@ func (s *Store) Upsert(ctx context.Context, r Report) error {
 	return nil
 }
 
+// UpdateDrill records a restore-drill outcome without clobbering the rest of
+// the report (created by a health check).
+func (s *Store) UpdateDrill(ctx context.Context, instanceID string, ok bool) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO instance_health (instance_id, drill_ran, drill_ok)
+		 VALUES ($1, true, $2)
+		 ON CONFLICT (instance_id) DO UPDATE SET
+		   drill_ran = true, drill_ok = EXCLUDED.drill_ok`,
+		instanceID, ok)
+	if err != nil {
+		return apperr.Wrap(apperr.KindInternal, "health: update drill", err)
+	}
+	return nil
+}
+
 // List returns all stored health reports.
 func (s *Store) List(ctx context.Context) ([]Report, error) {
 	rows, err := s.pool.Query(ctx,

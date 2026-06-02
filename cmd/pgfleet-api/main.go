@@ -16,6 +16,7 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/bootstrap"
 	"github.com/sagoresarker/pgfleet/internal/config"
 	"github.com/sagoresarker/pgfleet/internal/docker"
+	"github.com/sagoresarker/pgfleet/internal/health"
 	"github.com/sagoresarker/pgfleet/internal/instance"
 	"github.com/sagoresarker/pgfleet/internal/logging"
 	"github.com/sagoresarker/pgfleet/internal/metrics"
@@ -42,6 +43,12 @@ const metricsInterval = 15 * time.Second
 
 // metricsRetention is how long metric samples are kept.
 const metricsRetention = 7 * 24 * time.Hour
+
+// healthInterval is how often instance health is assessed.
+const healthInterval = 5 * time.Minute
+
+// drillInterval is how often a restore drill is performed per instance.
+const drillInterval = 24 * time.Hour
 
 func main() {
 	if err := run(); err != nil {
@@ -130,9 +137,12 @@ func run() error {
 	if rerr := reconciler.Reconcile(ctx); rerr != nil {
 		log.Warn("initial reconciliation failed", "err", rerr)
 	}
-	backups := backup.New(rt, instances, backup.NewCatalog(pool))
+	catalog := backup.NewCatalog(pool)
+	backups := backup.New(rt, instances, catalog)
 	metricStore := metrics.NewStore(pool)
 	collector := metrics.NewCollector()
+	healthStore := health.NewStore(pool)
+	healthChecker := health.NewChecker(rt, instances, catalog, health.DefaultThresholds())
 
 	sched := scheduler.New(scheduler.WithErrorHandler(func(name string, err error) {
 		log.Warn("scheduled job failed", "job", name, "err", err)
@@ -146,6 +156,12 @@ func run() error {
 	})
 	sched.Register("prune-metrics", time.Hour, func(ctx context.Context) error {
 		return metricStore.Prune(ctx, time.Now().Add(-metricsRetention))
+	})
+	sched.Register("health-checks", healthInterval, func(ctx context.Context) error {
+		return runHealthChecks(ctx, instances, healthChecker, healthStore)
+	})
+	sched.Register("restore-drills", drillInterval, func(ctx context.Context) error {
+		return runRestoreDrills(ctx, instances, provisioner, healthStore)
 	})
 	sched.Start(ctx)
 	defer sched.Stop()
@@ -166,10 +182,50 @@ func run() error {
 		Instances: api.NewInstancesHandler(instances, provisioner, hub).WithAudit(recorder),
 		Backups:   api.NewBackupsHandler(backups, provisioner, recorder),
 		Metrics:   api.NewMetricsHandler(metricStore, insights),
+		Health:    api.NewHealthHandler(healthStore),
 		Events:    hub,
 	})
 
 	return api.Serve(ctx, ln, router, log)
+}
+
+// runHealthChecks assesses every instance and stores the reports.
+func runHealthChecks(ctx context.Context, lister *instance.Repository, checker *health.Checker, store *health.Store) error {
+	instances, err := lister.List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, inst := range instances {
+		if inst.Status != instance.StatusRunning {
+			continue
+		}
+		report, err := checker.Check(ctx, inst.ID)
+		if err != nil {
+			continue
+		}
+		_ = store.Upsert(ctx, report)
+	}
+	return nil
+}
+
+// runRestoreDrills performs a restore drill per running instance and records
+// the outcome on its health report.
+func runRestoreDrills(ctx context.Context, lister *instance.Repository, prov *provision.Provisioner, store *health.Store) error {
+	instances, err := lister.List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, inst := range instances {
+		if inst.Status != instance.StatusRunning {
+			continue
+		}
+		result, err := prov.RestoreDrill(ctx, inst.ID)
+		if err != nil {
+			continue
+		}
+		_ = store.UpdateDrill(ctx, inst.ID, result.OK)
+	}
+	return nil
 }
 
 // collectMetrics polls every running instance and stores its samples.
