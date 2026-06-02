@@ -1,0 +1,132 @@
+@import "tailwindcss";
+
+/*
+ * PgFleet "instrument panel" design system.
+ * Dark ink-blue canvas, hairline surfaces, glowing status LEDs, azure primary
+ * with amber WAL/backup signals.
+ */
+@theme {
+  --color-ink-950: #070a0f;
+  --color-ink-900: #0a0e15;
+  --color-ink-850: #0d121b;
+  --color-ink-800: #111824;
+  --color-ink-700: #18212f;
+  --color-ink-600: #222d3d;
+  --color-line: #1c2634;
+  --color-line-bright: #2a384a;
+
+  --color-fg: #e7eef6;
+  --color-fg-muted: #8a99ab;
+  --color-fg-faint: #5c6b7d;
+
+  --color-azure: #5b9dff;
+  --color-azure-bright: #7db4ff;
+  --color-azure-dim: #21406b;
+  --color-signal: #f2a93b;
+  --color-healthy: #46c46b;
+  --color-danger: #f2545b;
+  --color-violet: #9d7bff;
+
+  --font-display: var(--font-martian), ui-monospace, monospace;
+  --font-body: var(--font-hanken), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-martian), ui-monospace, monospace;
+
+  --radius: 0.5rem;
+}
+
+* {
+  border-color: var(--color-line);
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-ink-950);
+  color: var(--color-fg);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  /* Faint blueprint grid for atmosphere. */
+  background-image:
+    linear-gradient(to right, rgba(91, 157, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(91, 157, 255, 0.025) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+
+/* Display headings: technical monospace, tightened. */
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}
+
+/* Tabular numerals for metrics. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Glowing status LED. */
+.led {
+  position: relative;
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+}
+.led::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 9999px;
+  background: inherit;
+  opacity: 0.35;
+  filter: blur(4px);
+}
+
+.led-healthy { background: var(--color-healthy); }
+.led-signal { background: var(--color-signal); }
+.led-danger { background: var(--color-danger); }
+.led-idle { background: var(--color-fg-faint); }
+
+.led-pulse::after {
+  animation: led-pulse 2s ease-in-out infinite;
+}
+@keyframes led-pulse {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 0.55; }
+}
+
+/* Staggered page-load reveal. */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.rise {
+  animation: rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Scanline accent for the brand mark. */
+.scanline {
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(91, 157, 255, 0.08) 50%,
+    transparent 100%
+  );
+}
+
+::selection {
+  background: rgba(91, 157, 255, 0.3);
+  color: #fff;
+}
+
+/* Custom scrollbar. */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--color-ink-900); }
+::-webkit-scrollbar-thumb {
+  background: var(--color-ink-600);
+  border-radius: 9999px;
+  border: 2px solid var(--color-ink-900);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--color-line-bright); }
