@@ -14,14 +14,26 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/auth"
 	"github.com/sagoresarker/pgfleet/internal/bootstrap"
 	"github.com/sagoresarker/pgfleet/internal/config"
+	"github.com/sagoresarker/pgfleet/internal/docker"
+	"github.com/sagoresarker/pgfleet/internal/instance"
 	"github.com/sagoresarker/pgfleet/internal/logging"
+	"github.com/sagoresarker/pgfleet/internal/objectstore"
+	"github.com/sagoresarker/pgfleet/internal/provision"
+	"github.com/sagoresarker/pgfleet/internal/reconcile"
+	"github.com/sagoresarker/pgfleet/internal/scheduler"
+	"github.com/sagoresarker/pgfleet/internal/secrets"
 	"github.com/sagoresarker/pgfleet/internal/store"
 	"github.com/sagoresarker/pgfleet/internal/user"
 	"github.com/sagoresarker/pgfleet/internal/version"
+	"github.com/sagoresarker/pgfleet/internal/ws"
 )
 
 // tokenTTL is the lifetime of issued session tokens.
 const tokenTTL = 24 * time.Hour
+
+// reconcileInterval is how often the control plane reconciles instance state
+// against Docker.
+const reconcileInterval = 30 * time.Second
 
 func main() {
 	if err := run(); err != nil {
@@ -67,11 +79,63 @@ func run() error {
 		log.Info("bootstrapped initial admin user", "email", cfg.BootstrapAdminEmail)
 	}
 
+	// Instance orchestration: secrets cipher, Docker runtime, provisioner.
+	cipher, err := secrets.New(cfg.MasterKey)
+	if err != nil {
+		return err
+	}
+	rt, err := docker.NewMoby()
+	if err != nil {
+		return err
+	}
+	defer rt.Close()
+
+	if _, nerr := rt.CreateNetwork(ctx, cfg.DockerNetwork, map[string]string{docker.LabelManaged: "true"}); nerr != nil {
+		log.Info("docker network ensure (may already exist)", "network", cfg.DockerNetwork, "note", nerr.Error())
+	}
+
+	s3 := objectstore.Config{
+		Endpoint:  cfg.S3Endpoint,
+		Region:    cfg.S3Region,
+		AccessKey: cfg.S3AccessKey,
+		SecretKey: cfg.S3SecretKey,
+		Bucket:    cfg.S3Bucket,
+	}
+	if cfg.S3Endpoint != "" && cfg.S3Bucket != "" {
+		if berr := objectstore.EnsureBucket(ctx, s3); berr != nil {
+			return berr
+		}
+		log.Info("backup bucket ensured", "bucket", cfg.S3Bucket)
+	}
+
+	instances := instance.NewRepository(pool, cipher)
+	provisioner := provision.New(rt, instances, provision.Options{
+		Network:      cfg.DockerNetwork,
+		InstanceHost: cfg.InstanceHost,
+		S3:           s3,
+	})
+	hub := ws.NewHub()
+
+	// Reconcile on boot and on a loop so the control plane is not amnesiac
+	// after a restart.
+	reconciler := reconcile.New(rt, instances, log)
+	if rerr := reconciler.Reconcile(ctx); rerr != nil {
+		log.Warn("initial reconciliation failed", "err", rerr)
+	}
+	sched := scheduler.New(scheduler.WithErrorHandler(func(name string, err error) {
+		log.Warn("scheduled job failed", "job", name, "err", err)
+	}))
+	sched.Register("reconcile", reconcileInterval, reconciler.Reconcile)
+	sched.Start(ctx)
+	defer sched.Stop()
+
 	router := api.NewRouter(api.Deps{
-		Ready:  store.Ready(pool),
-		Issuer: issuer,
-		Auth:   api.NewAuthHandler(users, issuer, recorder),
-		Users:  api.NewUsersHandler(users, recorder),
+		Ready:     store.Ready(pool),
+		Issuer:    issuer,
+		Auth:      api.NewAuthHandler(users, issuer, recorder),
+		Users:     api.NewUsersHandler(users, recorder),
+		Instances: api.NewInstancesHandler(instances, provisioner, hub).WithAudit(recorder),
+		Events:    hub,
 	})
 
 	return api.Serve(ctx, ln, router, log)

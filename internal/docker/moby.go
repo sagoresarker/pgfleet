@@ -233,7 +233,13 @@ func portConfig(ports []PortMapping) (nat.PortSet, nat.PortMap) {
 		}
 		port := nat.Port(strconv.Itoa(p.ContainerPort) + "/" + proto)
 		set[port] = struct{}{}
-		binds[port] = []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: strconv.Itoa(p.HostPort)}}
+		// HostPort 0 lets Docker assign an ephemeral host port; read it back
+		// via Inspect after the container starts.
+		hostPort := ""
+		if p.HostPort != 0 {
+			hostPort = strconv.Itoa(p.HostPort)
+		}
+		binds[port] = []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: hostPort}}
 	}
 	return set, binds
 }

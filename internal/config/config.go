@@ -23,6 +23,16 @@ type Config struct {
 	// empty database. Both empty disables bootstrapping.
 	BootstrapAdminEmail    string
 	BootstrapAdminPassword string
+
+	// Provisioning / object-store settings for managed instances.
+	DefaultRepoType string // "s3" | "local"
+	DockerNetwork   string // network managed instances join (to reach MinIO)
+	InstanceHost    string // host clients use in connection strings
+	S3Endpoint      string
+	S3Bucket        string
+	S3Region        string
+	S3AccessKey     string
+	S3SecretKey     string
 }
 
 // Load reads configuration using the provided getenv function (typically
@@ -34,6 +44,14 @@ func Load(getenv func(string) string) (*Config, error) {
 		LogLevel:               orDefault(getenv("PGFLEET_LOG_LEVEL"), "info"),
 		BootstrapAdminEmail:    getenv("PGFLEET_BOOTSTRAP_ADMIN_EMAIL"),
 		BootstrapAdminPassword: getenv("PGFLEET_BOOTSTRAP_ADMIN_PASSWORD"),
+		DefaultRepoType:        orDefault(getenv("PGFLEET_DEFAULT_REPO_TYPE"), "s3"),
+		DockerNetwork:          orDefault(getenv("PGFLEET_DOCKER_NETWORK"), "pgfleet"),
+		InstanceHost:           orDefault(getenv("PGFLEET_INSTANCE_HOST"), "localhost"),
+		S3Endpoint:             getenv("PGFLEET_S3_ENDPOINT"),
+		S3Bucket:               getenv("PGFLEET_S3_BUCKET"),
+		S3Region:               orDefault(getenv("PGFLEET_S3_REGION"), "us-east-1"),
+		S3AccessKey:            getenv("PGFLEET_S3_ACCESS_KEY"),
+		S3SecretKey:            getenv("PGFLEET_S3_SECRET_KEY"),
 	}
 
 	var err error

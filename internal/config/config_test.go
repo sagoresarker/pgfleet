@@ -95,6 +95,47 @@ func TestLoadReadsOptionalBootstrapAdmin(t *testing.T) {
 	}
 }
 
+func TestLoadObjectStoreAndProvisioningDefaults(t *testing.T) {
+	cfg, err := Load(envMap(validEnv()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DefaultRepoType != "s3" {
+		t.Errorf("DefaultRepoType default = %q, want s3", cfg.DefaultRepoType)
+	}
+	if cfg.DockerNetwork != "pgfleet" {
+		t.Errorf("DockerNetwork default = %q, want pgfleet", cfg.DockerNetwork)
+	}
+	if cfg.InstanceHost != "localhost" {
+		t.Errorf("InstanceHost default = %q, want localhost", cfg.InstanceHost)
+	}
+	if cfg.S3Region != "us-east-1" {
+		t.Errorf("S3Region default = %q, want us-east-1", cfg.S3Region)
+	}
+}
+
+func TestLoadObjectStoreOverrides(t *testing.T) {
+	env := validEnv()
+	env["PGFLEET_S3_ENDPOINT"] = "minio:9000"
+	env["PGFLEET_S3_BUCKET"] = "backups"
+	env["PGFLEET_S3_ACCESS_KEY"] = "AKIA"
+	env["PGFLEET_S3_SECRET_KEY"] = "shhh"
+	env["PGFLEET_DOCKER_NETWORK"] = "custom-net"
+	env["PGFLEET_INSTANCE_HOST"] = "db.example.com"
+
+	cfg, err := Load(envMap(env))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.S3Endpoint != "minio:9000" || cfg.S3Bucket != "backups" ||
+		cfg.S3AccessKey != "AKIA" || cfg.S3SecretKey != "shhh" {
+		t.Errorf("object store config not parsed: %+v", cfg)
+	}
+	if cfg.DockerNetwork != "custom-net" || cfg.InstanceHost != "db.example.com" {
+		t.Errorf("provisioning config not parsed: %+v", cfg)
+	}
+}
+
 func TestLoadOverridesDefaults(t *testing.T) {
 	env := validEnv()
 	env["PGFLEET_HTTP_ADDR"] = ":9999"

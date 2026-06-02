@@ -14,6 +14,7 @@ type fakeContainer struct {
 	spec    ContainerSpec
 	status  string
 	running bool
+	ports   map[string]string // "5432/tcp" -> host port
 }
 
 // Fake is an in-memory ContainerRuntime for unit tests. It models container
@@ -50,7 +51,19 @@ func (f *Fake) CreateContainer(_ context.Context, spec ContainerSpec) (string, e
 	defer f.mu.Unlock()
 	f.seq++
 	id := fmt.Sprintf("fake-%d", f.seq)
-	f.containers[id] = &fakeContainer{spec: spec, status: "created"}
+	ports := map[string]string{}
+	for _, p := range spec.Ports {
+		proto := p.Protocol
+		if proto == "" {
+			proto = "tcp"
+		}
+		host := p.HostPort
+		if host == 0 {
+			host = 30000 + f.seq // deterministic Docker-assigned-style port
+		}
+		ports[fmt.Sprintf("%d/%s", p.ContainerPort, proto)] = fmt.Sprintf("%d", host)
+	}
+	f.containers[id] = &fakeContainer{spec: spec, status: "created", ports: ports}
 	return id, nil
 }
 
@@ -104,6 +117,7 @@ func (f *Fake) Inspect(_ context.Context, id string) (ContainerState, error) {
 		Name:    c.spec.Name,
 		Status:  c.status,
 		Running: c.running,
+		Ports:   c.ports,
 	}, nil
 }
 
