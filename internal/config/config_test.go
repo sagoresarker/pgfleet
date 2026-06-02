@@ -114,6 +114,37 @@ func TestLoadObjectStoreAndProvisioningDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadBackupScheduleDefaults(t *testing.T) {
+	cfg, err := Load(envMap(validEnv()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BackupInterval.Hours() != 24 {
+		t.Errorf("BackupInterval default = %v, want 24h", cfg.BackupInterval)
+	}
+	if cfg.BackupType != "full" {
+		t.Errorf("BackupType default = %q, want full", cfg.BackupType)
+	}
+}
+
+func TestLoadBackupScheduleOverridesAndRejectsBadDuration(t *testing.T) {
+	env := validEnv()
+	env["PGFLEET_BACKUP_INTERVAL"] = "6h"
+	env["PGFLEET_BACKUP_TYPE"] = "incr"
+	cfg, err := Load(envMap(env))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BackupInterval.Hours() != 6 || cfg.BackupType != "incr" {
+		t.Errorf("backup schedule not parsed: %v / %q", cfg.BackupInterval, cfg.BackupType)
+	}
+
+	env["PGFLEET_BACKUP_INTERVAL"] = "not-a-duration"
+	if _, err := Load(envMap(env)); err == nil {
+		t.Error("invalid backup interval should error")
+	}
+}
+
 func TestLoadObjectStoreOverrides(t *testing.T) {
 	env := validEnv()
 	env["PGFLEET_S3_ENDPOINT"] = "minio:9000"

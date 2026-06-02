@@ -12,6 +12,7 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/api"
 	"github.com/sagoresarker/pgfleet/internal/audit"
 	"github.com/sagoresarker/pgfleet/internal/auth"
+	"github.com/sagoresarker/pgfleet/internal/backup"
 	"github.com/sagoresarker/pgfleet/internal/bootstrap"
 	"github.com/sagoresarker/pgfleet/internal/config"
 	"github.com/sagoresarker/pgfleet/internal/docker"
@@ -122,10 +123,15 @@ func run() error {
 	if rerr := reconciler.Reconcile(ctx); rerr != nil {
 		log.Warn("initial reconciliation failed", "err", rerr)
 	}
+	backups := backup.New(rt, instances, backup.NewCatalog(pool))
+
 	sched := scheduler.New(scheduler.WithErrorHandler(func(name string, err error) {
 		log.Warn("scheduled job failed", "job", name, "err", err)
 	}))
 	sched.Register("reconcile", reconcileInterval, reconciler.Reconcile)
+	sched.Register("scheduled-backups", cfg.BackupInterval, func(ctx context.Context) error {
+		return backups.RunScheduled(ctx, instances, cfg.BackupType)
+	})
 	sched.Start(ctx)
 	defer sched.Stop()
 
@@ -135,6 +141,7 @@ func run() error {
 		Auth:      api.NewAuthHandler(users, issuer, recorder),
 		Users:     api.NewUsersHandler(users, recorder),
 		Instances: api.NewInstancesHandler(instances, provisioner, hub).WithAudit(recorder),
+		Backups:   api.NewBackupsHandler(backups, provisioner, recorder),
 		Events:    hub,
 	})
 

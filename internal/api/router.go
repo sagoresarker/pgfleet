@@ -31,6 +31,8 @@ type Deps struct {
 	Users *UsersHandler
 	// Instances serves managed-instance endpoints.
 	Instances *InstancesHandler
+	// Backups serves backup/restore endpoints.
+	Backups *BackupsHandler
 	// Events is the WebSocket hub for live progress (optional).
 	Events *ws.Hub
 }
@@ -67,6 +69,9 @@ func NewRouter(deps Deps) http.Handler {
 				if deps.Instances != nil {
 					mountInstanceRoutes(pr, deps.Instances)
 				}
+				if deps.Backups != nil {
+					mountBackupRoutes(pr, deps.Backups)
+				}
 			})
 		}
 
@@ -100,6 +105,21 @@ func mountInstanceRoutes(pr chi.Router, h *InstancesHandler) {
 	pr.Group(func(dr chi.Router) {
 		dr.Use(auth.RequireAction(auth.ActionInstanceDelete))
 		dr.Delete("/instances/{id}", h.Destroy)
+	})
+}
+
+func mountBackupRoutes(pr chi.Router, h *BackupsHandler) {
+	pr.Group(func(rr chi.Router) {
+		rr.Use(auth.RequireAction(auth.ActionBackupRead))
+		rr.Get("/instances/{id}/backups", h.List)
+	})
+	pr.Group(func(wr chi.Router) {
+		wr.Use(auth.RequireAction(auth.ActionBackupWrite))
+		wr.Post("/instances/{id}/backups", h.Create)
+	})
+	pr.Group(func(rs chi.Router) {
+		rs.Use(auth.RequireAction(auth.ActionBackupRestore))
+		rs.Post("/instances/{id}/restore", h.Restore)
 	})
 }
 

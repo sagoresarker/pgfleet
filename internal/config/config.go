@@ -5,6 +5,7 @@ package config
 import (
 	"encoding/base64"
 	"fmt"
+	"time"
 )
 
 // Config holds all runtime configuration for the control plane.
@@ -33,6 +34,10 @@ type Config struct {
 	S3Region        string
 	S3AccessKey     string
 	S3SecretKey     string
+
+	// Scheduled backups.
+	BackupInterval time.Duration
+	BackupType     string // full | incr | diff
 }
 
 // Load reads configuration using the provided getenv function (typically
@@ -52,9 +57,13 @@ func Load(getenv func(string) string) (*Config, error) {
 		S3Region:               orDefault(getenv("PGFLEET_S3_REGION"), "us-east-1"),
 		S3AccessKey:            getenv("PGFLEET_S3_ACCESS_KEY"),
 		S3SecretKey:            getenv("PGFLEET_S3_SECRET_KEY"),
+		BackupType:             orDefault(getenv("PGFLEET_BACKUP_TYPE"), "full"),
 	}
 
 	var err error
+	if cfg.BackupInterval, err = parseDuration(getenv("PGFLEET_BACKUP_INTERVAL"), 24*time.Hour); err != nil {
+		return nil, err
+	}
 	if cfg.MetaDBDSN, err = required(getenv, "PGFLEET_META_DB_DSN"); err != nil {
 		return nil, err
 	}
@@ -83,6 +92,17 @@ func required(getenv func(string) string, key string) (string, error) {
 		return v, nil
 	}
 	return "", fmt.Errorf("%s is required", key)
+}
+
+func parseDuration(v string, def time.Duration) (time.Duration, error) {
+	if v == "" {
+		return def, nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return 0, fmt.Errorf("PGFLEET_BACKUP_INTERVAL: %w", err)
+	}
+	return d, nil
 }
 
 func orDefault(v, def string) string {
