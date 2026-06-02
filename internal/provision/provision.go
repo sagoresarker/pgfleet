@@ -46,6 +46,7 @@ type store interface {
 	Get(ctx context.Context, id string) (instance.Instance, error)
 	Password(ctx context.Context, id string) (string, error)
 	SetRuntime(ctx context.Context, id, containerID string, hostPort int) error
+	SetDataVolume(ctx context.Context, id, volume string) error
 	SetStatus(ctx context.Context, id string, status instance.Status, lastErr string) error
 	Delete(ctx context.Context, id string) error
 }
@@ -111,6 +112,7 @@ func (p *Provisioner) provision(ctx context.Context, id string, progress Progres
 		return err
 	}
 	createdVolumes = append(createdVolumes, dataVol)
+	_ = p.repo.SetDataVolume(ctx, id, dataVol)
 	mounts := []docker.Mount{{Volume: dataVol, Path: pgDataPath}}
 	if inst.RepoType == instance.RepoLocal {
 		repoVol := volumeName("repo", id)

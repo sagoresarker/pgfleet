@@ -43,65 +43,131 @@ func (p *Provisioner) restore(ctx context.Context, id string, opts RestoreOption
 	if err != nil {
 		return err
 	}
+	oldVol := inst.DataVolume
+	if oldVol == "" {
+		oldVol = volumeName("data", inst.ID)
+	}
 	_ = p.repo.SetStatus(ctx, id, instance.StatusRestoring, "")
 
+	// Restore into a FRESH staging volume — the live data volume is never
+	// mutated, so a failed restore can never leave the only copy half-written.
 	restoreArgs, err := pgbackrest.Restore(inst.Stanza, confPath, pgbackrest.RestoreOpts{
 		Type:         opts.Type,
 		Target:       opts.Target,
 		TargetAction: targetAction(opts.Type),
 		Set:          opts.Set,
-		Delta:        true, // restore over the existing data dir
 	})
 	if err != nil {
 		return err
 	}
 
-	progress.emit("stopping", "stopping instance for restore")
+	newVol := fmt.Sprintf("pgfleet-data-%s-r%s", inst.ID, shortStamp())
+	if err := p.rt.CreateVolume(ctx, newVol, instanceLabels(inst.ID)); err != nil {
+		return err
+	}
+	removeNewVol := func() { _ = p.rt.RemoveVolume(context.Background(), newVol, true) }
+
+	progress.emit("restoring", "restoring into a staging volume")
+	if err := p.runRestoreContainer(ctx, inst, restoreArgs, newVol); err != nil {
+		removeNewVol()
+		return err
+	}
+
+	// Swap: stop the old instance (to free the stanza/archiving), then bring up
+	// a new container on the restored volume. If the new container fails to
+	// become healthy, roll back to the original — its data is untouched.
+	progress.emit("swapping", "promoting the restored volume")
 	if inst.ContainerID != "" {
 		timeout := stopTimeoutSeconds
-		if err := p.rt.StopContainer(ctx, inst.ContainerID, &timeout); err != nil {
-			return err
-		}
+		_ = p.rt.StopContainer(ctx, inst.ContainerID, &timeout)
 	}
 
-	progress.emit("restoring", "running pgBackRest restore")
-	if err := p.runRestoreContainer(ctx, inst, restoreArgs); err != nil {
+	mounts := []docker.Mount{{Volume: newVol, Path: pgDataPath}}
+	if inst.RepoType == instance.RepoLocal {
+		mounts = append(mounts, docker.Mount{Volume: volumeName("repo", inst.ID), Path: repoPath})
+	}
+	password, err := p.repo.Password(ctx, id)
+	if err != nil {
+		removeNewVol()
+		return err
+	}
+	spec := p.containerSpec(inst, password, mounts)
+	// Unique name so the swap container doesn't collide with the still-present
+	// original container (kept for rollback until the swap is committed).
+	spec.Name = spec.Name + "-r" + shortStamp()
+	newContainer, err := p.rt.CreateContainer(ctx, spec)
+	if err != nil {
+		p.rollbackRestore(ctx, inst, "", newVol)
+		return err
+	}
+	if err := p.rt.StartContainer(ctx, newContainer); err != nil {
+		p.rollbackRestore(ctx, inst, newContainer, newVol)
+		return err
+	}
+	if err := p.waitReady(ctx, newContainer, inst.Superuser); err != nil {
+		p.rollbackRestore(ctx, inst, newContainer, newVol)
 		return err
 	}
 
-	progress.emit("starting", "starting instance to recover")
-	if err := p.rt.StartContainer(ctx, inst.ContainerID); err != nil {
-		return err
+	// New instance is healthy: commit the swap, then discard the old container
+	// and volume.
+	if state, ierr := p.rt.Inspect(ctx, newContainer); ierr == nil {
+		port, _ := assignedPort(state)
+		_ = p.repo.SetRuntime(ctx, id, newContainer, port)
 	}
-	// The host port is re-assigned on restart; refresh it before clients reconnect.
-	p.refreshPort(ctx, id, inst.ContainerID)
-	if err := p.waitReady(ctx, inst.ContainerID, inst.Superuser); err != nil {
-		return err
+	_ = p.repo.SetDataVolume(ctx, id, newVol)
+	if inst.ContainerID != "" {
+		_ = p.rt.RemoveContainer(context.Background(), inst.ContainerID, true)
 	}
+	_ = p.rt.RemoveVolume(context.Background(), oldVol, true)
+
 	progress.emit("restored", "restore complete")
 	return nil
 }
 
+// rollbackRestore tears down a failed restore's new container/volume and brings
+// the original instance back up on its untouched data volume.
+func (p *Provisioner) rollbackRestore(ctx context.Context, inst instance.Instance, newContainer, newVol string) {
+	bg := context.Background()
+	if newContainer != "" {
+		_ = p.rt.RemoveContainer(bg, newContainer, true)
+	}
+	if newVol != "" {
+		_ = p.rt.RemoveVolume(bg, newVol, true)
+	}
+	if inst.ContainerID != "" {
+		_ = p.rt.StartContainer(ctx, inst.ContainerID)
+		p.refreshPort(ctx, inst.ID, inst.ContainerID)
+	}
+}
+
 // runRestoreContainer runs a one-shot container that writes the pgbackrest
-// config and performs the restore into the shared data volume, then exits.
-func (p *Provisioner) runRestoreContainer(ctx context.Context, inst instance.Instance, restoreArgs []string) error {
+// config and restores into the given (fresh) data volume, then exits.
+func (p *Provisioner) runRestoreContainer(ctx context.Context, inst instance.Instance, restoreArgs []string, dataVolume string) error {
 	conf, err := p.backrestConf(inst)
 	if err != nil {
 		return err
 	}
+	// Restore into the fresh volume, then run recovery to completion HERE --
+	// this container has the pgbackrest.conf needed for archive-get during WAL
+	// replay -- producing a promoted, ready-to-run cluster. The instance
+	// container can then simply start it without needing recovery config.
 	script := strings.Join([]string{
 		"set -e",
 		"mkdir -p /etc/pgbackrest",
-		"chown -R postgres:postgres " + repoPath + " " + pgDataPath,
+		"chown postgres:postgres " + repoPath + " " + pgDataPath,
 		"umask 0177",
 		"cat > " + confPath + " <<'PGBR_EOF'",
 		conf,
 		"PGBR_EOF",
 		"chown postgres:postgres " + confPath,
 		shellJoin(asPostgres(restoreArgs)),
+		// Drive recovery to the target and promote, then shut down cleanly.
+		"gosu postgres pg_ctl -D " + pgDataPath + " -w -t 600 start",
+		"gosu postgres pg_ctl -D " + pgDataPath + " -m fast -w stop",
 	}, "\n")
 
-	mounts := []docker.Mount{{Volume: volumeName("data", inst.ID), Path: pgDataPath}}
+	mounts := []docker.Mount{{Volume: dataVolume, Path: pgDataPath}}
 	if inst.RepoType == instance.RepoLocal {
 		mounts = append(mounts, docker.Mount{Volume: volumeName("repo", inst.ID), Path: repoPath})
 	}

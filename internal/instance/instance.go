@@ -48,6 +48,7 @@ type Instance struct {
 	PGVersion   string
 	ContainerID string
 	HostPort    int
+	DataVolume  string
 	RepoType    RepoType
 	Stanza      string
 	Superuser   string

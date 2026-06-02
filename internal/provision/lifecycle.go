@@ -80,7 +80,11 @@ func (p *Provisioner) Destroy(ctx context.Context, id string, retainBackups bool
 			return fail(err)
 		}
 	}
-	if err := p.rt.RemoveVolume(ctx, volumeName("data", id), true); err != nil && apperr.Kind(err) != apperr.KindNotFound {
+	dataVol := inst.DataVolume
+	if dataVol == "" {
+		dataVol = volumeName("data", id)
+	}
+	if err := p.rt.RemoveVolume(ctx, dataVol, true); err != nil && apperr.Kind(err) != apperr.KindNotFound {
 		return fail(err)
 	}
 	if !retainBackups && inst.RepoType == instance.RepoLocal {
