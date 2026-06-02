@@ -8,8 +8,11 @@ package provisiontest
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sagoresarker/pgfleet/internal/docker"
 	"github.com/sagoresarker/pgfleet/internal/instance"
@@ -18,7 +21,15 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/testsupport"
 )
 
-var nameCounter int
+var nameCounter int64
+
+// uniqueName builds a globally-unique, regex-valid instance name. It must be
+// unique across test processes (each package runs its own binary), so it is
+// derived from a process-start nanosecond stamp plus an atomic counter.
+func uniqueName() string {
+	n := atomic.AddInt64(&nameCounter, 1)
+	return fmt.Sprintf("t%x-%d", time.Now().UnixNano()&0xffffffff, n)
+}
 
 // ProvisionLocalInstance builds the managed image, provisions a local-repo
 // Postgres instance, and returns handles plus the provisioner. The instance is
@@ -45,10 +56,8 @@ func ProvisionLocalInstance(t *testing.T) (instance.Instance, *provision.Provisi
 	cipher, _ := secrets.New(make([]byte, 32))
 	repo := instance.NewRepository(pool, cipher)
 
-	nameCounter++
-	name := "ts-" + string(rune('a'+nameCounter%26)) + string(rune('a'+(nameCounter/26)%26))
 	inst, err := repo.Create(ctx, instance.NewInstance{
-		Name: name, RepoType: instance.RepoLocal, Password: "test-password-1",
+		Name: uniqueName(), RepoType: instance.RepoLocal, Password: "test-password-1",
 	})
 	if err != nil {
 		t.Fatalf("create instance: %v", err)
