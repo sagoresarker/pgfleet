@@ -64,11 +64,17 @@ func Load(getenv func(string) string) (*Config, error) {
 	if cfg.BackupInterval, err = parseDuration(getenv("PGFLEET_BACKUP_INTERVAL"), 24*time.Hour); err != nil {
 		return nil, err
 	}
+	if cfg.BackupInterval <= 0 {
+		return nil, fmt.Errorf("PGFLEET_BACKUP_INTERVAL must be positive")
+	}
 	if cfg.MetaDBDSN, err = required(getenv, "PGFLEET_META_DB_DSN"); err != nil {
 		return nil, err
 	}
 	if cfg.JWTSecret, err = required(getenv, "PGFLEET_JWT_SECRET"); err != nil {
 		return nil, err
+	}
+	if len(cfg.JWTSecret) < 32 {
+		return nil, fmt.Errorf("PGFLEET_JWT_SECRET must be at least 32 bytes")
 	}
 
 	rawKey, err := required(getenv, "PGFLEET_MASTER_KEY")

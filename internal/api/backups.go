@@ -36,6 +36,9 @@ func NewBackupsHandler(runner BackupRunner, restorer Restorer, rec AuditRecorder
 
 var validBackupTypes = map[string]bool{"full": true, "incr": true, "diff": true}
 
+// validRestoreTypes includes "" (restore to latest).
+var validRestoreTypes = map[string]bool{"": true, "time": true, "lsn": true, "xid": true, "name": true}
+
 type createBackupRequest struct {
 	Type string `json:"type"`
 }
@@ -96,6 +99,10 @@ func (h *BackupsHandler) Restore(w http.ResponseWriter, r *http.Request) {
 	var req restoreRequest
 	if err := decodeJSON(r, &req); err != nil {
 		respondError(w, err)
+		return
+	}
+	if !validRestoreTypes[req.Type] {
+		respondError(w, apperr.New(apperr.KindInvalid, "restore type must be one of: time, lsn, xid, name"))
 		return
 	}
 	if req.Type != "" && req.Target == "" {

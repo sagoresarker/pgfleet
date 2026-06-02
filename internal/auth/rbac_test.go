@@ -26,7 +26,7 @@ func TestViewerCanOnlyRead(t *testing.T) {
 
 func TestOperatorCanManageInstancesButNotUsers(t *testing.T) {
 	mustAllow := []Action{
-		ActionInstanceRead, ActionInstanceWrite, ActionInstanceDelete,
+		ActionInstanceRead, ActionInstanceWrite, ActionInstanceDelete, ActionInstanceConnect,
 		ActionBackupRead, ActionBackupWrite, ActionBackupRestore,
 		ActionMetricsRead, ActionAuditRead,
 	}

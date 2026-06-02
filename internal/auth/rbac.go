@@ -4,9 +4,10 @@ package auth
 type Action string
 
 const (
-	ActionInstanceRead   Action = "instance.read"
-	ActionInstanceWrite  Action = "instance.write"  // create / update / start / stop
-	ActionInstanceDelete Action = "instance.delete"
+	ActionInstanceRead    Action = "instance.read"
+	ActionInstanceWrite   Action = "instance.write"   // create / update / start / stop
+	ActionInstanceDelete  Action = "instance.delete"
+	ActionInstanceConnect Action = "instance.connect" // reveal the superuser DSN
 	ActionBackupRead     Action = "backup.read"
 	ActionBackupWrite    Action = "backup.write" // take / schedule backups
 	ActionBackupRestore  Action = "backup.restore"
@@ -18,7 +19,7 @@ const (
 // AllActions returns every defined action (useful for tests and tooling).
 func AllActions() []Action {
 	return []Action{
-		ActionInstanceRead, ActionInstanceWrite, ActionInstanceDelete,
+		ActionInstanceRead, ActionInstanceWrite, ActionInstanceDelete, ActionInstanceConnect,
 		ActionBackupRead, ActionBackupWrite, ActionBackupRestore,
 		ActionMetricsRead, ActionAuditRead, ActionUserManage,
 	}
@@ -32,7 +33,7 @@ var readActions = []Action{ActionInstanceRead, ActionBackupRead, ActionMetricsRe
 var grants = map[Role]map[Action]bool{
 	RoleViewer: toSet(readActions),
 	RoleOperator: toSet(append([]Action{
-		ActionInstanceWrite, ActionInstanceDelete,
+		ActionInstanceWrite, ActionInstanceDelete, ActionInstanceConnect,
 		ActionBackupWrite, ActionBackupRestore,
 		ActionAuditRead,
 	}, readActions...)),

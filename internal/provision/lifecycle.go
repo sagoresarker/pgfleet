@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 
+	"github.com/sagoresarker/pgfleet/internal/apperr"
 	"github.com/sagoresarker/pgfleet/internal/docker"
 	"github.com/sagoresarker/pgfleet/internal/instance"
 )
@@ -58,7 +59,10 @@ func (p *Provisioner) Restart(ctx context.Context, id string) error {
 }
 
 // Destroy removes an instance's container and data volume, and its backup
-// repository volume unless retainBackups is set, then deletes its row.
+// repository volume unless retainBackups is set, then deletes its row. Already
+// removed resources (NotFound) are tolerated so a partially-provisioned or
+// previously-failed instance can always be destroyed. On a real removal
+// failure the instance is marked errored (not left wedged in "destroying").
 func (p *Provisioner) Destroy(ctx context.Context, id string, retainBackups bool) error {
 	inst, err := p.repo.Get(ctx, id)
 	if err != nil {
@@ -66,17 +70,26 @@ func (p *Provisioner) Destroy(ctx context.Context, id string, retainBackups bool
 	}
 	_ = p.repo.SetStatus(ctx, id, instance.StatusDestroying, "")
 
-	if inst.ContainerID != "" {
-		if err := p.rt.RemoveContainer(ctx, inst.ContainerID, true); err != nil {
-			return err
-		}
-	}
-	if err := p.rt.RemoveVolume(ctx, volumeName("data", id), true); err != nil {
+	fail := func(err error) error {
+		_ = p.repo.SetStatus(ctx, id, instance.StatusError, "destroy failed: "+err.Error())
 		return err
 	}
+
+	if inst.ContainerID != "" {
+		if err := p.rt.RemoveContainer(ctx, inst.ContainerID, true); err != nil && apperr.Kind(err) != apperr.KindNotFound {
+			return fail(err)
+		}
+	}
+	dataVol := inst.DataVolume
+	if dataVol == "" {
+		dataVol = volumeName("data", id)
+	}
+	if err := p.rt.RemoveVolume(ctx, dataVol, true); err != nil && apperr.Kind(err) != apperr.KindNotFound {
+		return fail(err)
+	}
 	if !retainBackups && inst.RepoType == instance.RepoLocal {
-		if err := p.rt.RemoveVolume(ctx, volumeName("repo", id), true); err != nil {
-			return err
+		if err := p.rt.RemoveVolume(ctx, volumeName("repo", id), true); err != nil && apperr.Kind(err) != apperr.KindNotFound {
+			return fail(err)
 		}
 	}
 	return p.repo.Delete(ctx, id)

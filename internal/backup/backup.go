@@ -109,11 +109,21 @@ func (s *Service) sync(ctx context.Context, inst instance.Instance) ([]pgbackres
 	}
 
 	var backups []pgbackrest.BackupInfo
+	var found bool
 	for _, st := range stanzas {
 		if st.Name != inst.Stanza {
 			continue
 		}
+		found = true
 		backups = st.Backups
+	}
+	// If the stanza is absent from `info` output entirely, the repo is
+	// unreachable/misconfigured rather than empty. Do NOT prune — pruning to an
+	// empty keep-set would delete every catalog row for backups that still
+	// physically exist, hiding restorable backups during an incident.
+	if !found {
+		return nil, apperr.New(apperr.KindInternal,
+			"backup: stanza "+inst.Stanza+" not present in pgbackrest info; skipping catalog sync")
 	}
 
 	labels := make([]string, 0, len(backups))

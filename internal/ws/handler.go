@@ -2,6 +2,7 @@ package ws
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -50,6 +51,9 @@ func Handler(hub *Hub, verify VerifyFunc) http.HandlerFunc {
 		for {
 			select {
 			case ev := <-sub:
+				// Bound writes so a half-open/slow client cannot hang the
+				// writer goroutine indefinitely.
+				_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 				if err := conn.WriteJSON(ev); err != nil {
 					return
 				}

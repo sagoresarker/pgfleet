@@ -39,6 +39,10 @@ func NewAuthHandler(users UserAuthStore, tokens TokenIssuer, rec AuditRecorder) 
 	return &AuthHandler{users: users, tokens: tokens, audit: rec}
 }
 
+// dummyHash is a real argon2id hash used to spend equivalent work when an
+// email is unknown, defeating login timing-based user enumeration.
+var dummyHash, _ = auth.HashPassword("pgfleet-constant-time-placeholder")
+
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
@@ -65,7 +69,10 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	u, err := h.users.GetByEmail(ctx, req.Email)
 	if err != nil {
-		// Do not distinguish unknown email from wrong password.
+		// Perform a dummy verification so the response time does not reveal
+		// whether the email exists (constant-work path), then return the same
+		// generic error as a wrong password.
+		_, _ = auth.VerifyPassword(req.Password, dummyHash)
 		h.record(ctx, "auth.login.failed", req.Email)
 		respondError(w, apperr.New(apperr.KindUnauthorized, "invalid credentials"))
 		return
@@ -78,7 +85,10 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Reject disabled accounts only after a correct password, with a distinct
+	// 403 (the operator must know their account is disabled, not deleted).
 	if u.Disabled {
+		h.record(ctx, "auth.login.disabled", u.Email)
 		respondError(w, apperr.New(apperr.KindForbidden, "account is disabled"))
 		return
 	}

@@ -14,7 +14,7 @@ func validEnv() map[string]string {
 	return map[string]string{
 		"PGFLEET_META_DB_DSN": "postgres://pgfleet:pgfleet@localhost:5432/pgfleet?sslmode=disable",
 		"PGFLEET_MASTER_KEY":  "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=", // 32 bytes base64
-		"PGFLEET_JWT_SECRET":  "super-secret-signing-key",
+		"PGFLEET_JWT_SECRET":  "super-secret-signing-key-at-least-32b",
 	}
 }
 
@@ -41,7 +41,7 @@ func TestLoadParsesRequiredValues(t *testing.T) {
 	if cfg.MetaDBDSN == "" {
 		t.Error("MetaDBDSN not parsed")
 	}
-	if cfg.JWTSecret != "super-secret-signing-key" {
+	if cfg.JWTSecret != "super-secret-signing-key-at-least-32b" {
 		t.Errorf("JWTSecret = %q", cfg.JWTSecret)
 	}
 	// MasterKey must be decoded to exactly 32 raw bytes.

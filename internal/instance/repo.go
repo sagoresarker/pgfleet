@@ -31,7 +31,7 @@ func NewRepository(pool *pgxpool.Pool, cipher *secrets.Cipher) *Repository {
 }
 
 const instanceColumns = `id, name, status, image, pg_version, container_id,
-	host_port, repo_type, stanza, superuser, last_error, created_at, updated_at`
+	host_port, data_volume, repo_type, stanza, superuser, last_error, created_at, updated_at`
 
 // Create provisions an instance row with an encrypted superuser password.
 func (r *Repository) Create(ctx context.Context, in NewInstance) (Instance, error) {
@@ -110,6 +110,14 @@ func (r *Repository) SetRuntime(ctx context.Context, id, containerID string, hos
 		id, containerID, hostPort)
 }
 
+// SetDataVolume records the instance's current data volume (changes when a
+// restore swaps onto a fresh volume).
+func (r *Repository) SetDataVolume(ctx context.Context, id, volume string) error {
+	return r.exec(ctx,
+		`UPDATE instances SET data_volume = $2, updated_at = now() WHERE id = $1`,
+		id, volume)
+}
+
 // Password decrypts and returns the superuser password for an instance.
 func (r *Repository) Password(ctx context.Context, id string) (string, error) {
 	var blob []byte
@@ -166,7 +174,7 @@ type rowScanner interface {
 func scanInstance(row rowScanner) (Instance, error) {
 	var i Instance
 	err := row.Scan(&i.ID, &i.Name, &i.Status, &i.Image, &i.PGVersion, &i.ContainerID,
-		&i.HostPort, &i.RepoType, &i.Stanza, &i.Superuser, &i.LastError, &i.CreatedAt, &i.UpdatedAt)
+		&i.HostPort, &i.DataVolume, &i.RepoType, &i.Stanza, &i.Superuser, &i.LastError, &i.CreatedAt, &i.UpdatedAt)
 	return i, err
 }
 
