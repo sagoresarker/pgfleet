@@ -7,10 +7,28 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/sagoresarker/pgfleet/internal/instance"
 	"github.com/sagoresarker/pgfleet/internal/secrets"
+	"github.com/sagoresarker/pgfleet/internal/provisiontest"
 	"github.com/sagoresarker/pgfleet/internal/testsupport"
 )
+
+func runSomeQueries(t *testing.T, dsn string) {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	for range 5 {
+		if _, err := conn.Exec(ctx, "SELECT count(*) FROM pg_class"); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
 
 func TestStoreInsertQueryLatestPrune(t *testing.T) {
 	pool, _ := testsupport.MigratedPool(t)
@@ -60,7 +78,7 @@ func TestStoreInsertQueryLatestPrune(t *testing.T) {
 }
 
 func TestCollectorReadsRealStats(t *testing.T) {
-	inst, prov, _, _ := testsupport.ProvisionLocalInstance(t)
+	inst, prov, _, _ := provisiontest.ProvisionLocalInstance(t)
 	ctx := context.Background()
 
 	dsn, err := prov.DSN(ctx, inst.ID)
@@ -88,5 +106,22 @@ func TestCollectorReadsRealStats(t *testing.T) {
 	}
 	if _, ok := byMetric["checkpoints_timed"]; !ok {
 		t.Error("expected checkpoints_timed metric")
+	}
+}
+
+func TestTopQueriesFromStatStatements(t *testing.T) {
+	inst, prov, _, _ := provisiontest.ProvisionLocalInstance(t)
+	ctx := context.Background()
+	dsn, _ := prov.DSN(ctx, inst.ID)
+
+	// Generate some statement activity.
+	runSomeQueries(t, dsn)
+
+	queries, err := NewCollector().TopQueries(ctx, dsn, 10)
+	if err != nil {
+		t.Fatalf("TopQueries: %v", err)
+	}
+	if len(queries) == 0 {
+		t.Error("expected at least one query from pg_stat_statements (extension enabled in provisioning)")
 	}
 }

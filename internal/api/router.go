@@ -33,6 +33,8 @@ type Deps struct {
 	Instances *InstancesHandler
 	// Backups serves backup/restore endpoints.
 	Backups *BackupsHandler
+	// Metrics serves analytics endpoints.
+	Metrics *MetricsHandler
 	// Events is the WebSocket hub for live progress (optional).
 	Events *ws.Hub
 }
@@ -71,6 +73,14 @@ func NewRouter(deps Deps) http.Handler {
 				}
 				if deps.Backups != nil {
 					mountBackupRoutes(pr, deps.Backups)
+				}
+				if deps.Metrics != nil {
+					pr.Group(func(mr chi.Router) {
+						mr.Use(auth.RequireAction(auth.ActionMetricsRead))
+						mr.Get("/instances/{id}/metrics", deps.Metrics.Latest)
+						mr.Get("/instances/{id}/metrics/{metric}", deps.Metrics.Range)
+						mr.Get("/instances/{id}/queries", deps.Metrics.Queries)
+					})
 				}
 			})
 		}

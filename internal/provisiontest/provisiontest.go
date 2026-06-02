@@ -1,6 +1,10 @@
 //go:build integration
 
-package testsupport
+// Package provisiontest provides integration-test helpers that provision a
+// real managed instance. It lives in its own package (not testsupport) because
+// it imports provision; keeping it separate avoids an import cycle with the
+// provision package's own tests.
+package provisiontest
 
 import (
 	"context"
@@ -11,14 +15,14 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/instance"
 	"github.com/sagoresarker/pgfleet/internal/provision"
 	"github.com/sagoresarker/pgfleet/internal/secrets"
+	"github.com/sagoresarker/pgfleet/internal/testsupport"
 )
 
 var nameCounter int
 
 // ProvisionLocalInstance builds the managed image, provisions a local-repo
 // Postgres instance, and returns handles plus the provisioner. The instance is
-// destroyed on cleanup. Must be called from a package other than provision
-// (it imports provision).
+// destroyed on cleanup.
 func ProvisionLocalInstance(t *testing.T) (instance.Instance, *provision.Provisioner, *instance.Repository, *docker.Moby) {
 	t.Helper()
 	ctx := context.Background()
@@ -37,7 +41,7 @@ func ProvisionLocalInstance(t *testing.T) (instance.Instance, *provision.Provisi
 		t.Fatalf("BuildImage: %v", err)
 	}
 
-	pool, _ := MigratedPool(t)
+	pool, _ := testsupport.MigratedPool(t)
 	cipher, _ := secrets.New(make([]byte, 32))
 	repo := instance.NewRepository(pool, cipher)
 

@@ -18,6 +18,7 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/docker"
 	"github.com/sagoresarker/pgfleet/internal/instance"
 	"github.com/sagoresarker/pgfleet/internal/logging"
+	"github.com/sagoresarker/pgfleet/internal/metrics"
 	"github.com/sagoresarker/pgfleet/internal/objectstore"
 	"github.com/sagoresarker/pgfleet/internal/provision"
 	"github.com/sagoresarker/pgfleet/internal/reconcile"
@@ -35,6 +36,12 @@ const tokenTTL = 24 * time.Hour
 // reconcileInterval is how often the control plane reconciles instance state
 // against Docker.
 const reconcileInterval = 30 * time.Second
+
+// metricsInterval is how often instance statistics are collected.
+const metricsInterval = 15 * time.Second
+
+// metricsRetention is how long metric samples are kept.
+const metricsRetention = 7 * 24 * time.Hour
 
 func main() {
 	if err := run(); err != nil {
@@ -124,6 +131,8 @@ func run() error {
 		log.Warn("initial reconciliation failed", "err", rerr)
 	}
 	backups := backup.New(rt, instances, backup.NewCatalog(pool))
+	metricStore := metrics.NewStore(pool)
+	collector := metrics.NewCollector()
 
 	sched := scheduler.New(scheduler.WithErrorHandler(func(name string, err error) {
 		log.Warn("scheduled job failed", "job", name, "err", err)
@@ -132,8 +141,22 @@ func run() error {
 	sched.Register("scheduled-backups", cfg.BackupInterval, func(ctx context.Context) error {
 		return backups.RunScheduled(ctx, instances, cfg.BackupType)
 	})
+	sched.Register("collect-metrics", metricsInterval, func(ctx context.Context) error {
+		return collectMetrics(ctx, instances, provisioner, collector, metricStore)
+	})
+	sched.Register("prune-metrics", time.Hour, func(ctx context.Context) error {
+		return metricStore.Prune(ctx, time.Now().Add(-metricsRetention))
+	})
 	sched.Start(ctx)
 	defer sched.Stop()
+
+	insights := func(ctx context.Context, instanceID string, limit int) ([]metrics.QueryStat, error) {
+		dsn, err := provisioner.DSN(ctx, instanceID)
+		if err != nil {
+			return nil, err
+		}
+		return collector.TopQueries(ctx, dsn, limit)
+	}
 
 	router := api.NewRouter(api.Deps{
 		Ready:     store.Ready(pool),
@@ -142,8 +165,32 @@ func run() error {
 		Users:     api.NewUsersHandler(users, recorder),
 		Instances: api.NewInstancesHandler(instances, provisioner, hub).WithAudit(recorder),
 		Backups:   api.NewBackupsHandler(backups, provisioner, recorder),
+		Metrics:   api.NewMetricsHandler(metricStore, insights),
 		Events:    hub,
 	})
 
 	return api.Serve(ctx, ln, router, log)
+}
+
+// collectMetrics polls every running instance and stores its samples.
+func collectMetrics(ctx context.Context, lister *instance.Repository, prov *provision.Provisioner, c *metrics.Collector, store *metrics.Store) error {
+	instances, err := lister.List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, inst := range instances {
+		if inst.Status != instance.StatusRunning {
+			continue
+		}
+		dsn, err := prov.DSN(ctx, inst.ID)
+		if err != nil {
+			continue
+		}
+		samples, err := c.Collect(ctx, inst.ID, dsn)
+		if err != nil {
+			continue
+		}
+		_ = store.Insert(ctx, samples)
+	}
+	return nil
 }
