@@ -1,0 +1,29 @@
+# Binaries
+/bin/
+*.exe
+*.out
+*.test
+
+# Go
+/vendor/
+coverage.out
+coverage.html
+
+# Env / secrets
+.env
+.env.local
+*.local
+
+# Node / Next.js
+web/node_modules/
+web/.next/
+web/out/
+web/coverage/
+web/test-results/
+web/playwright-report/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
