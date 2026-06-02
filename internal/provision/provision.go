@@ -128,6 +128,13 @@ func (p *Provisioner) provision(ctx context.Context, id string, progress Progres
 		return err
 	}
 
+	progress.emit("extensions", "enabling pg_stat_statements")
+	// Best-effort: query insights are optional, so a failure here is not fatal.
+	_ = p.execOK(ctx, containerID, asPostgres([]string{
+		"psql", "-U", inst.Superuser, "-d", "postgres", "-c",
+		"CREATE EXTENSION IF NOT EXISTS pg_stat_statements",
+	}))
+
 	progress.emit("config", "writing pgbackrest configuration")
 	if err := p.writeConfig(ctx, containerID, inst); err != nil {
 		return err
@@ -156,6 +163,7 @@ func (p *Provisioner) containerSpec(inst instance.Instance, password string, mou
 		"-c", "archive_timeout=60",
 		"-c", "wal_level=replica",
 		"-c", "max_wal_senders=3",
+		"-c", "shared_preload_libraries=pg_stat_statements",
 	}
 	spec := docker.ContainerSpec{
 		Name:  "pgfleet-pg-" + inst.Name,
