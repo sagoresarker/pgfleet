@@ -11,10 +11,11 @@ import (
 )
 
 type fakeContainer struct {
-	spec    ContainerSpec
-	status  string
-	running bool
-	ports   map[string]string // "5432/tcp" -> host port
+	spec     ContainerSpec
+	status   string
+	running  bool
+	exitCode int
+	ports    map[string]string // "5432/tcp" -> host port
 }
 
 // Fake is an in-memory ContainerRuntime for unit tests. It models container
@@ -113,11 +114,12 @@ func (f *Fake) Inspect(_ context.Context, id string) (ContainerState, error) {
 		return ContainerState{}, err
 	}
 	return ContainerState{
-		ID:      id,
-		Name:    c.spec.Name,
-		Status:  c.status,
-		Running: c.running,
-		Ports:   c.ports,
+		ID:       id,
+		Name:     c.spec.Name,
+		Status:   c.status,
+		Running:  c.running,
+		ExitCode: c.exitCode,
+		Ports:    c.ports,
 	}, nil
 }
 
