@@ -103,6 +103,7 @@ func (m *Moby) Inspect(ctx context.Context, id string) (ContainerState, error) {
 	if j.State != nil {
 		st.Status = j.State.Status
 		st.Running = j.State.Running
+		st.ExitCode = j.State.ExitCode
 		if j.State.Health != nil {
 			st.Health = j.State.Health.Status
 		}

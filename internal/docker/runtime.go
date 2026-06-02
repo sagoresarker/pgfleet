@@ -51,12 +51,13 @@ type ExecResult struct {
 
 // ContainerState is a snapshot of a container's runtime state.
 type ContainerState struct {
-	ID      string
-	Name    string
-	Status  string // created, running, exited, ...
-	Running bool
-	Health  string            // "", healthy, unhealthy, starting
-	Ports   map[string]string // "5432/tcp" -> host port
+	ID       string
+	Name     string
+	Status   string // created, running, exited, ...
+	Running  bool
+	ExitCode int               // valid once Status is "exited"
+	Health   string            // "", healthy, unhealthy, starting
+	Ports    map[string]string // "5432/tcp" -> host port
 }
 
 // ContainerInfo is a lightweight container listing entry.

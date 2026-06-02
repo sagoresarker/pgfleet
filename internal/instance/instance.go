@@ -17,6 +17,7 @@ const (
 	StatusStopped      Status = "stopped"
 	StatusError        Status = "error"
 	StatusDestroying   Status = "destroying"
+	StatusRestoring    Status = "restoring"
 )
 
 // RepoType selects where pgBackRest stores backups.

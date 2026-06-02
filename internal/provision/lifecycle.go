@@ -20,7 +20,20 @@ func (p *Provisioner) Start(ctx context.Context, id string) error {
 	if err := p.rt.StartContainer(ctx, inst.ContainerID); err != nil {
 		return err
 	}
+	// An ephemeral host port is re-assigned on each start; refresh it.
+	p.refreshPort(ctx, id, inst.ContainerID)
 	return p.repo.SetStatus(ctx, id, instance.StatusRunning, "")
+}
+
+// refreshPort re-reads the container's assigned host port and persists it.
+func (p *Provisioner) refreshPort(ctx context.Context, id, containerID string) {
+	state, err := p.rt.Inspect(ctx, containerID)
+	if err != nil {
+		return
+	}
+	if port, err := assignedPort(state); err == nil {
+		_ = p.repo.SetRuntime(ctx, id, containerID, port)
+	}
 }
 
 // Stop stops a running instance's container (clean fast shutdown).
