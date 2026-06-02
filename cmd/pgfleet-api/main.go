@@ -7,13 +7,20 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/sagoresarker/pgfleet/internal/api"
+	"github.com/sagoresarker/pgfleet/internal/audit"
+	"github.com/sagoresarker/pgfleet/internal/auth"
 	"github.com/sagoresarker/pgfleet/internal/config"
 	"github.com/sagoresarker/pgfleet/internal/logging"
 	"github.com/sagoresarker/pgfleet/internal/store"
+	"github.com/sagoresarker/pgfleet/internal/user"
 	"github.com/sagoresarker/pgfleet/internal/version"
 )
+
+// tokenTTL is the lifetime of issued session tokens.
+const tokenTTL = 24 * time.Hour
 
 func main() {
 	if err := run(); err != nil {
@@ -49,8 +56,15 @@ func run() error {
 		return err
 	}
 
+	issuer := auth.NewIssuer([]byte(cfg.JWTSecret), tokenTTL)
+	users := user.NewRepository(pool)
+	recorder := audit.NewRecorder(pool)
+
 	router := api.NewRouter(api.Deps{
-		Ready: store.Ready(pool),
+		Ready:  store.Ready(pool),
+		Issuer: issuer,
+		Auth:   api.NewAuthHandler(users, issuer, recorder),
+		Users:  api.NewUsersHandler(users, recorder),
 	})
 
 	return api.Serve(ctx, ln, router, log)
