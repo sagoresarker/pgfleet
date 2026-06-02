@@ -7,10 +7,13 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/apperr"
 )
 
+// maxBodyBytes bounds request bodies to defend against memory-exhaustion.
+const maxBodyBytes = 1 << 20 // 1 MiB
+
 // decodeJSON strictly decodes a JSON request body into dst, rejecting unknown
-// fields and trailing data.
+// fields, trailing data, and oversized bodies.
 func decodeJSON(r *http.Request, dst any) error {
-	dec := json.NewDecoder(r.Body)
+	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxBodyBytes))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
 		return apperr.Wrap(apperr.KindInvalid, "invalid request body", err)

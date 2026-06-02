@@ -59,8 +59,11 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 }
 
 func (r *Reconciler) reconcileOne(ctx context.Context, inst instance.Instance, containers map[string]docker.ContainerInfo) {
-	// Terminal/managed-by-operator states are left untouched.
-	if inst.Status == instance.StatusError || inst.Status == instance.StatusDestroying {
+	// States owned by another in-flight operation (a provisioning or restoring
+	// goroutine, a destroy, or a terminal error) are left untouched so the
+	// reconciler does not race with them and clobber their status.
+	switch inst.Status {
+	case instance.StatusError, instance.StatusDestroying, instance.StatusRestoring, instance.StatusProvisioning:
 		return
 	}
 

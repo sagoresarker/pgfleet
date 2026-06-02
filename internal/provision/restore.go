@@ -3,7 +3,9 @@ package provision
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/sagoresarker/pgfleet/internal/apperr"
@@ -164,9 +166,10 @@ func (p *Provisioner) containerLogs(ctx context.Context, cid string) string {
 		return ""
 	}
 	defer rc.Close()
-	buf := make([]byte, 4096)
-	n, _ := rc.Read(buf)
-	return strings.TrimSpace(string(buf[:n]))
+	// Read the full logs (bounded) so diagnostics aren't truncated, and redact
+	// any S3 secret echoed by the config heredoc.
+	data, _ := io.ReadAll(io.LimitReader(rc, 64*1024))
+	return redactSecrets(strings.TrimSpace(string(data)))
 }
 
 // targetAction returns the recovery target action. For a targeted PITR we
@@ -186,9 +189,11 @@ func shellJoin(args []string) string {
 	return strings.Join(quoted, " ")
 }
 
-var stampCounter int
+var stampCounter atomic.Int64
 
+// shortStamp returns a unique suffix for throwaway container names. It combines
+// a nanosecond timestamp with an atomic counter so concurrent restores/drills
+// never collide.
 func shortStamp() string {
-	stampCounter++
-	return fmt.Sprintf("%d", stampCounter)
+	return fmt.Sprintf("%x-%d", time.Now().UnixNano()&0xffffff, stampCounter.Add(1))
 }

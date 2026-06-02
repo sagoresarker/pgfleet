@@ -73,7 +73,7 @@ func (p *Provisioner) Provision(ctx context.Context, id string, progress Progres
 	return p.repo.SetStatus(ctx, id, instance.StatusRunning, "")
 }
 
-func (p *Provisioner) provision(ctx context.Context, id string, progress ProgressFunc) error {
+func (p *Provisioner) provision(ctx context.Context, id string, progress ProgressFunc) (err error) {
 	inst, err := p.repo.Get(ctx, id)
 	if err != nil {
 		return err
@@ -88,17 +88,36 @@ func (p *Provisioner) provision(ctx context.Context, id string, progress Progres
 		return err
 	}
 
+	// Track resources so a failure midway doesn't leak Docker objects. Cleanup
+	// uses a background context so it runs even if ctx was cancelled.
+	var createdVolumes []string
+	var createdContainer string
+	defer func() {
+		if err == nil {
+			return
+		}
+		bg := context.Background()
+		if createdContainer != "" {
+			_ = p.rt.RemoveContainer(bg, createdContainer, true)
+		}
+		for _, v := range createdVolumes {
+			_ = p.rt.RemoveVolume(bg, v, true)
+		}
+	}()
+
 	dataVol := volumeName("data", id)
 	progress.emit("volume", "creating data volume")
-	if err := p.rt.CreateVolume(ctx, dataVol, instanceLabels(id)); err != nil {
+	if err = p.rt.CreateVolume(ctx, dataVol, instanceLabels(id)); err != nil {
 		return err
 	}
+	createdVolumes = append(createdVolumes, dataVol)
 	mounts := []docker.Mount{{Volume: dataVol, Path: pgDataPath}}
 	if inst.RepoType == instance.RepoLocal {
 		repoVol := volumeName("repo", id)
-		if err := p.rt.CreateVolume(ctx, repoVol, instanceLabels(id)); err != nil {
+		if err = p.rt.CreateVolume(ctx, repoVol, instanceLabels(id)); err != nil {
 			return err
 		}
+		createdVolumes = append(createdVolumes, repoVol)
 		mounts = append(mounts, docker.Mount{Volume: repoVol, Path: repoPath})
 	}
 
@@ -107,7 +126,12 @@ func (p *Provisioner) provision(ctx context.Context, id string, progress Progres
 	if err != nil {
 		return err
 	}
-	if err := p.rt.StartContainer(ctx, containerID); err != nil {
+	createdContainer = containerID
+	// Persist the container id immediately so a later Destroy can find it even
+	// if provisioning fails before reaching SetRuntime below.
+	_ = p.repo.SetRuntime(ctx, id, containerID, 0)
+
+	if err = p.rt.StartContainer(ctx, containerID); err != nil {
 		return err
 	}
 
@@ -119,7 +143,7 @@ func (p *Provisioner) provision(ctx context.Context, id string, progress Progres
 	if err != nil {
 		return err
 	}
-	if err := p.repo.SetRuntime(ctx, id, containerID, hostPort); err != nil {
+	if err = p.repo.SetRuntime(ctx, id, containerID, hostPort); err != nil {
 		return err
 	}
 
@@ -247,17 +271,43 @@ func (p *Provisioner) waitReady(ctx context.Context, containerID, superuser stri
 	}
 }
 
-// execOK runs a command and returns an error if it exits non-zero.
+// execOK runs a command and returns an error if it exits non-zero. The command
+// is NOT included in the error: some commands embed secrets (e.g. the
+// pgbackrest.conf heredoc carries the S3 key), and this error can surface in an
+// instance's last_error. Only the first token (the program name) is named.
 func (p *Provisioner) execOK(ctx context.Context, containerID string, cmd []string) error {
 	res, err := p.rt.Exec(ctx, containerID, cmd)
 	if err != nil {
 		return err
 	}
 	if res.ExitCode != 0 {
-		return apperr.New(apperr.KindInternal, fmt.Sprintf("provision: command %v failed (exit %d): %s",
-			cmd, res.ExitCode, strings.TrimSpace(res.Stderr+res.Stdout)))
+		prog := "command"
+		if len(cmd) > 0 {
+			prog = cmd[0]
+		}
+		return apperr.New(apperr.KindInternal, fmt.Sprintf("provision: %s failed (exit %d): %s",
+			prog, res.ExitCode, redactSecrets(strings.TrimSpace(res.Stderr+res.Stdout))))
 	}
 	return nil
+}
+
+// redactSecrets scrubs pgBackRest S3 secret values from command output before
+// it is persisted or returned to clients.
+func redactSecrets(s string) string {
+	for _, key := range []string{"repo1-s3-key-secret", "repo1-s3-key", "repo1-cipher-pass"} {
+		for {
+			i := strings.Index(s, key+"=")
+			if i < 0 {
+				break
+			}
+			end := strings.IndexByte(s[i:], '\n')
+			if end < 0 {
+				end = len(s) - i
+			}
+			s = s[:i] + key + "=***" + s[i+end:]
+		}
+	}
+	return s
 }
 
 func assignedPort(state docker.ContainerState) (int, error) {

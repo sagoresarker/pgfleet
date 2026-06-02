@@ -116,7 +116,12 @@ func mountInstanceRoutes(pr chi.Router, h *InstancesHandler) {
 		rr.Use(auth.RequireAction(auth.ActionInstanceRead))
 		rr.Get("/instances", h.List)
 		rr.Get("/instances/{id}", h.Get)
-		rr.Get("/instances/{id}/connection", h.Connection)
+	})
+	// The connection DSN contains the plaintext superuser password, so it is
+	// gated above viewer level (operator/admin only).
+	pr.Group(func(cr chi.Router) {
+		cr.Use(auth.RequireAction(auth.ActionInstanceConnect))
+		cr.Get("/instances/{id}/connection", h.Connection)
 	})
 	pr.Group(func(wr chi.Router) {
 		wr.Use(auth.RequireAction(auth.ActionInstanceWrite))
