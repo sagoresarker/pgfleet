@@ -43,6 +43,10 @@ fmt: ## Format code
 vet: ## Run go vet
 	$(GO) vet $(PKG)
 
+.PHONY: image
+image: ## Build the managed postgres+pgBackRest image
+	docker build -t pgfleet/postgres-pgbackrest:16 docker/postgres-pgbackrest
+
 .PHONY: dev-up
 dev-up: ## Start dev dependencies (meta-DB + MinIO)
 	docker compose -f deploy/docker-compose.yml up -d
