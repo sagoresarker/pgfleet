@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"time"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/httprate"
 
 	"github.com/sagoresarker/pgfleet/internal/auth"
 	"github.com/sagoresarker/pgfleet/internal/ws"
@@ -35,6 +38,8 @@ type Deps struct {
 	Backups *BackupsHandler
 	// Metrics serves analytics endpoints.
 	Metrics *MetricsHandler
+	// Health serves the fleet health and alerts view.
+	Health *HealthHandler
 	// Events is the WebSocket hub for live progress (optional).
 	Events *ws.Hub
 }
@@ -44,6 +49,8 @@ func NewRouter(deps Deps) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
+	r.Use(securityHeaders)
+	r.Use(httprate.LimitByIP(120, time.Minute)) // 120 req/min per client
 
 	r.Get("/healthz", handleHealthz)
 	r.Get("/readyz", handleReadyz(deps.Ready))
@@ -80,6 +87,12 @@ func NewRouter(deps Deps) http.Handler {
 						mr.Get("/instances/{id}/metrics", deps.Metrics.Latest)
 						mr.Get("/instances/{id}/metrics/{metric}", deps.Metrics.Range)
 						mr.Get("/instances/{id}/queries", deps.Metrics.Queries)
+					})
+				}
+				if deps.Health != nil {
+					pr.Group(func(hr chi.Router) {
+						hr.Use(auth.RequireAction(auth.ActionMetricsRead))
+						hr.Get("/health", deps.Health.List)
 					})
 				}
 			})
