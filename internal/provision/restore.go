@@ -67,21 +67,24 @@ func (p *Provisioner) restore(ctx context.Context, id string, opts RestoreOption
 	}
 	removeNewVol := func() { _ = p.rt.RemoveVolume(context.Background(), newVol, true) }
 
-	progress.emit("restoring", "restoring into a staging volume")
-	if err := p.runRestoreContainer(ctx, inst, restoreArgs, newVol); err != nil {
-		removeNewVol()
-		return err
-	}
-
-	// Swap: stop the old instance (to free the stanza/archiving), then bring up
-	// a new container on the restored volume. If the new container fails to
-	// become healthy, roll back to the original — its data is untouched.
-	progress.emit("swapping", "promoting the restored volume")
+	// Stop the live instance FIRST (cleanly flushing and archiving its WAL)
+	// before restoring. Otherwise the running instance keeps archiving and the
+	// recovery's archive-get races it, which can overshoot the recovery target.
+	// The original data volume is preserved for rollback.
+	progress.emit("stopping", "stopping instance for restore")
 	if inst.ContainerID != "" {
 		timeout := stopTimeoutSeconds
 		_ = p.rt.StopContainer(ctx, inst.ContainerID, &timeout)
 	}
 
+	progress.emit("restoring", "restoring into a staging volume")
+	if err := p.runRestoreContainer(ctx, inst, restoreArgs, newVol); err != nil {
+		removeNewVol()
+		p.rollbackRestore(ctx, inst, "", "") // restart the original instance
+		return err
+	}
+
+	progress.emit("swapping", "promoting the restored volume")
 	mounts := []docker.Mount{{Volume: newVol, Path: pgDataPath}}
 	if inst.RepoType == instance.RepoLocal {
 		mounts = append(mounts, docker.Mount{Volume: volumeName("repo", inst.ID), Path: repoPath})
