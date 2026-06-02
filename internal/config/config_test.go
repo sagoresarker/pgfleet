@@ -73,6 +73,28 @@ func TestLoadFailsOnBadMasterKey(t *testing.T) {
 	}
 }
 
+func TestLoadReadsOptionalBootstrapAdmin(t *testing.T) {
+	env := validEnv()
+	// Absent by default.
+	cfg, err := Load(envMap(env))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BootstrapAdminEmail != "" || cfg.BootstrapAdminPassword != "" {
+		t.Errorf("bootstrap admin should be empty by default: %+v", cfg)
+	}
+
+	env["PGFLEET_BOOTSTRAP_ADMIN_EMAIL"] = "root@x.com"
+	env["PGFLEET_BOOTSTRAP_ADMIN_PASSWORD"] = "change-me-please"
+	cfg, err = Load(envMap(env))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BootstrapAdminEmail != "root@x.com" || cfg.BootstrapAdminPassword != "change-me-please" {
+		t.Errorf("bootstrap admin not parsed: %+v", cfg)
+	}
+}
+
 func TestLoadOverridesDefaults(t *testing.T) {
 	env := validEnv()
 	env["PGFLEET_HTTP_ADDR"] = ":9999"

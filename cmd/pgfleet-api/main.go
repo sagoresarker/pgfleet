@@ -12,6 +12,7 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/api"
 	"github.com/sagoresarker/pgfleet/internal/audit"
 	"github.com/sagoresarker/pgfleet/internal/auth"
+	"github.com/sagoresarker/pgfleet/internal/bootstrap"
 	"github.com/sagoresarker/pgfleet/internal/config"
 	"github.com/sagoresarker/pgfleet/internal/logging"
 	"github.com/sagoresarker/pgfleet/internal/store"
@@ -59,6 +60,12 @@ func run() error {
 	issuer := auth.NewIssuer([]byte(cfg.JWTSecret), tokenTTL)
 	users := user.NewRepository(pool)
 	recorder := audit.NewRecorder(pool)
+
+	if created, berr := bootstrap.EnsureAdmin(ctx, users, cfg.BootstrapAdminEmail, cfg.BootstrapAdminPassword); berr != nil {
+		return berr
+	} else if created {
+		log.Info("bootstrapped initial admin user", "email", cfg.BootstrapAdminEmail)
+	}
 
 	router := api.NewRouter(api.Deps{
 		Ready:  store.Ready(pool),

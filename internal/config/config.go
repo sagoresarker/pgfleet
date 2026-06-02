@@ -19,6 +19,10 @@ type Config struct {
 	JWTSecret string
 	// MasterKey is the 32-byte key-encryption key for secrets at rest.
 	MasterKey []byte
+	// BootstrapAdminEmail/Password optionally seed the first admin user on an
+	// empty database. Both empty disables bootstrapping.
+	BootstrapAdminEmail    string
+	BootstrapAdminPassword string
 }
 
 // Load reads configuration using the provided getenv function (typically
@@ -26,8 +30,10 @@ type Config struct {
 // naming the first required value that is missing or invalid.
 func Load(getenv func(string) string) (*Config, error) {
 	cfg := &Config{
-		HTTPAddr: orDefault(getenv("PGFLEET_HTTP_ADDR"), ":8080"),
-		LogLevel: orDefault(getenv("PGFLEET_LOG_LEVEL"), "info"),
+		HTTPAddr:               orDefault(getenv("PGFLEET_HTTP_ADDR"), ":8080"),
+		LogLevel:               orDefault(getenv("PGFLEET_LOG_LEVEL"), "info"),
+		BootstrapAdminEmail:    getenv("PGFLEET_BOOTSTRAP_ADMIN_EMAIL"),
+		BootstrapAdminPassword: getenv("PGFLEET_BOOTSTRAP_ADMIN_PASSWORD"),
 	}
 
 	var err error
