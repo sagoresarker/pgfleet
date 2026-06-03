@@ -83,7 +83,7 @@ func TestGenerateReadWriteSplitAndRoles(t *testing.T) {
 		"query_parser_enabled = true",
 		"query_parser_read_write_splitting = true",
 		"primary_reads_enabled = false",
-		`load_balancing_mode = "loadbalancing"`,
+		`load_balancing_mode = "random"`,
 		`["p1", 5432, "primary"]`,
 		`["r1", 5432, "replica"]`,
 		`["r2", 5432, "replica"]`,

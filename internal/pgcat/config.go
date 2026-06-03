@@ -105,7 +105,10 @@ func Generate(c Config) string {
 	b.WriteString("query_parser_enabled = true\n")
 	b.WriteString("query_parser_read_write_splitting = true\n")
 	b.WriteString("primary_reads_enabled = false\n")
-	b.WriteString("load_balancing_mode = \"loadbalancing\"\n")
+	// load_balancing_mode accepts only "random" or "loc" (least outstanding
+	// connections); "random" distributes reads across replicas. An invalid value
+	// makes PgCat reject the config and exit on startup.
+	b.WriteString("load_balancing_mode = \"random\"\n")
 	b.WriteString("default_role = \"any\"\n")
 	b.WriteString("\n")
 
