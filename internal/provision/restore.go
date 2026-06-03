@@ -101,7 +101,10 @@ func (p *Provisioner) restore(ctx context.Context, id string, opts RestoreOption
 	}
 	password, err := p.repo.Password(ctx, id)
 	if err != nil {
-		removeNewVol()
+		// The instance was already stopped above; roll back like every other
+		// failure branch so it is restarted on its untouched data volume rather
+		// than left offline. rollbackRestore also removes the staging volume.
+		p.rollbackRestore(ctx, inst, "", newVol)
 		return err
 	}
 	spec := p.containerSpec(inst, password, mounts)

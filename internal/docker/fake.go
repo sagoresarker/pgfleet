@@ -32,6 +32,22 @@ type Fake struct {
 	ExecFunc func(id string, cmd []string) (ExecResult, error)
 	// EnsureImageErr, if set, is returned by EnsureImage.
 	EnsureImageErr error
+	// OnStart, if set, is invoked after a container starts (outside the fake's
+	// lock). Tests use it to model one-shot containers that exit on their own,
+	// e.g. by calling MarkExited from inside the hook.
+	OnStart func(f *Fake, id string)
+}
+
+// MarkExited transitions a container to the exited state with the given exit
+// code. It is a test affordance for modelling one-shot containers.
+func (f *Fake) MarkExited(id string, code int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if c, ok := f.containers[id]; ok {
+		c.running = false
+		c.status = "exited"
+		c.exitCode = code
+	}
 }
 
 // NewFake creates an empty in-memory runtime.
@@ -70,13 +86,17 @@ func (f *Fake) CreateContainer(_ context.Context, spec ContainerSpec) (string, e
 
 func (f *Fake) StartContainer(_ context.Context, id string) error {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	c, err := f.get(id)
 	if err != nil {
+		f.mu.Unlock()
 		return err
 	}
 	c.running = true
 	c.status = "running"
+	f.mu.Unlock()
+	if f.OnStart != nil {
+		f.OnStart(f, id)
+	}
 	return nil
 }
 
