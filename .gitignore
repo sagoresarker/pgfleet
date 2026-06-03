@@ -31,3 +31,4 @@ web/playwright-report/
 # build artifacts
 /loadgen
 bin/
+/pgfleet
