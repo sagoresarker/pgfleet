@@ -30,11 +30,14 @@ type Config struct {
 	DefaultRepoType string // "s3" | "local"
 	DockerNetwork   string // network managed instances join (to reach MinIO)
 	InstanceHost    string // host clients use in connection strings
-	S3Endpoint      string
-	S3Bucket        string
-	S3Region        string
-	S3AccessKey     string
-	S3SecretKey     string
+	// InstanceRestartPolicy is the Docker restart policy applied to managed
+	// instance + router containers so they survive a daemon/host restart.
+	InstanceRestartPolicy string
+	S3Endpoint            string
+	S3Bucket              string
+	S3Region              string
+	S3AccessKey           string
+	S3SecretKey           string
 
 	// Scheduled backups.
 	BackupInterval time.Duration
@@ -53,6 +56,7 @@ func Load(getenv func(string) string) (*Config, error) {
 		DefaultRepoType:        orDefault(getenv("PGFLEET_DEFAULT_REPO_TYPE"), "s3"),
 		DockerNetwork:          orDefault(getenv("PGFLEET_DOCKER_NETWORK"), "pgfleet"),
 		InstanceHost:           orDefault(getenv("PGFLEET_INSTANCE_HOST"), "localhost"),
+		InstanceRestartPolicy:  orDefault(getenv("PGFLEET_INSTANCE_RESTART_POLICY"), "unless-stopped"),
 		S3Endpoint:             getenv("PGFLEET_S3_ENDPOINT"),
 		S3Bucket:               getenv("PGFLEET_S3_BUCKET"),
 		S3Region:               orDefault(getenv("PGFLEET_S3_REGION"), "us-east-1"),

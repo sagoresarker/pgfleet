@@ -134,12 +134,13 @@ func (f *Fake) Inspect(_ context.Context, id string) (ContainerState, error) {
 		return ContainerState{}, err
 	}
 	return ContainerState{
-		ID:       id,
-		Name:     c.spec.Name,
-		Status:   c.status,
-		Running:  c.running,
-		ExitCode: c.exitCode,
-		Ports:    c.ports,
+		ID:            id,
+		Name:          c.spec.Name,
+		Status:        c.status,
+		Running:       c.running,
+		ExitCode:      c.exitCode,
+		Ports:         c.ports,
+		RestartPolicy: c.spec.RestartPolicy,
 	}, nil
 }
 

@@ -32,7 +32,7 @@ func NewRepository(pool *pgxpool.Pool, cipher *secrets.Cipher) *Repository {
 
 const instanceColumns = `id, name, status, image, pg_version, container_id,
 	host_port, data_volume, repo_type, stanza, superuser, last_error,
-	COALESCE(cluster_id::text, ''), role, created_at, updated_at`
+	COALESCE(cluster_id::text, ''), role, parameters, extensions, created_at, updated_at`
 
 // Create provisions an instance row with an encrypted superuser password.
 func (r *Repository) Create(ctx context.Context, in NewInstance) (Instance, error) {
@@ -55,11 +55,12 @@ func (r *Repository) Create(ctx context.Context, in NewInstance) (Instance, erro
 		clusterID = in.ClusterID
 	}
 	row := r.pool.QueryRow(ctx,
-		`INSERT INTO instances (name, image, pg_version, repo_type, stanza, superuser, superuser_secret, cluster_id, role)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		`INSERT INTO instances (name, image, pg_version, repo_type, stanza, superuser, superuser_secret, cluster_id, role, parameters, extensions)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		 RETURNING `+instanceColumns,
 		in.Name, in.Image, in.PGVersion, string(in.RepoType),
 		StanzaFor(in.Name), in.Superuser, blob, clusterID, string(in.Role),
+		in.Parameters, in.Extensions,
 	)
 	inst, err := scanInstance(row)
 	if err != nil {
@@ -196,7 +197,7 @@ func scanInstance(row rowScanner) (Instance, error) {
 	var i Instance
 	err := row.Scan(&i.ID, &i.Name, &i.Status, &i.Image, &i.PGVersion, &i.ContainerID,
 		&i.HostPort, &i.DataVolume, &i.RepoType, &i.Stanza, &i.Superuser, &i.LastError,
-		&i.ClusterID, &i.Role, &i.CreatedAt, &i.UpdatedAt)
+		&i.ClusterID, &i.Role, &i.Parameters, &i.Extensions, &i.CreatedAt, &i.UpdatedAt)
 	return i, err
 }
 
@@ -214,5 +215,12 @@ func applyDefaults(in *NewInstance) {
 	}
 	if in.Role == "" {
 		in.Role = RoleStandalone
+	}
+	// Store non-nil empties so the JSONB/array columns are '{}' not JSON/SQL null.
+	if in.Parameters == nil {
+		in.Parameters = map[string]string{}
+	}
+	if in.Extensions == nil {
+		in.Extensions = []string{}
 	}
 }

@@ -49,6 +49,74 @@ func TestCreateAppliesDefaultsAndEncryptsPassword(t *testing.T) {
 	}
 }
 
+func TestCreatePersistsParametersAndExtensions(t *testing.T) {
+	repo := newRepo(t)
+	ctx := context.Background()
+
+	in := NewInstance{
+		Name: "tuned-db", RepoType: RepoLocal, Password: "super-secret-pw",
+		Parameters: map[string]string{"work_mem": "8MB", "random_page_cost": "1.1"},
+		Extensions: []string{"pg_trgm", "citext"},
+	}
+	created, err := repo.Create(ctx, in)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.Parameters["work_mem"] != "8MB" || created.Parameters["random_page_cost"] != "1.1" {
+		t.Errorf("parameters on create = %v", created.Parameters)
+	}
+	if len(created.Extensions) != 2 {
+		t.Errorf("extensions on create = %v", created.Extensions)
+	}
+
+	// Round-trip via Get (JSONB + TEXT[] scan).
+	got, err := repo.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Parameters["work_mem"] != "8MB" {
+		t.Errorf("parameters after Get = %v", got.Parameters)
+	}
+	if len(got.Extensions) != 2 || got.Extensions[0] != "pg_trgm" {
+		t.Errorf("extensions after Get = %v", got.Extensions)
+	}
+
+	// Empty config round-trips as non-nil empties.
+	plain, err := repo.Create(ctx, NewInstance{Name: "plain-db", RepoType: RepoLocal, Password: "super-secret-pw"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain.Parameters == nil || len(plain.Parameters) != 0 {
+		t.Errorf("empty parameters = %v, want non-nil empty", plain.Parameters)
+	}
+	if plain.Extensions == nil || len(plain.Extensions) != 0 {
+		t.Errorf("empty extensions = %v, want non-nil empty", plain.Extensions)
+	}
+}
+
+// TestCreateRejectsInvalidConfig — platform-owned GUC and non-allowlisted
+// extension are rejected at the repository boundary.
+func TestCreateRejectsInvalidConfig(t *testing.T) {
+	repo := newRepo(t)
+	ctx := context.Background()
+
+	_, err := repo.Create(ctx, NewInstance{
+		Name: "bad1", RepoType: RepoLocal, Password: "super-secret-pw",
+		Parameters: map[string]string{"wal_level": "minimal"},
+	})
+	if apperr.Kind(err) != apperr.KindInvalid {
+		t.Errorf("platform-owned GUC should be rejected, got %v", apperr.Kind(err))
+	}
+
+	_, err = repo.Create(ctx, NewInstance{
+		Name: "bad2", RepoType: RepoLocal, Password: "super-secret-pw",
+		Extensions: []string{"plpython3u"},
+	})
+	if apperr.Kind(err) != apperr.KindInvalid {
+		t.Errorf("non-allowlisted extension should be rejected, got %v", apperr.Kind(err))
+	}
+}
+
 func TestPasswordIsEncryptedAtRest(t *testing.T) {
 	repo := newRepo(t)
 	ctx := context.Background()

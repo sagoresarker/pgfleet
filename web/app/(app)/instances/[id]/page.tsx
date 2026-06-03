@@ -101,7 +101,14 @@ export default function InstanceDetailPage() {
         </Tabs.List>
 
         <Tabs.Content value="overview">
-          <OverviewTab id={id} repoType={inst.repo_type} hostPort={inst.host_port} backupCount={backupList.length} />
+          <OverviewTab
+            id={id}
+            repoType={inst.repo_type}
+            hostPort={inst.host_port}
+            backupCount={backupList.length}
+            parameters={inst.parameters}
+            extensions={inst.extensions}
+          />
         </Tabs.Content>
 
         <Tabs.Content value="backups">
@@ -157,12 +164,18 @@ function OverviewTab({
   repoType,
   hostPort,
   backupCount,
+  parameters,
+  extensions,
 }: {
   id: string;
   repoType: string;
   hostPort: number;
   backupCount: number;
+  parameters?: Record<string, string>;
+  extensions?: string[];
 }) {
+  const paramEntries = Object.entries(parameters ?? {});
+  const hasConfig = paramEntries.length > 0 || (extensions?.length ?? 0) > 0;
   return (
     <div className="grid gap-6 lg:grid-cols-3">
       <div className="grid grid-cols-3 gap-4 lg:col-span-2">
@@ -184,6 +197,36 @@ function OverviewTab({
         <div className="col-span-3">
           <ConnectionCard id={id} />
         </div>
+        {hasConfig && (
+          <div className="col-span-3">
+            <Card>
+              <CardHeader>
+                <CardTitle>Postgres tuning</CardTitle>
+              </CardHeader>
+              <CardBody className="space-y-4">
+                {paramEntries.length > 0 && (
+                  <div className="space-y-1.5">
+                    {paramEntries.map(([k, v]) => (
+                      <div key={k} className="flex items-center justify-between font-mono text-xs">
+                        <span className="text-fg-muted">{k}</span>
+                        <span className="text-fg">{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {(extensions?.length ?? 0) > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {extensions!.map((e) => (
+                      <span key={e} className="rounded-md border border-azure/40 bg-azure/10 px-2 py-1 font-mono text-[11px] text-azure">
+                        {e}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </CardBody>
+            </Card>
+          </div>
+        )}
       </div>
     </div>
   );

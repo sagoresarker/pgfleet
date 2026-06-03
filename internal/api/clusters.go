@@ -54,11 +54,13 @@ func (h *ClustersHandler) WithAsync(a *Async) *ClustersHandler {
 }
 
 type createClusterRequest struct {
-	Name      string `json:"name"`
-	Replicas  int    `json:"replicas"`
-	Password  string `json:"password"`
-	RepoType  string `json:"repo_type"`
-	PGVersion string `json:"pg_version"`
+	Name       string            `json:"name"`
+	Replicas   int               `json:"replicas"`
+	Password   string            `json:"password"`
+	RepoType   string            `json:"repo_type"`
+	PGVersion  string            `json:"pg_version"`
+	Parameters map[string]string `json:"parameters"`
+	Extensions []string          `json:"extensions"`
 }
 
 type clusterPayload struct {
@@ -87,6 +89,7 @@ func (h *ClustersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	c, err := h.svc.Create(r.Context(), clusterctl.Input{
 		Name: req.Name, Replicas: req.Replicas, Password: req.Password,
 		RepoType: instance.RepoType(req.RepoType), Version: req.PGVersion,
+		Parameters: req.Parameters, Extensions: req.Extensions,
 	})
 	if err != nil {
 		respondError(w, err)

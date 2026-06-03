@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/sagoresarker/pgfleet/internal/apperr"
+	"github.com/sagoresarker/pgfleet/internal/pgconfig"
 )
 
 // Status is the lifecycle state of a managed instance.
@@ -88,8 +89,12 @@ type Instance struct {
 	LastError   string
 	ClusterID   string // "" for standalone instances
 	Role        Role
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// Parameters are user-set Postgres GUCs (validated; platform-owned keys are
+	// rejected). Extensions are CREATE EXTENSIONed at provision time.
+	Parameters map[string]string
+	Extensions []string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // NewInstance is the input for provisioning an instance.
@@ -102,6 +107,9 @@ type NewInstance struct {
 	RepoType  RepoType
 	Superuser string
 	Password  string
+	// Parameters / Extensions are validated by pgconfig in Validate.
+	Parameters map[string]string
+	Extensions []string
 }
 
 // Validate checks the create input.
@@ -119,6 +127,15 @@ func (n NewInstance) Validate() error {
 	// must be a supported major version.
 	if n.PGVersion != "" && !VersionSupported(n.PGVersion) {
 		return apperr.New(apperr.KindInvalid, "instance: unsupported Postgres version")
+	}
+	// User config is validated at the single pgconfig boundary (platform-owned
+	// GUCs rejected, extensions allowlisted). Enforced here so both the instance
+	// and cluster create paths get it.
+	if err := pgconfig.ValidateParameters(n.Parameters); err != nil {
+		return err
+	}
+	if err := pgconfig.ValidateExtensions(n.Extensions); err != nil {
+		return err
 	}
 	return nil
 }

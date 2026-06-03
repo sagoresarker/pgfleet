@@ -18,6 +18,23 @@ func TestLoadRejectsWhitespaceOnlyRequired(t *testing.T) {
 	}
 }
 
+// TestLoadInstanceRestartPolicyDefault — defaults to unless-stopped, overridable.
+func TestLoadInstanceRestartPolicyDefault(t *testing.T) {
+	cfg, err := Load(envMap(validEnv()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.InstanceRestartPolicy != "unless-stopped" {
+		t.Errorf("default restart policy = %q, want unless-stopped", cfg.InstanceRestartPolicy)
+	}
+	env := validEnv()
+	env["PGFLEET_INSTANCE_RESTART_POLICY"] = "always"
+	cfg, _ = Load(envMap(env))
+	if cfg.InstanceRestartPolicy != "always" {
+		t.Errorf("override restart policy = %q, want always", cfg.InstanceRestartPolicy)
+	}
+}
+
 // TestLoadJWTSecretLengthBoundary — exactly 31 bytes is rejected, exactly 32 is
 // accepted.
 func TestLoadJWTSecretLengthBoundary(t *testing.T) {

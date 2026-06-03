@@ -133,9 +133,10 @@ func run() error {
 
 	instances := instance.NewRepository(pool, cipher)
 	provisioner := provision.New(rt, instances, provision.Options{
-		Network:      cfg.DockerNetwork,
-		InstanceHost: cfg.InstanceHost,
-		S3:           s3,
+		Network:       cfg.DockerNetwork,
+		InstanceHost:  cfg.InstanceHost,
+		S3:            s3,
+		RestartPolicy: cfg.InstanceRestartPolicy,
 	})
 	clusters := cluster.NewRepository(pool)
 	clusterSvc := clusterctl.New(clusters, instances, provisioner, rt, instance.RepoType(cfg.DefaultRepoType))

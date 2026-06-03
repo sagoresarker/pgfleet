@@ -69,6 +69,9 @@ func (m *Moby) CreateContainer(ctx context.Context, spec ContainerSpec) (string,
 		PortBindings: bindings,
 		Mounts:       mountConfig(spec.Mounts),
 	}
+	if spec.RestartPolicy != "" {
+		hostCfg.RestartPolicy = container.RestartPolicy{Name: container.RestartPolicyMode(spec.RestartPolicy)}
+	}
 	netCfg := networkConfig(spec.Networks)
 
 	resp, err := m.cli.ContainerCreate(ctx, cfg, hostCfg, netCfg, nil, spec.Name)
@@ -99,6 +102,9 @@ func (m *Moby) Inspect(ctx context.Context, id string) (ContainerState, error) {
 		ID:    j.ID,
 		Name:  j.Name,
 		Ports: map[string]string{},
+	}
+	if j.HostConfig != nil {
+		st.RestartPolicy = string(j.HostConfig.RestartPolicy.Name)
 	}
 	if j.State != nil {
 		st.Status = j.State.Status

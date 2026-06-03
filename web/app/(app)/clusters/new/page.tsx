@@ -1,5 +1,6 @@
 "use client";
 
+import { AdvancedTuning, ParamRow, rowsToRecord } from "@/components/advanced-tuning";
 import { PageHeader } from "@/components/shell";
 import { Button, Card, CardBody, Field, Input, Select } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -16,6 +17,8 @@ export default function NewClusterPage() {
   const [repoType, setRepoType] = useState<"s3" | "local">("local");
   const [pgVersion, setPgVersion] = useState("16");
   const [password, setPassword] = useState("");
+  const [paramRows, setParamRows] = useState<ParamRow[]>([]);
+  const [exts, setExts] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -27,7 +30,16 @@ export default function NewClusterPage() {
     setError(null);
     setSubmitting(true);
     try {
-      await api.createCluster({ name, replicas, password, repo_type: repoType, pg_version: pgVersion });
+      const parameters = rowsToRecord(paramRows);
+      await api.createCluster({
+        name,
+        replicas,
+        password,
+        repo_type: repoType,
+        pg_version: pgVersion,
+        parameters: Object.keys(parameters).length ? parameters : undefined,
+        extensions: exts.length ? exts : undefined,
+      });
       qc.invalidateQueries({ queryKey: ["clusters"] });
       router.push("/clusters");
     } catch (err) {
@@ -93,6 +105,8 @@ export default function NewClusterPage() {
                 <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
               </Field>
             </div>
+
+            <AdvancedTuning rows={paramRows} setRows={setParamRows} exts={exts} setExts={setExts} />
 
             {error && <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{error}</div>}
 

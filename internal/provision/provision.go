@@ -7,6 +7,7 @@ package provision
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,7 +16,27 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/instance"
 	"github.com/sagoresarker/pgfleet/internal/objectstore"
 	"github.com/sagoresarker/pgfleet/internal/pgbackrest"
+	"github.com/sagoresarker/pgfleet/internal/pgconfig"
 )
+
+// createExtension builds the psql command to enable an extension. The name is
+// quoted so allowlisted names with hyphens (uuid-ossp) are valid identifiers.
+func createExtension(superuser, name string) []string {
+	return asPostgres([]string{
+		"psql", "-U", superuser, "-d", "postgres", "-c",
+		`CREATE EXTENSION IF NOT EXISTS "` + name + `"`,
+	})
+}
+
+// sortedKeys returns the map keys in deterministic order.
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
 
 const (
 	pgDataPath   = "/var/lib/postgresql/data"
@@ -39,6 +60,10 @@ type Options struct {
 	Network      string
 	InstanceHost string
 	S3           objectstore.Config
+	// RestartPolicy is applied to managed instance and router containers so
+	// they survive a daemon/host restart without the control plane. Empty
+	// leaves the daemon default.
+	RestartPolicy string
 }
 
 // store is the subset of *instance.Repository the provisioner needs.
@@ -154,12 +179,16 @@ func (p *Provisioner) provision(ctx context.Context, id string, progress Progres
 		return err
 	}
 
-	progress.emit("extensions", "enabling pg_stat_statements")
-	// Best-effort: query insights are optional, so a failure here is not fatal.
-	_ = p.execOK(ctx, containerID, asPostgres([]string{
-		"psql", "-U", inst.Superuser, "-d", "postgres", "-c",
-		"CREATE EXTENSION IF NOT EXISTS pg_stat_statements",
-	}))
+	progress.emit("extensions", "enabling extensions")
+	// pg_stat_statements is best-effort (query insights are optional). The user
+	// extensions are required — a failure here fails provisioning so the
+	// instance is never reported healthy without its requested extensions.
+	_ = p.execOK(ctx, containerID, createExtension(inst.Superuser, "pg_stat_statements"))
+	for _, ext := range inst.Extensions {
+		if err := p.execOK(ctx, containerID, createExtension(inst.Superuser, ext)); err != nil {
+			return err
+		}
+	}
 
 	progress.emit("config", "writing pgbackrest configuration")
 	if err := p.writeConfig(ctx, containerID, inst); err != nil {
@@ -193,7 +222,15 @@ func (p *Provisioner) containerSpec(inst instance.Instance, password string, mou
 		// Cap WAL retained for replication slots so a dead/leaked replica slot
 		// can never fill the primary's disk (the slot is invalidated instead).
 		"-c", "max_slot_wal_keep_size=10GB",
-		"-c", "shared_preload_libraries=pg_stat_statements",
+		// pg_stat_statements is always preloaded; extension preload libs are
+		// MERGED in, never replacing it.
+		"-c", "shared_preload_libraries=" + strings.Join(pgconfig.PreloadLibraries(inst.Extensions), ","),
+	}
+	// Append validated user GUCs after the platform flags (sorted for a
+	// deterministic command). The validator has already rejected platform-owned
+	// keys, so these can never override the flags above.
+	for _, key := range sortedKeys(inst.Parameters) {
+		cmd = append(cmd, "-c", key+"="+inst.Parameters[key])
 	}
 	spec := docker.ContainerSpec{
 		Name:  InstanceContainerName(inst.Name),
@@ -204,9 +241,10 @@ func (p *Provisioner) containerSpec(inst instance.Instance, password string, mou
 			"POSTGRES_PASSWORD": password,
 			"POSTGRES_DB":       "postgres",
 		},
-		Labels: instanceLabels(inst.ID),
-		Ports:  []docker.PortMapping{{ContainerPort: pgPort, HostPort: 0}},
-		Mounts: mounts,
+		Labels:        instanceLabels(inst.ID),
+		Ports:         []docker.PortMapping{{ContainerPort: pgPort, HostPort: 0}},
+		Mounts:        mounts,
+		RestartPolicy: p.opts.RestartPolicy,
 	}
 	if p.opts.Network != "" {
 		spec.Networks = []string{p.opts.Network}
