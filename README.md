@@ -24,11 +24,25 @@ From one professional web UI an operator can:
 | Meta DB | A dedicated Postgres storing users, instances, clusters, backup catalog, metrics, health, audit |
 | Frontend | Next.js (App Router) + Tailwind v4 + Radix + React Query |
 
+## Prerequisites
+
+- **Docker** (Desktop or Engine) running — PgFleet provisions each Postgres instance as a sibling container on this host.
+- **Go 1.25+ and Node 20+** — only if you build/run from source.
+
+**Build the managed Postgres image once — nothing is pushed to a registry.** Every instance runs from a custom `postgres + pgBackRest` image you build **locally**:
+
+```bash
+make image     # builds pgfleet/postgres-pgbackrest:16
+make images    # or build every supported version (PG 13–17)
+```
+
+The control plane finds this image on the **local** Docker daemon and uses it directly — you never push it anywhere. PgCat (`ghcr.io/postgresml/pgcat`) and the base `postgres` / `minio` images are pulled automatically from public registries. *(A registry is only needed for a multi-host setup, where the control plane provisions onto **remote** Docker daemons — then push the image and point instances at that ref.)*
+
 ## Quickstart
 
 ```bash
 make dev-up                       # meta-DB + MinIO
-make image                        # build the postgres+pgBackRest image
+make image                        # build the managed postgres+pgBackRest image (local only)
 cp .env.example .env && make run  # run the control plane on :8080
 cd web && npm install && npm run dev   # console on :3000
 ```

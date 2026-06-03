@@ -10,6 +10,9 @@ console with a real provisioned instance in a couple of minutes.
 - Docker (Desktop or Engine) running
 - Go 1.25+ and Node 20+ (only to build/run from source)
 
+You build **one image locally** (step 2); you do **not** push anything to a
+registry. Everything else is pulled automatically.
+
 ## 1. Start the dependencies
 
 ```bash
@@ -22,7 +25,14 @@ This is the `postgres:16 + pgBackRest` image every instance runs from.
 
 ```bash
 make image         # builds pgfleet/postgres-pgbackrest:16
+# or: make images  # build every supported version (PG 13–17)
 ```
+
+> **No registry needed.** This image is built and stored on your **local** Docker
+> daemon, and the control plane uses it directly — you never push it anywhere.
+> PgCat (`ghcr.io/postgresml/pgcat`) and the base `postgres` / `minio` images are
+> pulled automatically from public registries. You'd only need a registry for a
+> multi-host setup that provisions instances onto *remote* Docker daemons.
 
 ## 3. Configure and run the control plane
 

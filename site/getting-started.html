@@ -76,6 +76,13 @@
                 <h4><span class="led led-healthy"></span>Docker Compose v2</h4>
                 <p>The bundled <code>docker compose</code> plugin — used to stand up the meta-DB and object store.</p>
               </div>
+              <div class="card">
+                <h4><span class="led led-healthy"></span>Managed image (local)</h4>
+                <p>The <code>postgres + pgBackRest</code> image every instance runs from. You build it locally with <code>make image</code> — <strong>nothing is pushed to a registry</strong>.</p>
+              </div>
+            </div>
+            <div class="note" style="margin-top:1.25rem">
+              <p style="margin-top:0"><strong>No registry, no push.</strong> The managed image is built on your <strong>local</strong> Docker daemon and used directly; PgCat and the base <code>postgres</code>/<code>minio</code> images are pulled automatically from public registries. You'd only need a registry for a multi-host setup that provisions instances onto <em>remote</em> Docker daemons.</p>
             </div>
             <div class="note" style="margin-top:1.25rem">
               <p style="margin-top:0"><strong>Object storage:</strong> backups need an S3-compatible bucket. The compose stack ships a local <strong>MinIO</strong> so you can try everything on one host; point it at managed S3 later by changing the <code>PGFLEET_S3_*</code> variables.</p>
@@ -116,7 +123,10 @@
                   <span class="label">Copy</span>
                 </button>
               </div>
-<pre><code><span class="c-comment"># copy the sample env and edit the secrets (next step)</span>
+<pre><code><span class="c-comment"># build the managed postgres+pgBackRest image (local only — never pushed)</span>
+<span class="c-prompt">$</span> make image
+
+<span class="c-comment"># copy the sample env and edit the secrets (next step)</span>
 <span class="c-prompt">$</span> cp .env.example .env
 
 <span class="c-comment"># run the API + dashboard (loads .env)</span>

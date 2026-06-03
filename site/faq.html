@@ -76,6 +76,14 @@
             </div>
           </details>
 
+          <details class="faq">
+            <summary>Do I need to push any Docker images to a registry?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+            <div class="faq-body">
+              <p><strong>No.</strong> You build the managed <code>postgres + pgBackRest</code> image once on your <strong>local</strong> Docker daemon with <code>make image</code> (or <code>make images</code> for every supported PG version), and the control plane uses it directly — it is never pushed anywhere. PgCat (<code>ghcr.io/postgresml/pgcat</code>) and the base <code>postgres</code>/<code>minio</code> images are pulled automatically from public registries.</p>
+              <p>A registry is only needed for a <strong>multi-host</strong> setup, where the control plane provisions instances onto <em>remote</em> Docker daemons — then you push the image to a registry of your choice and point new instances at that reference.</p>
+            </div>
+          </details>
+
           <!-- 3 -->
           <details class="faq">
             <summary>Where are backups stored, and are they actually restorable?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
