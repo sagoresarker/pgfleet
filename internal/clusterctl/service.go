@@ -77,6 +77,9 @@ type Input struct {
 	Password string
 	RepoType instance.RepoType
 	Version  string // Postgres major version; "" uses the default
+	// Parameters / Extensions apply to every member (per-cluster config).
+	Parameters map[string]string
+	Extensions []string
 }
 
 // Create validates input and persists the cluster + member instance rows
@@ -102,11 +105,13 @@ func (s *Service) Create(ctx context.Context, in Input) (cluster.Cluster, error)
 	specs = append(specs, instance.NewInstance{
 		Name: in.Name + "-p", RepoType: repoType, Password: in.Password,
 		Role: instance.RolePrimary, PGVersion: in.Version,
+		Parameters: in.Parameters, Extensions: in.Extensions,
 	})
 	for i := 1; i <= in.Replicas; i++ {
 		specs = append(specs, instance.NewInstance{
 			Name: fmt.Sprintf("%s-r%d", in.Name, i), RepoType: repoType, Password: in.Password,
 			Role: instance.RoleReplica, PGVersion: in.Version,
+			Parameters: in.Parameters, Extensions: in.Extensions,
 		})
 	}
 	for _, spec := range specs {

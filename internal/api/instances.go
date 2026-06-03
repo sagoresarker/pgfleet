@@ -59,23 +59,27 @@ func (h *InstancesHandler) WithAsync(a *Async) *InstancesHandler {
 }
 
 type createInstanceRequest struct {
-	Name      string `json:"name"`
-	RepoType  string `json:"repo_type"`
-	PGVersion string `json:"pg_version"`
-	Password  string `json:"password"`
+	Name       string            `json:"name"`
+	RepoType   string            `json:"repo_type"`
+	PGVersion  string            `json:"pg_version"`
+	Password   string            `json:"password"`
+	Parameters map[string]string `json:"parameters"`
+	Extensions []string          `json:"extensions"`
 }
 
 type instancePayload struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Status    string `json:"status"`
-	RepoType  string `json:"repo_type"`
-	PGVersion string `json:"pg_version"`
-	HostPort  int    `json:"host_port"`
-	Stanza    string `json:"stanza"`
-	Role      string `json:"role"`
-	ClusterID string `json:"cluster_id,omitempty"`
-	LastError string `json:"last_error,omitempty"`
+	ID         string            `json:"id"`
+	Name       string            `json:"name"`
+	Status     string            `json:"status"`
+	RepoType   string            `json:"repo_type"`
+	PGVersion  string            `json:"pg_version"`
+	HostPort   int               `json:"host_port"`
+	Stanza     string            `json:"stanza"`
+	Role       string            `json:"role"`
+	ClusterID  string            `json:"cluster_id,omitempty"`
+	LastError  string            `json:"last_error,omitempty"`
+	Parameters map[string]string `json:"parameters,omitempty"`
+	Extensions []string          `json:"extensions,omitempty"`
 }
 
 func toInstancePayload(i instance.Instance) instancePayload {
@@ -83,6 +87,7 @@ func toInstancePayload(i instance.Instance) instancePayload {
 		ID: i.ID, Name: i.Name, Status: string(i.Status), RepoType: string(i.RepoType),
 		PGVersion: i.PGVersion, HostPort: i.HostPort, Stanza: i.Stanza,
 		Role: string(i.Role), ClusterID: i.ClusterID, LastError: i.LastError,
+		Parameters: i.Parameters, Extensions: i.Extensions,
 	}
 }
 
@@ -95,10 +100,12 @@ func (h *InstancesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	inst, err := h.store.Create(r.Context(), instance.NewInstance{
-		Name:      req.Name,
-		PGVersion: req.PGVersion,
-		RepoType:  instance.RepoType(req.RepoType),
-		Password:  req.Password,
+		Name:       req.Name,
+		PGVersion:  req.PGVersion,
+		RepoType:   instance.RepoType(req.RepoType),
+		Password:   req.Password,
+		Parameters: req.Parameters,
+		Extensions: req.Extensions,
 	})
 	if err != nil {
 		respondError(w, err)
