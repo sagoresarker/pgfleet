@@ -68,6 +68,17 @@ type rawBackup struct {
 	Error     bool     `json:"error"`
 }
 
+// epochToTime converts a pgBackRest epoch-seconds timestamp to UTC. A missing
+// timestamp decodes to 0; pgBackRest never emits a real 1970 timestamp, so a
+// non-positive value means "absent" and maps to the zero time.Time rather than
+// 1970 (which would corrupt catalog ordering and retention).
+func epochToTime(sec int64) time.Time {
+	if sec <= 0 {
+		return time.Time{}
+	}
+	return time.Unix(sec, 0).UTC()
+}
+
 // ParseInfo parses the output of `pgbackrest info --output=json`.
 func ParseInfo(data []byte) ([]Stanza, error) {
 	var raw []rawStanza
@@ -86,8 +97,8 @@ func ParseInfo(data []byte) ([]Stanza, error) {
 			s.Backups = append(s.Backups, BackupInfo{
 				Label:      rb.Label,
 				Type:       rb.Type,
-				StartTime:  time.Unix(rb.Timestamp.Start, 0).UTC(),
-				StopTime:   time.Unix(rb.Timestamp.Stop, 0).UTC(),
+				StartTime:  epochToTime(rb.Timestamp.Start),
+				StopTime:   epochToTime(rb.Timestamp.Stop),
 				Size:       rb.Info.Size,
 				Delta:      rb.Info.Delta,
 				RepoSize:   rb.Info.Repository.Size,
