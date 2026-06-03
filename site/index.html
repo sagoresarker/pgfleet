@@ -52,7 +52,7 @@
             </span>
           </span>
           <h1>Run <span class="accent">managed Postgres</span> on your own infrastructure.</h1>
-          <p class="lede">PgFleet is a self-hosted control plane that provisions Postgres in Docker and gives you automatic WAL archiving, scheduled S3 backups, point-in-time recovery, streaming replication with in-house failover, and live observability — a focused alternative to RDS and Crunchy Bridge that you operate yourself.</p>
+          <p class="lede">PgFleet is a self-hosted control plane that provisions Postgres in Docker and gives you automatic WAL archiving, encrypted S3 backups, point-in-time recovery, streaming replication with quorum-guarded failover, a PgCat read/write router, and live observability — a focused alternative to RDS and Crunchy Bridge that you operate yourself.</p>
           <div class="hero-actions">
             <a class="btn btn-primary btn-lg" href="getting-started.html">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
@@ -264,13 +264,13 @@
           <a class="feature card reveal d1" href="features.html#backups">
             <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></span>
             <h3>Backups, PITR &amp; DR</h3>
-            <p>WAL archiving and scheduled S3/MinIO backups with point-in-time recovery.</p>
+            <p>WAL archiving, annotated full/diff/incremental backups, delta PITR, encryption, and a second repo for 3-2-1.</p>
             <span class="more">Details <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
           </a>
           <a class="feature card reveal d2" href="features.html#ha">
             <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 6a9 9 0 0 1-9 9"/><path d="M9 6h9M9 6 6 9"/></svg></span>
             <h3>HA &amp; failover</h3>
-            <p>Streaming replication, in-house automatic failover, and a PgCat read/write router.</p>
+            <p>Streaming replication, quorum-guarded failover (no split-brain), and a PgCat router with read/write split and live pool stats.</p>
             <span class="more">Details <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
           </a>
           <a class="feature card reveal" href="features.html#observability">
@@ -282,7 +282,7 @@
           <a class="feature card reveal d1" href="features.html#operate">
             <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></svg></span>
             <h3>Operate</h3>
-            <p>SQL console, container exec, clone, public/private toggle, and logical dump download.</p>
+            <p>SQL console, psql shell, container shell, Databases and Roles tabs, clone, and logical dump download.</p>
             <span class="more">Details <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
           </a>
           <a class="feature card reveal d2" href="features.html#remote">

@@ -33,19 +33,26 @@ type Cluster struct {
 	RouterContainerID string
 	RouterPort        int
 	LastError         string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	// PoolMode is the PgCat pooling mode for the router ("transaction" |
+	// "session"). Persisted so failover can re-apply it when repointing.
+	PoolMode  string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // NewCluster is the input for creating a cluster.
 type NewCluster struct {
-	Name string
+	Name     string
+	PoolMode string // "transaction" (default) | "session"
 }
 
 // Validate checks the create input.
 func (n NewCluster) Validate() error {
 	if !nameRe.MatchString(n.Name) {
 		return apperr.New(apperr.KindInvalid, "cluster: name must match [a-z][a-z0-9-]{1,38}")
+	}
+	if n.PoolMode != "" && n.PoolMode != "transaction" && n.PoolMode != "session" {
+		return apperr.New(apperr.KindInvalid, "cluster: pool_mode must be transaction or session")
 	}
 	return nil
 }

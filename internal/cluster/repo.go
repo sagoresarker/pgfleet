@@ -24,15 +24,19 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 }
 
 const columns = `id, name, status, COALESCE(primary_instance_id::text, ''),
-	router_container_id, router_port, last_error, created_at, updated_at`
+	router_container_id, router_port, last_error, pool_mode, created_at, updated_at`
 
 // Create inserts a new cluster.
 func (r *Repository) Create(ctx context.Context, in NewCluster) (Cluster, error) {
 	if err := in.Validate(); err != nil {
 		return Cluster{}, err
 	}
+	poolMode := in.PoolMode
+	if poolMode == "" {
+		poolMode = "transaction"
+	}
 	c, err := scan(r.pool.QueryRow(ctx,
-		`INSERT INTO clusters (name) VALUES ($1) RETURNING `+columns, in.Name))
+		`INSERT INTO clusters (name, pool_mode) VALUES ($1, $2) RETURNING `+columns, in.Name, poolMode))
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == uniqueViolation {
@@ -123,6 +127,6 @@ type rowScanner interface {
 func scan(row rowScanner) (Cluster, error) {
 	var c Cluster
 	err := row.Scan(&c.ID, &c.Name, &c.Status, &c.PrimaryInstanceID,
-		&c.RouterContainerID, &c.RouterPort, &c.LastError, &c.CreatedAt, &c.UpdatedAt)
+		&c.RouterContainerID, &c.RouterPort, &c.LastError, &c.PoolMode, &c.CreatedAt, &c.UpdatedAt)
 	return c, err
 }

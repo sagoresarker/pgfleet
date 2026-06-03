@@ -409,3 +409,16 @@ func TestServiceListAndGet(t *testing.T) {
 		t.Fatalf("get: %v", err)
 	}
 }
+
+func TestRemoteConnValidateBlocksMetadata(t *testing.T) {
+	for _, host := range []string{"169.254.169.254", "169.254.1.1", "fe80::1"} {
+		c := RemoteConn{Host: host, User: "u", DBName: "d"}
+		if err := c.Validate(); err == nil {
+			t.Errorf("%s: expected link-local/metadata host to be rejected", host)
+		}
+	}
+	// A normal private host stays allowed (adopting an internal DB is fine).
+	if err := (RemoteConn{Host: "10.0.0.5", User: "u", DBName: "d"}).Validate(); err != nil {
+		t.Errorf("private host should be allowed: %v", err)
+	}
+}

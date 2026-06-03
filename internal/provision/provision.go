@@ -96,6 +96,7 @@ type store interface {
 	SetDataVolume(ctx context.Context, id, volume string) error
 	SetStatus(ctx context.Context, id string, status instance.Status, lastErr string) error
 	SetPublic(ctx context.Context, id string, public bool) error
+	SetEncrypted(ctx context.Context, id string, encrypted bool) error
 	Delete(ctx context.Context, id string) error
 }
 
@@ -148,6 +149,16 @@ func (p *Provisioner) provision(ctx context.Context, id string, progress Progres
 	inst, err := p.repo.Get(ctx, id)
 	if err != nil {
 		return err
+	}
+	// Stamp the encryption decision NOW (this is stanza-create time) from the
+	// current global flag, and persist it. Every later conf write reads this
+	// per-instance value, so toggling the global flag afterward can never strip
+	// the cipher from an encrypted instance's conf (N1).
+	if inst.Encrypted != p.opts.BackupEncryption {
+		inst.Encrypted = p.opts.BackupEncryption
+		if serr := p.repo.SetEncrypted(ctx, id, inst.Encrypted); serr != nil {
+			return serr
+		}
 	}
 	password, err := p.repo.Password(ctx, id)
 	if err != nil {
@@ -326,14 +337,14 @@ func (p *Provisioner) backrestConf(inst instance.Instance) (string, error) {
 		BlockIncr:     p.opts.BlockIncr,
 		Repo2Path:     p.opts.Repo2Path,
 	}
-	// Enable at-rest repo encryption only when configured. The passphrase is
-	// derived deterministically from the master key + instance id, so the SAME
-	// value is produced on every provision/backup/restore for this instance
-	// (pgBackRest fixes the cipher at stanza-create and rejects a changed
-	// passphrase). This is applied at stanza-create and CANNOT be added to a
-	// stanza that was created without it, so it only affects instances first
-	// provisioned while BackupEncryption is on.
-	if p.opts.BackupEncryption {
+	// Enable at-rest repo encryption from the instance's PERSISTED state, not the
+	// live global flag — pgBackRest fixes the cipher at stanza-create and rejects
+	// a changed/missing passphrase, so an encrypted instance must keep emitting
+	// the cipher line on every later conf write (restore/visibility/clone) even
+	// if the global flag is toggled off (which would otherwise make the repo
+	// unrecoverable — N1). The passphrase is derived deterministically from the
+	// master key + instance id, so the same value is produced every time.
+	if inst.Encrypted {
 		c.CipherPass = deriveCipherPass(p.opts.MasterKey, inst.ID)
 	}
 	switch inst.RepoType {

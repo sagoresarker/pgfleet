@@ -250,13 +250,17 @@ func TestDeleteExpiresSetAndPrunesCatalog(t *testing.T) {
 	_ = rt.StartContainer(context.Background(), id)
 	var sawSet string
 	rt.ExecFunc = func(_ string, cmd []string) (docker.ExecResult, error) {
-		if last(cmd) == "expire" {
+		switch last(cmd) {
+		case "expire":
 			for _, a := range cmd {
 				if strings.HasPrefix(a, "--set=") {
 					sawSet = strings.TrimPrefix(a, "--set=")
 				}
 			}
 			return docker.ExecResult{ExitCode: 0}, nil
+		case "info":
+			// After the expire, info reflects what pgBackRest still has.
+			return docker.ExecResult{ExitCode: 0, Stdout: infoTwoBackups}, nil
 		}
 		return docker.ExecResult{}, nil
 	}
@@ -274,8 +278,13 @@ func TestDeleteExpiresSetAndPrunesCatalog(t *testing.T) {
 	if sawSet != "20260603-120000F" {
 		t.Errorf("expire --set = %q, want the deleted label", sawSet)
 	}
-	if len(cat.deleted) != 1 || cat.deleted[0] != "20260603-120000F" {
-		t.Errorf("catalog deletes = %v, want [20260603-120000F]", cat.deleted)
+	// N2: Delete re-syncs the catalog (Upsert survivors + Prune the cascade) so
+	// no phantom rows remain — it must NOT single-delete just the one label.
+	if len(cat.deleted) != 0 {
+		t.Errorf("Delete should re-sync, not single-delete; got deletes %v", cat.deleted)
+	}
+	if len(cat.pruned) != 1 {
+		t.Errorf("catalog should be pruned to match pgBackRest once; pruned = %v", cat.pruned)
 	}
 	// A delete event of type "backup" must be recorded.
 	evs := rec.snapshot()

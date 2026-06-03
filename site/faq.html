@@ -94,6 +94,42 @@
             </div>
           </details>
 
+          <!-- 4a -->
+          <details class="faq">
+            <summary>Are backups encrypted at rest?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+            <div class="faq-body">
+              <p>Yes — turn on <strong>backup encryption</strong> and PgFleet has pgBackRest cipher every backup and archived WAL file with <strong>AES-256-CBC</strong> before it leaves the host. The data is encrypted in the repository itself, so it stays protected regardless of what the bucket does, and a leaked object is useless without the key.</p>
+              <p>This is independent of (and stacks with) bucket-side server-side encryption and host-volume encryption. Keep the encryption key in your own secret store; PgFleet never ships it off your environment.</p>
+            </div>
+          </details>
+
+          <!-- 4b -->
+          <details class="faq">
+            <summary>Can I name or annotate a backup?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+            <div class="faq-body">
+              <p>Yes. When you take an on-demand backup you can attach an optional <strong>note or annotation</strong> — for example “pre-migration” or “before v2 deploy”. The note rides with the backup in pgBackRest's metadata and shows up in the backup list, so a set of backups is self-documenting instead of an anonymous wall of timestamps.</p>
+              <p>You can also pick the backup <strong>type</strong> — full, differential, or incremental — at the moment you take it, and delete a backup you no longer need from the same view.</p>
+            </div>
+          </details>
+
+          <!-- 4c -->
+          <details class="faq">
+            <summary>What is a delta restore?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+            <div class="faq-body">
+              <p>A <strong>delta restore</strong> is an option on point-in-time recovery that only rewrites the files that actually differ between the existing data directory and the backup, instead of wiping and recreating everything. pgBackRest compares checksums and copies just the changed blocks.</p>
+              <p>On a large database that has drifted only a little from a recent backup, that makes the restore <strong>dramatically faster and lighter on I/O</strong> — useful for re-syncing an instance or rehearsing a recovery without paying for a full rebuild. For a clean target you can still do a normal full restore.</p>
+            </div>
+          </details>
+
+          <!-- 4d -->
+          <details class="faq">
+            <summary>Can I run a second backup repository for a 3-2-1 strategy?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+            <div class="faq-body">
+              <p>Yes. PgFleet supports a <strong>second pgBackRest repository</strong> (<code>repo2</code>) alongside the primary one, so the same backups and WAL are written to two independent destinations. Point <code>repo2</code> at different media or a different provider and you have <strong>3-2-1</strong> built in: three copies, on two kinds of media, one of them off-site.</p>
+              <p>For stronger durability, target an <strong>object-lock (WORM)</strong> bucket so the second copy can't be altered or deleted within its retention window — which keeps a clean recovery point even if the primary repo is compromised.</p>
+            </div>
+          </details>
+
           <!-- 5 -->
           <details class="faq">
             <summary>Does the host port or IP change when I stop and start an instance?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
@@ -145,8 +181,8 @@
           <details class="faq">
             <summary>How does automatic failover work — can it cause split-brain?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
             <div class="faq-body">
-              <p>PgFleet ships <strong>in-house automatic failover</strong> — no external orchestrator required. When it detects the primary has failed, it <strong>fences and removes the old primary first</strong>, and only then promotes a healthy replica to take over.</p>
-              <p>Because the failed primary is fenced out before any promotion happens, you do not end up with two nodes accepting writes — <strong>no split-brain</strong>. The PgCat router then directs traffic to the newly promoted primary so applications follow the failover transparently.</p>
+              <p>PgFleet ships <strong>in-house automatic failover</strong> — no external orchestrator required. A <strong>quorum guard</strong> sits in front of every promotion: a replica is only promoted when a <strong>majority of observers agree</strong> the primary is genuinely gone, so a transient network blip or a brief GC pause never triggers a failover. PgFleet then <strong>fences and removes the old primary first</strong>, and only then promotes a healthy replica.</p>
+              <p>Because the quorum prevents a premature promotion and the failed primary is fenced before any new writer comes online, you never end up with two nodes accepting writes — <strong>no split-brain</strong>. The PgCat router then directs traffic to the newly promoted primary so applications follow the failover transparently.</p>
             </div>
           </details>
 
@@ -190,8 +226,8 @@
           <details class="faq">
             <summary>What does the PgCat router actually do for me?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
             <div class="faq-body">
-              <p>PgCat is a connection pooler and router that sits in front of an instance and its replicas. It gives your application a <strong>single endpoint</strong> while splitting <strong>reads to replicas and writes to the primary</strong>, and it pools connections so a burst of clients does not overwhelm Postgres.</p>
-              <p>Crucially, it also <strong>follows failovers</strong>: after PgFleet promotes a new primary, the router points writes at it, so applications keep working without reconfiguration.</p>
+              <p>PgCat is a connection pooler and router that sits in front of an instance and its replicas. It gives your application a <strong>single endpoint</strong> while splitting <strong>writes to the primary and reads across replicas</strong> with load-balancing, and it pools connections so a burst of clients does not overwhelm Postgres. You choose the pool mode: <strong>transaction</strong> mode multiplexes many clients onto few server connections, while <strong>session</strong> mode holds a connection for a client's whole session.</p>
+              <p>It is not a black box: the cluster page shows live <strong>pool stats</strong> from PgCat's own <code>SHOW POOLS</code> and <code>SHOW STATS</code> — active and waiting clients, server connections, and per-pool throughput. The router also <strong>auto-bans an unhealthy backend</strong> so one sick replica stops receiving queries, can optionally <strong>mirror traffic</strong> to a shadow backend, and <strong>follows failovers</strong>: after PgFleet promotes a new primary, writes are repointed automatically with no app reconfiguration.</p>
             </div>
           </details>
 

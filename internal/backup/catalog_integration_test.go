@@ -115,3 +115,39 @@ func TestCatalogPruneRemovesExpired(t *testing.T) {
 		t.Errorf("after empty prune len = %d, want 0", len(list))
 	}
 }
+
+// TestCatalogPersistsAnnotations proves a backup's annotations (e.g. a user's
+// "name"/note) survive the Upsert→List round-trip through the JSONB column
+// (migration 00017), so the dashboard can display them.
+func TestCatalogPersistsAnnotations(t *testing.T) {
+	cat, instID := setupCatalog(t)
+	ctx := context.Background()
+
+	b := bk("20260603-140000F", "full", 256)
+	b.Annotations = map[string]string{"name": "pre-migration snapshot"}
+	if err := cat.Upsert(ctx, instID, b); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+
+	got, err := cat.List(ctx, instID)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d backups, want 1", len(got))
+	}
+	if got[0].Annotations["name"] != "pre-migration snapshot" {
+		t.Errorf("annotation name = %q, want %q", got[0].Annotations["name"], "pre-migration snapshot")
+	}
+
+	// A backup with no annotations must round-trip to an empty (non-error) map.
+	if err := cat.Upsert(ctx, instID, bk("20260603-150000I", "incr", 64)); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = cat.List(ctx, instID)
+	for _, x := range got {
+		if x.Label == "20260603-150000I" && x.Annotations["name"] != "" {
+			t.Errorf("unannotated backup has name %q, want empty", x.Annotations["name"])
+		}
+	}
+}

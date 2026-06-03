@@ -405,7 +405,9 @@ func TestDestroyClusterPrimaryIsRefused(t *testing.T) {
 }
 
 // Destroy guard: a cluster REPLICA may be destroyed directly.
-func TestDestroyClusterReplicaIsAllowed(t *testing.T) {
+// N5: directly destroying a cluster REPLICA is also refused — that path skips
+// clusterctl and would leak the replica's replication slot on the primary.
+func TestDestroyClusterReplicaIsRefused(t *testing.T) {
 	store := newFakeInstanceStore()
 	inst, _ := store.Create(context.Background(), instance.NewInstance{Name: "repl-db", RepoType: instance.RepoS3, Password: "a-good-password"})
 	inst.Role = instance.RoleReplica
@@ -417,11 +419,11 @@ func TestDestroyClusterReplicaIsAllowed(t *testing.T) {
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/instances/"+inst.ID, nil)
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want 204 (%s)", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (%s)", rr.Code, rr.Body.String())
 	}
-	if len(prov.destroyed) != 1 {
-		t.Errorf("replica was not destroyed: %v", prov.destroyed)
+	if len(prov.destroyed) != 0 {
+		t.Errorf("clustered replica must not be destroyed directly: %v", prov.destroyed)
 	}
 }
 

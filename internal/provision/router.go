@@ -36,8 +36,14 @@ type RouterSpec struct {
 	AdminPassword string
 	Members       []RouterMember
 	// PoolMode selects PgCat pooling: "transaction" (default) or "session".
+	// Wired from the cluster's persisted pool_mode (cluster create → provision →
+	// re-applied on failover).
 	PoolMode string
-	// Mirrors are optional shadow targets; empty means no query mirroring.
+	// Mirrors are optional query-shadow targets; empty means no mirroring. The
+	// config path is fully supported by pgcat.Generate, but mirror targets are
+	// not yet surfaced through the cluster API/UI (an operator would need to
+	// supply external host:port targets), so callers currently leave this empty.
+	// Kept here so enabling it later is a pure wiring change, not a refactor.
 	Mirrors []RouterMirror
 }
 

@@ -72,6 +72,9 @@ type Input struct {
 	// Parameters / Extensions apply to every member (per-cluster config).
 	Parameters map[string]string
 	Extensions []string
+	// PoolMode is the PgCat pooling mode for the router ("transaction" default
+	// | "session").
+	PoolMode string
 }
 
 // Create validates input and persists the cluster + member instance rows
@@ -113,7 +116,7 @@ func (s *Service) Create(ctx context.Context, in Input) (cluster.Cluster, error)
 		}
 	}
 
-	c, err := s.clusters.Create(ctx, cluster.NewCluster{Name: in.Name})
+	c, err := s.clusters.Create(ctx, cluster.NewCluster{Name: in.Name, PoolMode: in.PoolMode})
 	if err != nil {
 		return cluster.Cluster{}, err
 	}
@@ -191,6 +194,7 @@ func (s *Service) provision(ctx context.Context, clusterID string, progress prov
 		User:          primary.Superuser,
 		Password:      password,
 		AdminPassword: adminPassword,
+		PoolMode:      c.PoolMode,
 		Members:       provision.RouterMembersFromInstances(primary.Name, replicaNames),
 	}, progress)
 	if err != nil {

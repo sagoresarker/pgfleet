@@ -180,7 +180,19 @@
                   </tr>
                   <tr>
                     <td><code>PGFLEET_AUTO_FAILOVER</code></td><td><span class="opt">optional</span></td>
-                    <td>Promote a replica when the primary dies. Defaults to <code>true</code>.</td>
+                    <td>Promote a replica when the primary dies, behind a <strong>quorum guard</strong> so there is no split-brain. Defaults to <code>true</code>.</td>
+                  </tr>
+                  <tr>
+                    <td><code>PGFLEET_BACKUP_ENCRYPTION</code></td><td><span class="opt">optional</span></td>
+                    <td>Encrypt backups and archived WAL at rest with <strong>AES-256-CBC</strong> before they reach the bucket. Set a passphrase to enable; unset leaves backups unencrypted.</td>
+                  </tr>
+                  <tr>
+                    <td><code>PGFLEET_BACKUP_BLOCK_INCR</code></td><td><span class="opt">optional</span></td>
+                    <td>Enable <strong>block-incremental</strong> backups so incrementals capture only changed pages of large relations. Defaults to <code>false</code>.</td>
+                  </tr>
+                  <tr>
+                    <td><code>PGFLEET_REPO2_PATH</code></td><td><span class="opt">optional</span></td>
+                    <td>Path or endpoint for a <strong>second pgBackRest repository</strong> (<code>repo2</code>) for a 3-2-1 strategy. Set it to mirror backups to a second, off-site destination.</td>
                   </tr>
                 </tbody>
               </table>
@@ -199,7 +211,7 @@
             <p>Open the dashboard at <code>http://localhost:3000</code> and sign in with the bootstrap admin you set above. Then:</p>
             <ul style="color:var(--fg-muted);margin-top:0.6rem;padding-left:1.1rem;display:grid;gap:0.45rem;">
               <li><strong>Create your first instance.</strong> Pick a Postgres version (and TimescaleDB if you want hypertables), name it, and provision — PgFleet launches the container and starts archiving WAL to your bucket within seconds.</li>
-              <li><strong>Take a backup.</strong> Trigger a full backup from the instance view, or let the schedule (<code>PGFLEET_BACKUP_INTERVAL</code>, default <code>24h</code>) run it. Backups go to your S3/MinIO bucket via pgBackRest.</li>
+              <li><strong>Take a backup.</strong> Trigger a full, differential, or incremental backup from the instance view — add an optional note to label it — or let the schedule (<code>PGFLEET_BACKUP_INTERVAL</code>, default <code>24h</code>) run it. Backups go to your S3/MinIO bucket via pgBackRest, optionally encrypted and mirrored to a second repo.</li>
               <li><strong>Prove it with a restore drill.</strong> Restore that backup into a fresh instance — or use the PITR wizard to rewind to a chosen second — to confirm it is genuinely restorable. A backup you have never restored is a hope, not a backup.</li>
             </ul>
             <div class="code-block" style="margin-top:1rem">

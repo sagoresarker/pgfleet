@@ -75,7 +75,12 @@
             <div class="feature card">
               <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span>
               <h3>One-click clone</h3>
-              <p>Fork a fresh, independent copy of any instance for staging, testing, or a safe migration rehearsal — without disturbing production.</p>
+              <p>Fork a fresh, independent copy of any instance — clone takes a <strong>fresh backup first</strong>, then restores it, so the copy is consistent and production is undisturbed.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+              <h3>Live instance overview</h3>
+              <p>Every instance opens to a live overview: uptime, active connections, on-disk size, engine type, and database and role counts at a glance.</p>
             </div>
           </div>
         </div>
@@ -95,18 +100,38 @@
             </div>
             <div class="feature card">
               <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M8 4v16"/></svg></span>
-              <h3>Scheduled backups</h3>
-              <p>Full and differential backups on a schedule via pgBackRest, with configurable retention — all written to your own object store.</p>
+              <h3>On-demand &amp; scheduled backups</h3>
+              <p>Take a <strong>full, differential, or incremental</strong> backup on demand — with an optional note to label it — or let the schedule run via pgBackRest with configurable retention.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V5a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v0"/><path d="M3 7h18v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/><path d="M9 13h6"/></svg></span>
+              <h3>Annotate &amp; manage backups</h3>
+              <p>Attach a <strong>note or annotation</strong> to any backup so a set is self-documenting (“pre-migration”, “before v2 deploy”), and delete a backup you no longer need straight from the dashboard.</p>
             </div>
             <div class="feature card">
               <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9 9 0 0 0-6.4 2.6L3 8"/><path d="M3 3v5h5"/><path d="M12 8v4l3 2"/></svg></span>
               <h3>Point-in-time recovery</h3>
-              <p>A guided wizard restores to any second in your retention window by replaying archived WAL on top of the nearest base backup.</p>
+              <p>A guided wizard restores to any second in your retention window by replaying archived WAL on top of the nearest base backup — with an optional <strong>delta restore</strong> that only writes the files that changed.</p>
             </div>
             <div class="feature card">
               <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 4 6v6c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V6l-8-4Z"/><path d="m9 12 2 2 4-4"/></svg></span>
-              <h3>Recovery drills</h3>
-              <p>Restore into a fresh instance to verify a backup is genuinely restorable — turning disaster recovery into a routine you can practice.</p>
+              <h3>Verify &amp; recovery drills</h3>
+              <p>Run <code>pgbackrest verify</code> to confirm a repository's backups and WAL are internally consistent, then restore into a fresh instance to prove the data is genuinely recoverable — making DR a routine you practice.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>
+              <h3>Block-incremental backups</h3>
+              <p>Block-level incremental backups capture only the changed pages of large relations, shrinking incremental backup size and the bandwidth they push to object storage.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><path d="M12 15v3"/></svg></span>
+              <h3>Encrypted at rest</h3>
+              <p>Turn on <strong>AES-256-CBC</strong> encryption so every backup and archived WAL file is ciphered before it lands in your bucket — protection that travels with the data, independent of bucket-side SSE.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="7" cy="6" rx="4" ry="2"/><path d="M3 6v5c0 1.1 1.8 2 4 2s4-.9 4-2V6"/><ellipse cx="17" cy="13" rx="4" ry="2"/><path d="M13 13v5c0 1.1 1.8 2 4 2s4-.9 4-2v-5"/></svg></span>
+              <h3>Second repo for 3-2-1</h3>
+              <p>Push the same backups to a <strong>second pgBackRest repository</strong> (<code>repo2</code>) so a 3-2-1 strategy is built in — two independent copies on different media, one of them off-site.</p>
             </div>
           </div>
         </div>
@@ -126,13 +151,33 @@
             </div>
             <div class="feature card">
               <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8Z"/></svg></span>
-              <h3>In-house automatic failover</h3>
-              <p>PgFleet detects a failed primary, fences and removes it, then promotes a healthy replica — no external orchestrator required.</p>
+              <h3>Failover with a quorum guard</h3>
+              <p>In-house automatic failover with no external orchestrator. A <strong>quorum guard</strong> means a replica is only promoted when a majority agrees the primary is truly gone — so the old primary is fenced first and you never get two writers (<strong>no split-brain</strong>).</p>
             </div>
             <div class="feature card">
               <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h6l2-5 4 10 2-5h4"/></svg></span>
-              <h3>PgCat read/write router</h3>
-              <p>A built-in PgCat layer gives a single connection endpoint that splits reads and writes and follows failovers transparently.</p>
+              <h3>PgCat router: read/write split</h3>
+              <p>A built-in PgCat layer gives one endpoint that sends <strong>writes to the primary and reads to replicas</strong>, load-balancing reads across healthy standbys and following failovers transparently.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></span>
+              <h3>Transaction &amp; session pooling</h3>
+              <p>Choose <strong>transaction</strong> mode to multiplex many clients onto few server connections, or <strong>session</strong> mode when a workload needs a connection held for its whole session.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></span>
+              <h3>Live pool stats</h3>
+              <p>The cluster page surfaces <code>SHOW POOLS</code> and <code>SHOW STATS</code> live — active and waiting clients, server connections, and per-pool throughput, so the router is never a black box.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64A9 9 0 1 1 5.64 6.64"/><path d="M12 2v10"/></svg></span>
+              <h3>Auto-ban unhealthy backends</h3>
+              <p>When a backend starts failing, the router <strong>auto-bans</strong> it and stops routing queries there, bringing it back only once it recovers — so one sick replica can't drag down the pool.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h11l-3-3M20 17H9l3 3"/></svg></span>
+              <h3>Query mirroring / shadowing</h3>
+              <p>Optionally mirror live traffic to a shadow backend to rehearse an upgrade, warm a replica's cache, or compare behaviour — without affecting the primary's results.</p>
             </div>
           </div>
         </div>
@@ -154,6 +199,16 @@
               <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></span>
               <h3>Query insights</h3>
               <p>Surface slow and frequent queries so you can find the statement that is dragging down a workload.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+              <h3>Long-running queries</h3>
+              <p>A dedicated panel lists the queries running right now, sorted by duration, so you can spot — and act on — a statement that has been holding a transaction open too long.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><path d="M7 7h.01M7 17h.01"/></svg></span>
+              <h3>Live instance overview</h3>
+              <p>Uptime, active connections, on-disk size, engine type, and database and role counts, refreshed live on every instance's overview tab.</p>
             </div>
             <div class="feature card">
               <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v12H8l-4 4V4Z"/><path d="M8 9h8M8 13h5"/></svg></span>
@@ -182,9 +237,24 @@
               <p>Run queries against any instance directly from the browser, with results rendered inline.</p>
             </div>
             <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M9 8h.01M6 12h6"/></svg></span>
+              <h3>psql shell</h3>
+              <p>Drop into a real <code>psql</code> session in the browser — meta-commands like <code>\dt</code>, <code>\l</code>, and <code>\d</code> work just as they do at the terminal.</p>
+            </div>
+            <div class="feature card">
               <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></svg></span>
-              <h3>Container exec</h3>
+              <h3>Container shell</h3>
               <p>Open an interactive shell inside an instance container for the rare moment you need to get your hands dirty.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></span>
+              <h3>Databases tab</h3>
+              <p>List the databases inside an instance and <strong>create a new one</strong> from the dashboard — no need to drop to <code>psql</code> for routine database management.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.1a4 4 0 0 1 0 7.8"/><path d="M21 21v-2a4 4 0 0 0-3-3.9"/></svg></span>
+              <h3>Roles tab</h3>
+              <p>List roles and <strong>create a least-privilege role</strong> with sensible defaults, so application access stays scoped instead of everything sharing the superuser.</p>
             </div>
             <div class="feature card">
               <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 4 6v6c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V6l-8-4Z"/><circle cx="12" cy="11" r="2"/><path d="M12 13v3"/></svg></span>
@@ -263,6 +333,47 @@
               <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.1a4 4 0 0 1 0 7.8"/><path d="M21 21v-2a4 4 0 0 0-3-3.9"/></svg></span>
               <h3>Group → role mapping</h3>
               <p>The proxy’s verified groups map to PgFleet <strong>admin</strong>, <strong>operator</strong>, or <strong>viewer</strong> roles (defaulting to least-privilege viewer). Authelia adds MFA and brute-force regulation in front. <a href="getting-started.html#sso">Enable it →</a></p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== Production hardening ===== -->
+        <div class="fgroup reveal" id="hardening">
+          <div class="fgroup-head">
+            <span class="gn">09</span>
+            <h2>Production hardening</h2>
+            <p>The guardrails that keep a self-hosted fleet credible under load and under attack.</p>
+          </div>
+          <div class="feature-grid">
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+              <h3>Encrypted backups &amp; TLS</h3>
+              <p>AES-256-CBC encryption for backups and WAL at rest, with TLS terminated at your reverse proxy or Cloudflare Tunnel for everything in transit.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 4 6v6c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V6l-8-4Z"/><path d="m9 12 2 2 4-4"/></svg></span>
+              <h3>Immutable repo (object-lock)</h3>
+              <p>Point a repository at an <strong>object-lock</strong> (WORM) bucket so backups can't be altered or deleted inside the retention window — ransomware-resistant by design.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 6a9 9 0 0 1-9 9"/><path d="M9 6h9M9 6 6 9"/></svg></span>
+              <h3>Meta-DB HA</h3>
+              <p>Run the control-plane metadata database with its own replica and backups, so the brain of the fleet is as recoverable as the instances it manages.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span>
+              <h3>Disk-full guard</h3>
+              <p>PgFleet watches free space and warns before a volume fills, so a runaway table or unrotated WAL can't quietly take an instance down.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8Z"/></svg></span>
+              <h3>Failover quorum</h3>
+              <p>A majority must agree the primary is gone before any promotion, so a transient network blip never triggers a split-brain failover.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M16 11l2 2 4-4"/></svg></span>
+              <h3>Least-privilege roles &amp; audit log</h3>
+              <p>Scope application access with least-privilege roles, and keep an <strong>audit log</strong> of who did what in the control plane for accountability.</p>
             </div>
           </div>
         </div>

@@ -59,6 +59,7 @@ type createClusterRequest struct {
 	Password   string            `json:"password"`
 	RepoType   string            `json:"repo_type"`
 	PGVersion  string            `json:"pg_version"`
+	PoolMode   string            `json:"pool_mode"`
 	Parameters map[string]string `json:"parameters"`
 	Extensions []string          `json:"extensions"`
 }
@@ -68,11 +69,12 @@ type clusterPayload struct {
 	Name       string `json:"name"`
 	Status     string `json:"status"`
 	RouterPort int    `json:"router_port"`
+	PoolMode   string `json:"pool_mode,omitempty"`
 	LastError  string `json:"last_error,omitempty"`
 }
 
 func toClusterPayload(c cluster.Cluster) clusterPayload {
-	return clusterPayload{ID: c.ID, Name: c.Name, Status: string(c.Status), RouterPort: c.RouterPort, LastError: c.LastError}
+	return clusterPayload{ID: c.ID, Name: c.Name, Status: string(c.Status), RouterPort: c.RouterPort, PoolMode: c.PoolMode, LastError: c.LastError}
 }
 
 // Create persists a cluster and provisions it asynchronously (202).
@@ -89,6 +91,7 @@ func (h *ClustersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	c, err := h.svc.Create(r.Context(), clusterctl.Input{
 		Name: req.Name, Replicas: req.Replicas, Password: req.Password,
 		RepoType: instance.RepoType(req.RepoType), Version: req.PGVersion,
+		PoolMode:   req.PoolMode,
 		Parameters: req.Parameters, Extensions: req.Extensions,
 	})
 	if err != nil {

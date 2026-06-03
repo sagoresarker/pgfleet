@@ -300,7 +300,10 @@ func (c *Controller) repointRouter(ctx context.Context, clu cluster.Cluster, new
 		User:          newPrimary.Superuser,
 		Password:      password,
 		AdminPassword: adminPassword,
-		Members:       provision.RouterMembersFromInstances(newPrimary.Name, replicaNames),
+		// Re-apply the cluster's persisted pool mode so a failover doesn't
+		// silently revert the router to the default (N8).
+		PoolMode: clu.PoolMode,
+		Members:  provision.RouterMembersFromInstances(newPrimary.Name, replicaNames),
 	}, nil)
 	if err != nil {
 		return err

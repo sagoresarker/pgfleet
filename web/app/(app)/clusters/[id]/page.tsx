@@ -16,6 +16,11 @@ import {
   EmptyState,
   SkeletonRows,
   Stat,
+  Table,
+  Td,
+  Th,
+  THead,
+  Tr,
   useToast,
 } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -90,7 +95,7 @@ export default function ClusterDetailPage() {
         </div>
       )}
 
-      <div className="mb-6 grid grid-cols-3 gap-4">
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card>
           <CardBody>
             <Stat label="Members" value={String(members.length)} sub={`1 primary · ${replicas.length} replicas`} />
@@ -152,7 +157,9 @@ export default function ClusterDetailPage() {
         </div>
       </div>
 
-      <PoolStatsPanel id={id} ready={ready} />
+      <div className="mt-6">
+        <PoolStatsPanel id={id} ready={ready} />
+      </div>
     </div>
   );
 }
@@ -170,7 +177,7 @@ function PoolStatsPanel({ id, ready }: { id: string; ready: boolean }) {
   const stats = q.data?.stats ?? [];
 
   return (
-    <Card className="mt-6">
+    <Card>
       <CardHeader>
         <CardTitle>Router pool · live</CardTitle>
         <span className="flex items-center gap-1.5 font-mono text-[11px] text-fg-faint">
@@ -192,46 +199,42 @@ function PoolStatsPanel({ id, ready }: { id: string; ready: boolean }) {
         ) : pools.length === 0 ? (
           <EmptyState icon={<Network className="h-5 w-5" />} title="No pools yet" description="The router has no active pools to report." />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-left text-sm">
-              <thead>
-                <tr className="border-b border-line bg-ink-800 font-mono text-[10px] uppercase tracking-wider text-fg-faint">
-                  <th className="px-5 py-2.5 font-medium">Pool</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Clients (active/wait/idle)</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Servers (active/idle)</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Max wait</th>
-                  <th className="px-5 py-2.5 text-right font-medium">Avg query</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pools.map((p, i) => {
-                  const s = stats.find((x) => x.database === p.database);
-                  return (
-                    <tr key={i} className="border-b border-line/60">
-                      <td className="px-5 py-2.5">
-                        <span className="font-display text-fg">{p.database}</span>
-                        <span className="ml-2 font-mono text-[11px] text-fg-faint">{p.pool_mode}</span>
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-mono text-xs tnum">
-                        <span className="text-fg">{p.cl_active}</span>
-                        <span className={"px-1 " + (p.cl_waiting > 0 ? "text-danger" : "text-fg-faint")}>/ {p.cl_waiting}</span>
-                        <span className="text-fg-faint">/ {p.cl_idle}</span>
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-mono text-xs text-fg-muted tnum">
-                        {p.sv_active} / {p.sv_idle}
-                      </td>
-                      <td className={"px-3 py-2.5 text-right font-mono text-xs tnum " + (p.maxwait > 0 ? "text-signal" : "text-fg-muted")}>
-                        {p.maxwait}s
-                      </td>
-                      <td className="px-5 py-2.5 text-right font-mono text-xs text-fg-muted tnum">
-                        {s ? `${(s.avg_query_time / 1000).toFixed(1)}ms` : "—"}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <Table>
+            <THead>
+              <Th>Pool</Th>
+              <Th align="right">Clients (active/wait/idle)</Th>
+              <Th align="right">Servers (active/idle)</Th>
+              <Th align="right">Max wait</Th>
+              <Th align="right">Avg query</Th>
+            </THead>
+            <tbody>
+              {pools.map((p, i) => {
+                const s = stats.find((x) => x.database === p.database);
+                return (
+                  <Tr key={i}>
+                    <Td>
+                      <span className="font-display text-fg">{p.database}</span>
+                      <span className="ml-2 font-mono text-[11px] text-fg-faint">{p.pool_mode}</span>
+                    </Td>
+                    <Td align="right" className="font-mono text-xs tnum">
+                      <span className="text-fg">{p.cl_active}</span>
+                      <span className={"px-1 " + (p.cl_waiting > 0 ? "text-danger" : "text-fg-faint")}>/ {p.cl_waiting}</span>
+                      <span className="text-fg-faint">/ {p.cl_idle}</span>
+                    </Td>
+                    <Td align="right" className="font-mono text-xs text-fg-muted tnum">
+                      {p.sv_active} / {p.sv_idle}
+                    </Td>
+                    <Td align="right" className={"font-mono text-xs tnum " + (p.maxwait > 0 ? "text-signal" : "text-fg-muted")}>
+                      {p.maxwait}s
+                    </Td>
+                    <Td align="right" className="font-mono text-xs text-fg-muted tnum">
+                      {s ? `${(s.avg_query_time / 1000).toFixed(1)}ms` : "—"}
+                    </Td>
+                  </Tr>
+                );
+              })}
+            </tbody>
+          </Table>
         )}
       </CardBody>
     </Card>

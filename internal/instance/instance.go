@@ -95,7 +95,11 @@ type Instance struct {
 	Extensions []string
 	// Public binds the published port to all interfaces (0.0.0.0) instead of
 	// the secure default (127.0.0.1).
-	Public    bool
+	Public bool
+	// Encrypted records whether this instance's pgBackRest repo was created with
+	// at-rest encryption. Stamped at stanza-create and immutable thereafter, so
+	// the conf is derived from this — never a live global flag.
+	Encrypted bool
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

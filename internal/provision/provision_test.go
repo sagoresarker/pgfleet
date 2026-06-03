@@ -54,6 +54,11 @@ func (m *memStore) SetPublic(_ context.Context, _ string, public bool) error {
 	return nil
 }
 
+func (m *memStore) SetEncrypted(_ context.Context, _ string, encrypted bool) error {
+	m.inst.Encrypted = encrypted
+	return nil
+}
+
 func newStore() *memStore {
 	return &memStore{
 		inst: instance.Instance{

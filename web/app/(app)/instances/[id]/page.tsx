@@ -23,12 +23,17 @@ import {
   Skeleton,
   SkeletonRows,
   Stat,
+  Table,
+  Td,
+  Th,
+  THead,
   Tooltip,
+  Tr,
   useToast,
 } from "@/components/ui";
 import { api, type Backup } from "@/lib/api";
 import { can, useAuth } from "@/lib/auth";
-import { formatBytes } from "@/lib/utils";
+import { cn, formatBytes } from "@/lib/utils";
 import * as Tabs from "@radix-ui/react-tabs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -74,11 +79,15 @@ export default function InstanceDetailPage() {
   const backupList = backups.data?.backups ?? [];
 
   // Tabs are addressable by URL hash (e.g. /instances/<id>#console) so other
-  // screens can deep-link straight to the SQL console.
+  // screens can deep-link straight to the SQL console. Only KNOWN tab ids are
+  // honored — a bogus hash (#doesnotexist) must fall back to Overview rather
+  // than leave the operator on a blank, no-tab-active panel (N11).
+  const knownTabs = ["overview", "databases", "roles", "backups", "analytics", "console", "logs", "timescaledb"];
   const [tab, setTab] = useState("overview");
   useEffect(() => {
     const h = typeof window !== "undefined" ? window.location.hash.replace("#", "") : "";
-    if (h) setTab(h);
+    if (h && knownTabs.includes(h)) setTab(h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   function changeTab(v: string) {
     setTab(v);
@@ -124,26 +133,35 @@ export default function InstanceDetailPage() {
       )}
 
       <Tabs.Root value={tab} onValueChange={changeTab}>
-        <Tabs.List className="mb-6 flex gap-1 overflow-x-auto border-b border-line">
-          {[
-            { value: "overview", label: "Overview" },
-            { value: "databases", label: "Databases" },
-            { value: "roles", label: "Roles" },
-            { value: "backups", label: "Backups" },
-            { value: "analytics", label: "Analytics" },
-            { value: "console", label: "SQL Console" },
-            { value: "logs", label: "Logs" },
-            ...(inst.extensions?.includes("timescaledb") ? [{ value: "timescaledb", label: "TimescaleDB" }] : []),
-          ].map((t) => (
-            <Tabs.Trigger
-              key={t.value}
-              value={t.value}
-              className="shrink-0 cursor-pointer border-b-2 border-transparent px-4 py-2.5 font-display text-sm text-fg-muted transition-colors hover:text-fg data-[state=active]:border-azure data-[state=active]:text-fg"
-            >
-              {t.label}
-            </Tabs.Trigger>
-          ))}
-        </Tabs.List>
+        {/* Edge-faded horizontal scroller: on narrow widths the tab strip
+            scrolls instead of wrapping/overflowing, and the right fade hints
+            there is more to reveal. */}
+        <div className="relative mb-6 border-b border-line">
+          <Tabs.List className="-mb-px flex gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {[
+              { value: "overview", label: "Overview" },
+              { value: "databases", label: "Databases" },
+              { value: "roles", label: "Roles" },
+              { value: "backups", label: "Backups" },
+              { value: "analytics", label: "Analytics" },
+              { value: "console", label: "Console" },
+              { value: "logs", label: "Logs" },
+              ...(inst.extensions?.includes("timescaledb") ? [{ value: "timescaledb", label: "TimescaleDB" }] : []),
+            ].map((t) => (
+              <Tabs.Trigger
+                key={t.value}
+                value={t.value}
+                className="shrink-0 cursor-pointer whitespace-nowrap rounded-t-md border-b-2 border-transparent px-3.5 py-2.5 font-display text-sm tracking-tight text-fg-muted transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-azure/50 data-[state=active]:border-azure data-[state=active]:text-fg"
+              >
+                {t.label}
+              </Tabs.Trigger>
+            ))}
+          </Tabs.List>
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-ink-950 to-transparent"
+          />
+        </div>
 
         <Tabs.Content value="overview" className="focus:outline-none">
           <OverviewTab
@@ -512,7 +530,14 @@ function BackupsTab({
             {backupList.map((b) => (
               <li key={b.id} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-4 px-5 py-3.5">
                 <div className="min-w-0">
-                  <div className="truncate font-mono text-xs text-fg">{b.label}</div>
+                  <div className="flex items-center gap-2">
+                    <span className="truncate font-mono text-xs text-fg">{b.label}</span>
+                    {b.annotations?.name && (
+                      <span className="shrink-0 rounded border border-violet/30 bg-violet/10 px-1.5 py-0.5 font-mono text-[10px] text-violet">
+                        {b.annotations.name}
+                      </span>
+                    )}
+                  </div>
                   <div className="truncate font-mono text-[11px] text-fg-faint">
                     {b.wal_start} → {b.wal_stop}
                   </div>
@@ -678,28 +703,24 @@ function DatabasesBody({ loading, err, rows }: { loading: boolean; err: string |
       ) : rows.length === 0 ? (
         <EmptyState icon={<Database className="h-5 w-5" />} title="No databases" description="This instance has no non-template databases." />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-left text-sm">
-            <thead>
-              <tr className="border-b border-line bg-ink-800 font-mono text-[10px] uppercase tracking-wider text-fg-faint">
-                <th className="px-5 py-2.5 font-medium">Database</th>
-                <th className="px-5 py-2.5 font-medium">Owner</th>
-                <th className="px-5 py-2.5 font-medium">Encoding</th>
-                <th className="px-5 py-2.5 text-right font-medium">Size</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={i} className="border-b border-line/60 transition-colors hover:bg-ink-800/50">
-                  <td className="px-5 py-2.5 font-display text-fg">{String(r[0])}</td>
-                  <td className="px-5 py-2.5 font-mono text-xs text-fg-muted">{String(r[1])}</td>
-                  <td className="px-5 py-2.5 font-mono text-xs text-fg-muted">{String(r[2])}</td>
-                  <td className="px-5 py-2.5 text-right font-mono text-xs text-fg-muted tnum">{String(r[3])}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Table>
+          <THead>
+            <Th>Database</Th>
+            <Th>Owner</Th>
+            <Th>Encoding</Th>
+            <Th align="right">Size</Th>
+          </THead>
+          <tbody>
+            {rows.map((r, i) => (
+              <Tr key={i}>
+                <Td className="font-display text-fg">{String(r[0])}</Td>
+                <Td className="font-mono text-xs text-fg-muted">{String(r[1])}</Td>
+                <Td className="font-mono text-xs text-fg-muted">{String(r[2])}</Td>
+                <Td align="right" className="font-mono text-xs text-fg-muted tnum">{String(r[3])}</Td>
+              </Tr>
+            ))}
+          </tbody>
+        </Table>
       )}
     </CardBody>
   );
@@ -711,8 +732,10 @@ function CreateDatabaseModal({ id, open, onOpenChange }: { id: string; open: boo
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const create = useMutation({
-    // Identifier is validated client-side and quoted server-side via the SQL runner.
-    mutationFn: () => api.runSQL(id, `CREATE DATABASE "${name}"`),
+    // The /sql runner executes raw operator SQL (no server-side quoting), so the
+    // identifier is gated by the name regex below AND double-quote-escaped here
+    // (doubling any ") so it is always a single safe quoted identifier (N7).
+    mutationFn: () => api.runSQL(id, `CREATE DATABASE "${name.replace(/"/g, '""')}"`),
     onSuccess: () => {
       toast.push(`Database ${name} created`, "healthy");
       setName("");
@@ -767,11 +790,13 @@ function CreateRoleModal({ id, open, onOpenChange }: { id: string; open: boolean
   const [error, setError] = useState<string | null>(null);
   const create = useMutation({
     // Least-privilege by default: a LOGIN role with none of the elevated
-    // attributes. Identifier is regex-validated; the password literal is escaped.
+    // attributes. /sql runs raw operator SQL, so we escape both the identifier
+    // (double any ") and the password literal (double any ') here; the role name
+    // is also regex-gated below.
     mutationFn: () =>
       api.runSQL(
         id,
-        `CREATE ROLE "${name}" LOGIN PASSWORD '${password.replace(/'/g, "''")}' NOSUPERUSER NOCREATEDB NOCREATEROLE`,
+        `CREATE ROLE "${name.replace(/"/g, '""')}" LOGIN PASSWORD '${password.replace(/'/g, "''")}' NOSUPERUSER NOCREATEDB NOCREATEROLE`,
       ),
     onSuccess: () => {
       toast.push(`Role ${name} created`, "healthy");
@@ -878,32 +903,28 @@ function RolesTab({ id, running, writable }: { id: string; running: boolean; wri
         ) : rows.length === 0 ? (
           <EmptyState icon={<Users className="h-5 w-5" />} title="No roles" description="This instance has no roles." />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-left text-sm">
-              <thead>
-                <tr className="border-b border-line bg-ink-800 font-mono text-[10px] uppercase tracking-wider text-fg-faint">
-                  <th className="px-5 py-2.5 font-medium">Role</th>
-                  <th className="px-5 py-2.5 font-medium">Attributes</th>
-                  <th className="px-5 py-2.5 text-right font-medium">Conn limit</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, i) => (
-                  <tr key={i} className="border-b border-line/60 transition-colors hover:bg-ink-800/50">
-                    <td className="px-5 py-2.5 font-display text-fg">{String(r[0])}</td>
-                    <td className="px-5 py-2.5">
-                      <div className="flex flex-wrap gap-1.5">
-                        {String(r[1]) === "true" && <Badge tone="danger">superuser</Badge>}
-                        {String(r[2]) === "true" && <Badge tone="azure">createdb</Badge>}
-                        {String(r[3]) === "true" ? <Badge tone="healthy">login</Badge> : <Badge tone="neutral">no login</Badge>}
-                      </div>
-                    </td>
-                    <td className="px-5 py-2.5 text-right font-mono text-xs text-fg-muted tnum">{String(r[4])}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table>
+            <THead>
+              <Th>Role</Th>
+              <Th>Attributes</Th>
+              <Th align="right">Conn limit</Th>
+            </THead>
+            <tbody>
+              {rows.map((r, i) => (
+                <Tr key={i}>
+                  <Td className="font-display text-fg">{String(r[0])}</Td>
+                  <Td>
+                    <div className="flex flex-wrap gap-1.5">
+                      {String(r[1]) === "true" && <Badge tone="danger">superuser</Badge>}
+                      {String(r[2]) === "true" && <Badge tone="azure">createdb</Badge>}
+                      {String(r[3]) === "true" ? <Badge tone="healthy">login</Badge> : <Badge tone="neutral">no login</Badge>}
+                    </div>
+                  </Td>
+                  <Td align="right" className="font-mono text-xs text-fg-muted tnum">{String(r[4])}</Td>
+                </Tr>
+              ))}
+            </tbody>
+          </Table>
         )}
       </CardBody>
     </Card>
@@ -934,29 +955,17 @@ function OverviewTab({
   const engine = extensions?.includes("timescaledb") ? "TimescaleDB" : "PostgreSQL";
   return (
     <div className="space-y-6">
-      <LiveOverviewStats id={id} running={running} engine={engine} />
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <Card>
-          <CardBody>
-            <Stat label="Backups" value={String(backupCount)} />
-          </CardBody>
-        </Card>
-        <Card>
-          <CardBody>
-            <Stat label="Repository" value={repoType.toUpperCase()} />
-          </CardBody>
-        </Card>
-        <Card>
-          <CardBody>
-            <Stat label="Host port" value={hostPort ? String(hostPort) : "—"} />
-          </CardBody>
-        </Card>
-        <Card>
-          <CardBody>
-            <Stat label="Exposure" value={isPublic ? "Public" : "Private"} tone={isPublic ? "signal" : undefined} />
-          </CardBody>
-        </Card>
-      </div>
+      {/* One coherent overview: prominent live metrics up top, then a compact
+          metadata strip for the static facts — no redundant pile of cards. */}
+      <OverviewStats
+        id={id}
+        running={running}
+        engine={engine}
+        repoType={repoType}
+        hostPort={hostPort}
+        isPublic={isPublic}
+        backupCount={backupCount}
+      />
 
       <ConnectionCard id={id} />
 
@@ -967,17 +976,17 @@ function OverviewTab({
           </CardHeader>
           <CardBody className="space-y-4">
             {paramEntries.length > 0 && (
-              <div className="space-y-1.5">
+              <dl className="grid gap-x-8 gap-y-1.5 sm:grid-cols-2">
                 {paramEntries.map(([k, v]) => (
-                  <div key={k} className="flex items-center justify-between gap-4 font-mono text-xs">
-                    <span className="text-fg-muted">{k}</span>
-                    <span className="text-fg">{v}</span>
+                  <div key={k} className="flex items-center justify-between gap-4 border-b border-line/60 py-1.5 font-mono text-xs last:border-0">
+                    <dt className="text-fg-muted">{k}</dt>
+                    <dd className="text-fg tnum">{v}</dd>
                   </div>
                 ))}
-              </div>
+              </dl>
             )}
             {(extensions?.length ?? 0) > 0 && (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 pt-1">
                 {extensions!.map((e) => (
                   <span key={e} className="rounded-md border border-azure/40 bg-azure/10 px-2 py-1 font-mono text-[11px] text-azure">
                     {e}
@@ -992,8 +1001,28 @@ function OverviewTab({
   );
 }
 
-/* Live, at-a-glance stats pulled in one round-trip while the instance runs. */
-function LiveOverviewStats({ id, running, engine }: { id: string; running: boolean; engine: string }) {
+/* A single, designed overview stats area:
+ *  - a row of PRIMARY live metrics (the numbers an operator watches), and
+ *  - a compact METADATA strip of static facts (engine, repo, port, exposure).
+ * The two database/role counts that used to duplicate the Databases/Roles tabs
+ * are dropped; size + connections are what matter at a glance here. */
+function OverviewStats({
+  id,
+  running,
+  engine,
+  repoType,
+  hostPort,
+  isPublic,
+  backupCount,
+}: {
+  id: string;
+  running: boolean;
+  engine: string;
+  repoType: string;
+  hostPort: number;
+  isPublic: boolean;
+  backupCount: number;
+}) {
   const q = useQuery({
     queryKey: ["overview-live", id],
     enabled: running,
@@ -1011,37 +1040,62 @@ function LiveOverviewStats({ id, running, engine }: { id: string; running: boole
   });
   const r = q.data?.rows?.[0];
   const v = (i: number) => (r ? String(r[i]) : running ? "…" : "—");
+
+  const meta: { label: string; value: string; tone?: "signal" | "violet" }[] = [
+    { label: "Engine", value: engine, tone: engine === "TimescaleDB" ? "violet" : undefined },
+    { label: "Repository", value: repoType.toUpperCase() },
+    { label: "Host port", value: hostPort ? String(hostPort) : "—" },
+    { label: "Exposure", value: isPublic ? "Public" : "Private", tone: isPublic ? "signal" : undefined },
+    { label: "Databases", value: v(1) },
+    { label: "Roles", value: v(2) },
+  ];
+
   return (
-    <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
-      <Card>
-        <CardBody>
-          <Stat label="Engine" value={engine} tone={engine === "TimescaleDB" ? "violet" : undefined} />
-        </CardBody>
-      </Card>
-      <Card>
-        <CardBody>
-          <Stat label="Uptime" value={v(4)} />
-        </CardBody>
-      </Card>
-      <Card>
-        <CardBody>
-          <Stat label="Connections" value={v(0)} />
-        </CardBody>
-      </Card>
-      <Card>
-        <CardBody>
-          <Stat label="Total size" value={v(3)} />
-        </CardBody>
-      </Card>
-      <Card>
-        <CardBody>
-          <Stat label="Databases" value={v(1)} />
-        </CardBody>
-      </Card>
-      <Card>
-        <CardBody>
-          <Stat label="Roles" value={v(2)} />
-        </CardBody>
+    <div className="space-y-4">
+      {/* Primary metrics — the live numbers worth watching. */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <Card>
+          <CardBody>
+            <Stat label="Total size" value={v(3)} />
+          </CardBody>
+        </Card>
+        <Card>
+          <CardBody>
+            <Stat label="Connections" value={v(0)} />
+          </CardBody>
+        </Card>
+        <Card>
+          <CardBody>
+            <Stat label="Uptime" value={v(4)} />
+          </CardBody>
+        </Card>
+        <Card>
+          <CardBody>
+            <Stat label="Backups" value={String(backupCount)} tone={backupCount === 0 ? "signal" : undefined} />
+          </CardBody>
+        </Card>
+      </div>
+
+      {/* Metadata strip — static facts, denser and visually subordinate.
+          Cells share hairline rules via a 1px-gap grid over the line colour;
+          robust across every breakpoint with no fragile nth-child math. */}
+      <Card className="overflow-hidden">
+        <dl className="grid grid-cols-2 gap-px bg-line sm:grid-cols-3 lg:grid-cols-6">
+          {meta.map((m) => (
+            <div key={m.label} className="flex flex-col gap-1 bg-ink-900 px-5 py-3.5">
+              <dt className="font-mono text-[10px] uppercase tracking-wider text-fg-faint">{m.label}</dt>
+              <dd
+                className={cn(
+                  "font-display text-base tnum text-fg",
+                  m.tone === "signal" && "text-signal",
+                  m.tone === "violet" && "text-violet",
+                )}
+              >
+                {m.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
       </Card>
     </div>
   );

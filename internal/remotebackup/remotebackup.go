@@ -26,6 +26,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"regexp"
 	"strconv"
 	"strings"
@@ -88,6 +89,18 @@ func (c RemoteConn) Validate() error {
 	}
 	if c.SSLMode != "" && !validSSLModes[c.SSLMode] {
 		return apperr.New(apperr.KindInvalid, "remotebackup: invalid sslmode "+strconv.Quote(c.SSLMode))
+	}
+	// N6: reject the cloud-metadata / link-local range. Adopting a DB on a
+	// private network is legitimate (so RFC1918/loopback stay allowed), but
+	// 169.254.0.0/16 never hosts a real Postgres and is the classic SSRF probe
+	// target. Only literal IPs are checked here — pg_dump does its own dialing,
+	// so a DNS name that resolves to metadata isn't caught; the operator is
+	// write-RBAC-gated and this speaks the PG wire protocol, not HTTP.
+	if ip := net.ParseIP(strings.TrimSpace(c.Host)); ip != nil {
+		if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
+			ip.Equal(net.ParseIP("169.254.169.254")) || ip.Equal(net.ParseIP("fd00:ec2::254")) {
+			return apperr.New(apperr.KindInvalid, "remotebackup: host is a blocked link-local/metadata address")
+		}
 	}
 	return nil
 }

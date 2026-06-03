@@ -294,10 +294,11 @@ func (h *InstancesHandler) lifecycle(w http.ResponseWriter, r *http.Request, fn 
 
 // Destroy removes an instance. ?retain_backups=true keeps the backup repo.
 //
-// Directly destroying a cluster PRIMARY is refused: tearing the primary out
-// from under its replicas leaves the cluster headless and the replicas
-// orphaned. The operator must destroy the CLUSTER instead, which removes its
-// members in the correct order. Replicas and standalones are unaffected.
+// Directly destroying any CLUSTER MEMBER is refused: tearing a primary out from
+// under its replicas leaves the cluster headless, and tearing out a replica
+// leaks its replication slot on the primary (which pins WAL). The operator must
+// destroy the CLUSTER instead, which removes its members in the correct order
+// and drops the slots. Standalones are unaffected.
 func (h *InstancesHandler) Destroy(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	inst, err := h.store.Get(r.Context(), id)
@@ -305,9 +306,9 @@ func (h *InstancesHandler) Destroy(w http.ResponseWriter, r *http.Request) {
 		respondError(w, err)
 		return
 	}
-	if inst.Role == instance.RolePrimary && inst.ClusterID != "" {
+	if inst.ClusterID != "" {
 		respondError(w, apperr.New(apperr.KindConflict,
-			"cannot destroy a cluster primary directly; destroy the cluster "+inst.ClusterID+" instead (it tears down members in order)"))
+			"cannot destroy a cluster member directly; destroy the cluster "+inst.ClusterID+" instead (it tears down members in order and drops replication slots)"))
 		return
 	}
 	retain := r.URL.Query().Get("retain_backups") == "true"

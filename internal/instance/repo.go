@@ -32,7 +32,7 @@ func NewRepository(pool *pgxpool.Pool, cipher *secrets.Cipher) *Repository {
 
 const instanceColumns = `id, name, status, image, pg_version, container_id,
 	host_port, data_volume, repo_type, stanza, superuser, last_error,
-	COALESCE(cluster_id::text, ''), role, parameters, extensions, public, created_at, updated_at`
+	COALESCE(cluster_id::text, ''), role, parameters, extensions, public, encrypted, created_at, updated_at`
 
 // Create provisions an instance row with an encrypted superuser password.
 func (r *Repository) Create(ctx context.Context, in NewInstance) (Instance, error) {
@@ -103,6 +103,12 @@ func (r *Repository) SetRole(ctx context.Context, id string, role Role) error {
 // SetPublic updates an instance's network-exposure flag.
 func (r *Repository) SetPublic(ctx context.Context, id string, public bool) error {
 	return r.exec(ctx, `UPDATE instances SET public = $2, updated_at = now() WHERE id = $1`, id, public)
+}
+
+// SetEncrypted stamps whether the instance's pgBackRest repo was created with
+// at-rest encryption. Set once, at stanza-create; never changed afterward.
+func (r *Repository) SetEncrypted(ctx context.Context, id string, encrypted bool) error {
+	return r.exec(ctx, `UPDATE instances SET encrypted = $2, updated_at = now() WHERE id = $1`, id, encrypted)
 }
 
 func (r *Repository) queryMany(ctx context.Context, query string, args ...any) ([]Instance, error) {
@@ -202,7 +208,7 @@ func scanInstance(row rowScanner) (Instance, error) {
 	var i Instance
 	err := row.Scan(&i.ID, &i.Name, &i.Status, &i.Image, &i.PGVersion, &i.ContainerID,
 		&i.HostPort, &i.DataVolume, &i.RepoType, &i.Stanza, &i.Superuser, &i.LastError,
-		&i.ClusterID, &i.Role, &i.Parameters, &i.Extensions, &i.Public, &i.CreatedAt, &i.UpdatedAt)
+		&i.ClusterID, &i.Role, &i.Parameters, &i.Extensions, &i.Public, &i.Encrypted, &i.CreatedAt, &i.UpdatedAt)
 	return i, err
 }
 

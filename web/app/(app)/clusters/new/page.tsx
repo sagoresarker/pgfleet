@@ -17,6 +17,7 @@ export default function NewClusterPage() {
   const [replicas, setReplicas] = useState(1);
   const [repoType, setRepoType] = useState<"s3" | "local">("local");
   const [pgVersion, setPgVersion] = useState("16");
+  const [poolMode, setPoolMode] = useState<"transaction" | "session">("transaction");
   const [password, setPassword] = useState("");
   const [paramRows, setParamRows] = useState<ParamRow[]>([]);
   const [exts, setExts] = useState<string[]>([]);
@@ -39,6 +40,7 @@ export default function NewClusterPage() {
         password,
         repo_type: repoType,
         pg_version: pgVersion,
+        pool_mode: poolMode,
         parameters: Object.keys(parameters).length ? parameters : undefined,
         extensions: exts.length ? exts : undefined,
       });
@@ -138,6 +140,15 @@ export default function NewClusterPage() {
                       {v}
                     </option>
                   ))}
+                </Select>
+              </Field>
+              <Field
+                label="Router pool mode"
+                hint="Transaction pooling shares server connections per transaction (best for many short-lived clients); session keeps one server connection per client."
+              >
+                <Select value={poolMode} onChange={(e) => setPoolMode(e.target.value as "transaction" | "session")}>
+                  <option value="transaction">Transaction (recommended)</option>
+                  <option value="session">Session</option>
                 </Select>
               </Field>
               <Field label="Superuser password *" hint="Min 8 characters.">

@@ -157,8 +157,24 @@ func Load(getenv func(string) string) (*Config, error) {
 	if err := validateWebhookURL(cfg.AlertWebhookURL); err != nil {
 		return nil, err
 	}
+	if err := validateRepo2Path(cfg.Repo2Path); err != nil {
+		return nil, err
+	}
 
 	return cfg, nil
+}
+
+// validateRepo2Path accepts empty (no second repo) or an absolute, trimmed path.
+// A relative/whitespace value would silently mis-target the 3-2-1 second repo, so
+// it fails fast.
+func validateRepo2Path(v string) error {
+	if v == "" {
+		return nil
+	}
+	if v != strings.TrimSpace(v) || !strings.HasPrefix(v, "/") {
+		return fmt.Errorf("PGFLEET_REPO2_PATH: %q must be an absolute path (start with /) with no surrounding whitespace", v)
+	}
+	return nil
 }
 
 // validateBindAddress requires a bare IP literal (IPv4 or IPv6). Hostnames and

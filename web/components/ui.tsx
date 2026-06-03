@@ -187,6 +187,47 @@ export function Stat({ label, value, sub, tone }: { label: string; value: string
   );
 }
 
+/* ---- Table ---- *
+ * One consistent data-table surface used by every tabular list (databases,
+ * roles, router pool, …) so they share the same hairline rows, sticky-feel
+ * header, hover affordance and numeric alignment. Wrap in CardBody p-0; the
+ * x-scroll keeps wide tables inside their card on narrow screens. */
+export function Table({ className, ...props }: HTMLAttributes<HTMLTableElement>) {
+  return (
+    <div className="overflow-x-auto">
+      <table className={cn("w-full border-collapse text-left text-sm", className)} {...props} />
+    </div>
+  );
+}
+
+export function THead({ children }: { children: ReactNode }) {
+  return (
+    <thead>
+      <tr className="border-b border-line bg-ink-800 font-mono text-[10px] uppercase tracking-wider text-fg-faint">
+        {children}
+      </tr>
+    </thead>
+  );
+}
+
+export function Th({ className, align, ...props }: HTMLAttributes<HTMLTableCellElement> & { align?: "right" }) {
+  return (
+    <th
+      scope="col"
+      className={cn("px-5 py-2.5 font-medium", align === "right" && "text-right", className)}
+      {...props}
+    />
+  );
+}
+
+export function Tr({ className, ...props }: HTMLAttributes<HTMLTableRowElement>) {
+  return <tr className={cn("border-b border-line/60 transition-colors hover:bg-ink-800/50", className)} {...props} />;
+}
+
+export function Td({ className, align, ...props }: HTMLAttributes<HTMLTableCellElement> & { align?: "right" }) {
+  return <td className={cn("px-5 py-2.5", align === "right" && "text-right", className)} {...props} />;
+}
+
 /* ---- Skeleton ---- *
  * Shimmer placeholders. The UX guidance prefers skeletons over blocking
  * spinners for anything that can take >300ms (a fleet/list/metrics fetch), so
