@@ -23,6 +23,7 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/health"
 	"github.com/sagoresarker/pgfleet/internal/instance"
 	"github.com/sagoresarker/pgfleet/internal/logging"
+	"github.com/sagoresarker/pgfleet/internal/metabackup"
 	"github.com/sagoresarker/pgfleet/internal/metrics"
 	"github.com/sagoresarker/pgfleet/internal/objectstore"
 	"github.com/sagoresarker/pgfleet/internal/provision"
@@ -55,6 +56,11 @@ const healthInterval = 5 * time.Minute
 const drillInterval = 24 * time.Hour
 
 const alertsInterval = 1 * time.Minute
+
+// metaBackupInterval is how often the control plane dumps its own meta DB to the
+// object store; metaBackupRetain is how many dumps it keeps.
+const metaBackupInterval = 6 * time.Hour
+const metaBackupRetain = 28 // ~1 week at 6h cadence
 
 // asyncDrainTimeout bounds how long shutdown waits for in-flight provisioning.
 const asyncDrainTimeout = 60 * time.Second
@@ -186,6 +192,19 @@ func run() error {
 	sched.Register("restore-drills", drillInterval, func(ctx context.Context) error {
 		return runRestoreDrills(ctx, instances, provisioner, healthStore)
 	})
+	// Meta-DB self-backup: dump the control plane's own state to the external
+	// object store so it can be reconstructed after a meta-DB loss. Only when an
+	// object store is configured (a local-only meta backup would defeat the
+	// purpose).
+	if cfg.S3Endpoint != "" && cfg.S3Bucket != "" {
+		metaBak := metabackup.New(s3)
+		sched.Register("meta-db-backup", metaBackupInterval, func(ctx context.Context) error {
+			if _, err := metaBak.Backup(ctx, cfg.MetaDBDSN); err != nil {
+				return err
+			}
+			return metaBak.Prune(ctx, metaBackupRetain)
+		})
+	}
 	sched.Start(ctx)
 	defer sched.Stop()
 
