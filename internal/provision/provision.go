@@ -313,7 +313,12 @@ func redactSecrets(s string) string {
 }
 
 func assignedPort(state docker.ContainerState) (int, error) {
-	hp, ok := state.Ports[fmt.Sprintf("%d/tcp", pgPort)]
+	return portFor(state, pgPort)
+}
+
+// portFor returns the host port mapped to the given container port.
+func portFor(state docker.ContainerState, containerPort int) (int, error) {
+	hp, ok := state.Ports[fmt.Sprintf("%d/tcp", containerPort)]
 	if !ok || hp == "" {
 		return 0, apperr.New(apperr.KindInternal, "provision: no host port assigned")
 	}
