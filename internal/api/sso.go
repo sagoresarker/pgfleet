@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"net/http"
 	"strings"
@@ -12,6 +13,10 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/auth"
 	"github.com/sagoresarker/pgfleet/internal/user"
 )
+
+// ssoSecretHeader is the header the trusted proxy injects with SSOConfig's
+// SharedSecret, proving the request transited the proxy (not a direct client).
+const ssoSecretHeader = "X-Pgfleet-Sso-Secret"
 
 // SSOUserStore is the subset of the user repository the SSO handler needs.
 type SSOUserStore interface {
@@ -34,6 +39,11 @@ type SSOConfig struct {
 	AutoProvision bool   // create a PgFleet user on first SSO login
 	AdminGroup    string // group name that maps to the admin role
 	OperatorGroup string // group name that maps to the operator role
+	// SharedSecret, when set, must be presented by the proxy in the
+	// X-Pgfleet-Sso-Secret header on EVERY exchange — a defense-in-depth
+	// provenance check so a request that reaches the API directly (off-proxy,
+	// e.g. a firewall misconfig) cannot forge an identity header to mint a token.
+	SharedSecret string
 }
 
 // Enabled reports whether SSO is configured.
@@ -77,6 +87,17 @@ func (h *SSOHandler) WithAudit(rec AuditRecorder) *SSOHandler {
 // Exchange reads the trusted identity header and returns a PgFleet token + user
 // (the same shape as password login) so the frontend can establish a session.
 func (h *SSOHandler) Exchange(w http.ResponseWriter, r *http.Request) {
+	// Proxy-provenance gate: when a shared secret is configured, the request MUST
+	// carry it (injected only by the trusted proxy). This fails closed so a direct
+	// off-proxy request cannot forge the identity header — turning a single
+	// network misconfig into instant admin. Constant-time compare.
+	if h.cfg.SharedSecret != "" {
+		if subtle.ConstantTimeCompare([]byte(r.Header.Get(ssoSecretHeader)), []byte(h.cfg.SharedSecret)) != 1 {
+			respondError(w, apperr.New(apperr.KindUnauthorized, "single sign-on: missing or invalid proxy secret"))
+			return
+		}
+	}
+
 	email := strings.TrimSpace(r.Header.Get(h.cfg.EmailHeader))
 	if email == "" {
 		// No upstream identity — the caller did not come through the IdP proxy.

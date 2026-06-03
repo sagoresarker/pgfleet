@@ -37,6 +37,16 @@ type RestoreOptions struct {
 // volumes), then starts the instance so Postgres recovers to the target and
 // promotes. For PITR pass Type="time" and Target=<timestamp>.
 func (p *Provisioner) Restore(ctx context.Context, id string, opts RestoreOptions, progress ProgressFunc) error {
+	// Serialize per instance: a restore stops the live container, builds a fresh
+	// data volume, then SWAPS it in and deletes the old one. Two restores (a
+	// double-submit/retry, or a restore racing a visibility flip) interleaving in
+	// that swap could delete each other's volumes and leave the instance pointing
+	// at a removed volume — total loss of the live data copy. The op mutex makes
+	// them sequential so each runs against fresh, committed state.
+	mu := p.instanceOpMutex(id)
+	mu.Lock()
+	defer mu.Unlock()
+
 	if err := p.restore(ctx, id, opts, progress); err != nil {
 		_ = p.repo.SetStatus(ctx, id, instance.StatusError, err.Error())
 		return err
@@ -207,7 +217,16 @@ func (p *Provisioner) runRestoreContainer(ctx context.Context, inst instance.Ins
 		"chown postgres:postgres " + confPath,
 		shellJoin(asPostgres(restoreArgs)),
 		// Drive recovery to the target and promote, then shut down cleanly.
-		"gosu postgres pg_ctl -D " + pgDataPath + " -w -t 600 start",
+		// archive_mode=off so this not-yet-committed recovery does NOT archive its
+		// new (post-promotion) timeline into the live repository — otherwise a
+		// restore that later fails and rolls back would permanently pollute the
+		// repo with divergent-timeline WAL/history, corrupting future PITR target
+		// resolution. archive_mode is a postmaster setting, so it takes effect at
+		// this fresh start; restore_command (archive-get) for WAL replay is
+		// independent of it. After the swap commits, the real instance container
+		// starts with archive_mode=on and flushes any pending archive (incl. the
+		// new .history) normally.
+		"gosu postgres pg_ctl -D " + pgDataPath + " -o '-c archive_mode=off' -w -t 600 start",
 		"gosu postgres pg_ctl -D " + pgDataPath + " -m fast -w stop",
 	}, "\n")
 

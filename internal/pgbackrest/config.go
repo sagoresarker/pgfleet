@@ -104,10 +104,16 @@ func BackrestConf(c InstanceConf) (string, error) {
 	}
 
 	// Optional second posix repo. pgBackRest writes every backup to both repos,
-	// mirroring repo1's retention.
+	// mirroring repo1's retention. Cipher is configured PER REPO, so when at-rest
+	// encryption is on, repo2 must carry the SAME cipher as repo1 — otherwise its
+	// copy of every backup is written in plaintext (a silent encryption breach).
 	if c.Repo2Path != "" {
 		fmt.Fprintf(&b, "repo2-type=posix\n")
 		fmt.Fprintf(&b, "repo2-path=%s\n", c.Repo2Path)
+		if c.CipherPass != "" {
+			fmt.Fprintf(&b, "repo2-cipher-type=aes-256-cbc\n")
+			fmt.Fprintf(&b, "repo2-cipher-pass=%s\n", c.CipherPass)
+		}
 		fmt.Fprintf(&b, "repo2-retention-full=%d\n", retention)
 	}
 

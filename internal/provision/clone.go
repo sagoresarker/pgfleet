@@ -68,6 +68,17 @@ func (p *Provisioner) clone(ctx context.Context, cloneID string, source instance
 		return err
 	}
 
+	// Inherit the source's at-rest encryption policy. The clone gets its OWN new
+	// repo (with its own derived cipher key), but if the source's backups are
+	// encrypted the clone's must be too — otherwise cloning an encrypted instance
+	// silently produces a plaintext backup repo (a confidentiality regression).
+	if clone.Encrypted != source.Encrypted {
+		clone.Encrypted = source.Encrypted
+		if serr := p.repo.SetEncrypted(ctx, cloneID, clone.Encrypted); serr != nil {
+			return serr
+		}
+	}
+
 	// Pre-flight: a clone restores from the SOURCE's latest backup, so the source
 	// must actually have one. In the normal flow the API layer captures a fresh
 	// full backup of the source before invoking Clone, so this check passes; it

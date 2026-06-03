@@ -27,7 +27,7 @@ import (
 func (p *Provisioner) SetVisibility(ctx context.Context, id string, public bool) error {
 	// Serialize flips per instance so two concurrent calls cannot race on the
 	// remove/create sequence.
-	mu := p.instanceVisMutex(id)
+	mu := p.instanceOpMutex(id)
 	mu.Lock()
 	defer mu.Unlock()
 

@@ -67,7 +67,7 @@ func InstanceCompose(in InstanceComposeInput) string {
 	b.WriteString("# set POSTGRES_PASSWORD in a .env file next to this compose file.\n")
 	b.WriteString("version: \"3.8\"\n\n")
 	b.WriteString("services:\n")
-	writeInstanceService(&b, in.Name, in.Image, in.Superuser, in.RepoType, port, dependsOn(nil))
+	writeInstanceService(&b, in.Name, in.Image, in.Superuser, in.RepoType, port, port, dependsOn(nil))
 	b.WriteString("\n")
 
 	b.WriteString("volumes:\n")
@@ -97,11 +97,14 @@ func ClusterCompose(in ClusterComposeInput) string {
 	b.WriteString("version: \"3.8\"\n\n")
 	b.WriteString("services:\n")
 
-	// Primary first; replicas stream from it, so they depend_on it.
-	writeInstanceService(&b, in.PrimaryName, in.Image, in.Superuser, in.RepoType, port, dependsOn(nil))
+	// Primary first; replicas stream from it, so they depend_on it. Each member's
+	// Postgres listens on the same CONTAINER port (5432), but they must publish on
+	// DISTINCT HOST ports — otherwise `docker compose up` fails with "port is
+	// already allocated" the moment a cluster has ≥1 replica.
+	writeInstanceService(&b, in.PrimaryName, in.Image, in.Superuser, in.RepoType, port, port, dependsOn(nil))
 	b.WriteString("\n")
-	for _, r := range in.Replicas {
-		writeInstanceService(&b, r, in.Image, in.Superuser, in.RepoType, port,
+	for i, r := range in.Replicas {
+		writeInstanceService(&b, r, in.Image, in.Superuser, in.RepoType, port+1+i, port,
 			dependsOn([]string{containerName(in.PrimaryName)}))
 		b.WriteString("\n")
 	}
@@ -130,7 +133,7 @@ func dependsOn(names []string) []string { return names }
 
 // writeInstanceService writes one Postgres service block (2-space indent under
 // services:). The password is always the ${POSTGRES_PASSWORD} placeholder.
-func writeInstanceService(b *strings.Builder, name, image, superuser, repoType string, port int, deps []string) {
+func writeInstanceService(b *strings.Builder, name, image, superuser, repoType string, hostPort, containerPort int, deps []string) {
 	svc := containerName(name)
 	su := superuser
 	if su == "" {
@@ -146,7 +149,7 @@ func writeInstanceService(b *strings.Builder, name, image, superuser, repoType s
 	b.WriteString("      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}\n")
 	b.WriteString("      POSTGRES_DB: postgres\n")
 	b.WriteString("    ports:\n")
-	fmt.Fprintf(b, "      - \"%d:%d\"\n", port, port)
+	fmt.Fprintf(b, "      - \"%d:%d\"\n", hostPort, containerPort)
 	b.WriteString("    volumes:\n")
 	fmt.Fprintf(b, "      - %s:/var/lib/postgresql/data\n", dataVolume(name))
 	// A local pgBackRest repo lives on a named volume; an S3 repo has none.

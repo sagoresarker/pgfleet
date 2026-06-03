@@ -16,6 +16,11 @@ import (
 // primary into a fresh volume as a standby, and starts the replica streaming.
 // On failure it records the error and cleans up created resources.
 func (p *Provisioner) ProvisionReplica(ctx context.Context, replicaID string, primary instance.Instance, progress ProgressFunc) error {
+	// Mark provisioning up-front: a base-backup can take minutes, during which the
+	// replica has no container. The reconciler skips StatusProvisioning, so it
+	// won't see the in-flight replica as a container-less "running" instance and
+	// wrongly mark it "error".
+	_ = p.repo.SetStatus(ctx, replicaID, instance.StatusProvisioning, "")
 	if err := p.provisionReplica(ctx, replicaID, primary, progress); err != nil {
 		_ = p.repo.SetStatus(ctx, replicaID, instance.StatusError, err.Error())
 		return err

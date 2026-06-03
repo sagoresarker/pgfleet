@@ -2,15 +2,31 @@ package ws
 
 import (
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
 
 var upgrader = websocket.Upgrader{
-	// The control plane is same-origin in production; the frontend connects
-	// from the same host. Tighten if cross-origin is ever needed.
-	CheckOrigin: func(*http.Request) bool { return true },
+	// Same-origin only: a cross-origin page must NOT be able to open an
+	// authenticated events stream (the token travels in the query string, so an
+	// open origin would remove the same-origin guard). An absent Origin header
+	// (non-browser client) is allowed; a present one must match the request Host.
+	CheckOrigin: sameOrigin,
+}
+
+func sameOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true // non-browser client
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(u.Host, r.Host)
 }
 
 // VerifyFunc validates a token string (e.g. a JWT passed as a query param,

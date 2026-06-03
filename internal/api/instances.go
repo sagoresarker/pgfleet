@@ -312,7 +312,11 @@ func (h *InstancesHandler) Destroy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	retain := r.URL.Query().Get("retain_backups") == "true"
-	if err := h.prov.Destroy(r.Context(), id, retain); err != nil {
+	// Detach the teardown from the request context: a client disconnect (closed
+	// tab, proxy timeout) MUST NOT cancel Destroy mid-way — that would remove the
+	// container but leave the data/repo volumes orphaned and the row stuck in
+	// "error". WithoutCancel keeps request-scoped values but ignores cancellation.
+	if err := h.prov.Destroy(context.WithoutCancel(r.Context()), id, retain); err != nil {
 		respondError(w, err)
 		return
 	}

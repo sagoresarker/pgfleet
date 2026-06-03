@@ -106,11 +106,12 @@ type Provisioner struct {
 	repo store
 	opts Options
 
-	// visMuMap serializes visibility flips per instance id, so two concurrent
-	// flips (or a flip racing itself) can never both tear down/recreate the
-	// container and leave a half-built or duplicate container.
-	visMuMap  map[string]*sync.Mutex
-	visMuLock sync.Mutex
+	// opMuMap serializes destructive container/volume operations per instance id
+	// (visibility flip, in-place restore), so two of them — or one racing
+	// itself — can never both tear down/recreate the container or swap the data
+	// volume and leave a half-built/duplicate container or a dangling volume.
+	opMuMap  map[string]*sync.Mutex
+	opMuLock sync.Mutex
 }
 
 // New builds a Provisioner.
@@ -118,18 +119,18 @@ func New(rt docker.ContainerRuntime, repo store, opts Options) *Provisioner {
 	return &Provisioner{rt: rt, repo: repo, opts: opts}
 }
 
-// instanceVisMutex returns the per-instance visibility mutex, creating it on
-// first use.
-func (p *Provisioner) instanceVisMutex(id string) *sync.Mutex {
-	p.visMuLock.Lock()
-	defer p.visMuLock.Unlock()
-	if p.visMuMap == nil {
-		p.visMuMap = map[string]*sync.Mutex{}
+// instanceOpMutex returns the per-instance operation mutex, creating it on
+// first use. It guards any operation that swaps the container or data volume.
+func (p *Provisioner) instanceOpMutex(id string) *sync.Mutex {
+	p.opMuLock.Lock()
+	defer p.opMuLock.Unlock()
+	if p.opMuMap == nil {
+		p.opMuMap = map[string]*sync.Mutex{}
 	}
-	m, ok := p.visMuMap[id]
+	m, ok := p.opMuMap[id]
 	if !ok {
 		m = &sync.Mutex{}
-		p.visMuMap[id] = m
+		p.opMuMap[id] = m
 	}
 	return m
 }

@@ -253,6 +253,11 @@ func (c *Controller) failover(ctx context.Context, clu cluster.Cluster, oldPrima
 		if r.ID == newP.ID {
 			continue
 		}
+		// Mark provisioning BEFORE removing the container to reclone. The
+		// reconciler skips StatusProvisioning, so a 30s reconcile tick during the
+		// (possibly minutes-long) basebackup won't see a container-less
+		// StatusRunning replica and wrongly flip it to "error" mid-failover.
+		_ = c.instances.SetStatus(ctx, r.ID, instance.StatusProvisioning, "")
 		// Wipe the old container + data volume first; ProvisionReplica needs an
 		// empty data volume and a free container name (the replica followed the
 		// old, now-fenced primary, so its data is stale anyway).

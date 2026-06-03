@@ -146,7 +146,9 @@ func (h *ClustersHandler) Get(w http.ResponseWriter, r *http.Request) {
 func (h *ClustersHandler) Destroy(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	retain := r.URL.Query().Get("retain_backups") == "true"
-	if err := h.svc.Destroy(r.Context(), id, retain); err != nil {
+	// Detach teardown from the request context so a client disconnect can't
+	// cancel it mid-way and orphan member containers/volumes.
+	if err := h.svc.Destroy(context.WithoutCancel(r.Context()), id, retain); err != nil {
 		respondError(w, err)
 		return
 	}

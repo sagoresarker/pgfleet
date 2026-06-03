@@ -119,6 +119,12 @@ func Restore(stanza, confPath string, o RestoreOpts) ([]string, error) {
 		if o.TargetAction != "" {
 			args = append(args, "--target-action="+o.TargetAction)
 		}
+	} else if o.Set != "" {
+		// Restoring a specific backup with NO PITR target: stop recovery at that
+		// backup's own consistency point (--type=immediate) and promote, instead
+		// of replaying all available WAL to the end of the archive — which would
+		// silently overshoot the backup the operator deliberately chose.
+		args = append(args, "--type=immediate", "--target-action=promote")
 	}
 	if o.Set != "" {
 		args = append(args, "--set="+o.Set)

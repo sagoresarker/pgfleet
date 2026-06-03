@@ -260,11 +260,16 @@ func run() error {
 		AutoProvision: cfg.SSOAutoProvision,
 		AdminGroup:    cfg.SSOAdminGroup,
 		OperatorGroup: cfg.SSOOperatorGroup,
+		SharedSecret:  cfg.SSOSharedSecret,
 	}
 	var ssoHandler *api.SSOHandler
 	if ssoCfg.Enabled() {
 		ssoHandler = api.NewSSOHandler(users, issuer, ssoCfg).WithAudit(recorder)
-		log.Info("trusted-header SSO enabled", "email_header", cfg.SSOEmailHeader, "auto_provision", cfg.SSOAutoProvision)
+		log.Info("trusted-header SSO enabled", "email_header", cfg.SSOEmailHeader,
+			"auto_provision", cfg.SSOAutoProvision, "proxy_secret", cfg.SSOSharedSecret != "")
+		if cfg.SSOSharedSecret == "" {
+			log.Warn("SSO has no PGFLEET_SSO_SHARED_SECRET set — the API trusts the identity header from any caller; ensure it is reachable ONLY through the proxy")
+		}
 	}
 
 	router := api.NewRouter(api.Deps{

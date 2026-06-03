@@ -154,6 +154,54 @@ func TestBackrestConfCipherS3(t *testing.T) {
 	}
 }
 
+func TestBackrestConfRepo2InheritsCipher(t *testing.T) {
+	// When at-rest encryption is on AND a second repo is configured, repo2 MUST
+	// carry the same cipher as repo1 — otherwise its copy of every backup is
+	// plaintext (a silent encryption breach).
+	got, err := BackrestConf(InstanceConf{
+		Stanza:        "orders-db",
+		PGDataPath:    "/var/lib/postgresql/data",
+		PGPort:        5432,
+		RetentionFull: 2,
+		RepoType:      "local",
+		Local:         RepoLocal{Path: "/var/lib/pgbackrest"},
+		Repo2Path:     "/mnt/repo2",
+		CipherPass:    "deadbeef",
+	})
+	if err != nil {
+		t.Fatalf("BackrestConf: %v", err)
+	}
+	for _, want := range []string{
+		"repo2-type=posix",
+		"repo2-path=/mnt/repo2",
+		"repo2-cipher-type=aes-256-cbc",
+		"repo2-cipher-pass=deadbeef",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("repo2 cipher conf missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestBackrestConfRepo2NoCipherWhenUnencrypted(t *testing.T) {
+	// Without a cipher pass, repo2 must NOT emit cipher lines.
+	got, err := BackrestConf(InstanceConf{
+		Stanza:        "orders-db",
+		PGDataPath:    "/var/lib/postgresql/data",
+		PGPort:        5432,
+		RetentionFull: 2,
+		RepoType:      "local",
+		Local:         RepoLocal{Path: "/var/lib/pgbackrest"},
+		Repo2Path:     "/mnt/repo2",
+	})
+	if err != nil {
+		t.Fatalf("BackrestConf: %v", err)
+	}
+	if strings.Contains(got, "repo2-cipher") {
+		t.Errorf("repo2 cipher should be absent when unencrypted:\n%s", got)
+	}
+}
+
 func TestBackrestConfCipherLocal(t *testing.T) {
 	// The same two lines must appear for a local (posix) repo.
 	got, err := BackrestConf(InstanceConf{

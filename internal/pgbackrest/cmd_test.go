@@ -168,7 +168,8 @@ func TestRestoreBySet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"pgbackrest", "--config=" + conf, "--stanza=db", "--set=20260603-120000F", "restore"}
+	// Set without a PITR type must stop at the backup's consistency point.
+	want := []string{"pgbackrest", "--config=" + conf, "--stanza=db", "--type=immediate", "--target-action=promote", "--set=20260603-120000F", "restore"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Restore by set = %v, want %v", got, want)
 	}
@@ -179,7 +180,7 @@ func TestRestoreFromRepo2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"pgbackrest", "--config=" + conf, "--stanza=db", "--repo=2", "--set=20260603-120000F", "restore"}
+	want := []string{"pgbackrest", "--config=" + conf, "--stanza=db", "--repo=2", "--type=immediate", "--target-action=promote", "--set=20260603-120000F", "restore"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Restore from repo2 = %v, want %v", got, want)
 	}

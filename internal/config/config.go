@@ -63,6 +63,10 @@ type Config struct {
 	SSOAutoProvision bool
 	SSOAdminGroup    string
 	SSOOperatorGroup string
+	// SSOSharedSecret, when set, must be presented by the proxy in the
+	// X-Pgfleet-Sso-Secret header on every SSO exchange (proxy-provenance check
+	// so a direct off-proxy request cannot forge an identity header).
+	SSOSharedSecret string
 
 	S3Endpoint  string
 	S3Bucket    string
@@ -105,6 +109,7 @@ func Load(getenv func(string) string) (*Config, error) {
 		SSOAutoProvision:       getenv("PGFLEET_SSO_AUTO_PROVISION") == "true",
 		SSOAdminGroup:          orDefault(getenv("PGFLEET_SSO_ADMIN_GROUP"), "pgfleet-admins"),
 		SSOOperatorGroup:       orDefault(getenv("PGFLEET_SSO_OPERATOR_GROUP"), "pgfleet-operators"),
+		SSOSharedSecret:        getenv("PGFLEET_SSO_SHARED_SECRET"),
 		S3Endpoint:             getenv("PGFLEET_S3_ENDPOINT"),
 		S3Bucket:               getenv("PGFLEET_S3_BUCKET"),
 		S3Region:               orDefault(getenv("PGFLEET_S3_REGION"), "us-east-1"),

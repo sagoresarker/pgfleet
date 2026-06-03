@@ -115,7 +115,16 @@ func TestClusterComposeContainsMembersAndRouter(t *testing.T) {
 		"volumes:",
 		"pgfleet-data-hac-p:",  // primary data volume
 		"pgfleet-data-hac-r1:", // replica data volume
+		// Members must publish on DISTINCT host ports (primary 5432, replicas
+		// 5433, 5434) or `docker compose up` fails with "port already allocated".
+		`"5432:5432"`, // primary
+		`"5433:5432"`, // replica 1
+		`"5434:5432"`, // replica 2
 	)
+	// And the broken all-on-5432 binding must NOT recur.
+	if strings.Count(out, `"5432:5432"`) != 1 {
+		t.Errorf("expected exactly one host:5432 binding (the primary), got %d:\n%s", strings.Count(out, `"5432:5432"`), out)
+	}
 }
 
 // TestClusterComposeNoReplicas keeps a primary+router cluster valid with zero

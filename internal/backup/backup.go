@@ -242,6 +242,20 @@ func (s *Service) Expire(ctx context.Context, instanceID string) error {
 	if err != nil {
 		return err
 	}
+	// Replicas have no backup stanza; retention is enforced on the cluster
+	// primary's repo. Running expire against a replica id would target a
+	// non-existent stanza.
+	if inst.Role == instance.RoleReplica {
+		return apperr.New(apperr.KindInvalid, "backup: replicas have no repo to expire; operate on the cluster primary")
+	}
+
+	// expire DELETES backups/WAL to enforce retention — serialize it with every
+	// other repo-mutating op on this stanza (backup/delete/verify) and the
+	// catalog re-sync, exactly like Delete/Verify.
+	lock := s.lockFor(instanceID)
+	lock.Lock()
+	defer lock.Unlock()
+
 	if err := s.execOK(ctx, inst.ContainerID, asPostgres(pgbackrest.Expire(inst.Stanza, confPath))); err != nil {
 		return err
 	}

@@ -65,6 +65,36 @@ func TestSSOExchangeNoHeaderRejected(t *testing.T) {
 	}
 }
 
+func TestSSOExchangeSharedSecretRequired(t *testing.T) {
+	store := newFakeSSOStore()
+	store.byEmail["op@x.com"] = user.User{ID: "u1", Email: "op@x.com", Role: auth.RoleOperator}
+	h := NewSSOHandler(store, &fakeIssuer{}, SSOConfig{EmailHeader: "Remote-Email", SharedSecret: "s3cr3t"})
+
+	// A valid identity header but NO/​wrong proxy secret must be rejected — this is
+	// the off-proxy forgery scenario.
+	rr := httptest.NewRecorder()
+	h.Exchange(rr, ssoRequest("Remote-Email", "op@x.com", "", ""))
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("missing secret: status = %d, want 401", rr.Code)
+	}
+	rr = httptest.NewRecorder()
+	bad := ssoRequest("Remote-Email", "op@x.com", "", "")
+	bad.Header.Set(ssoSecretHeader, "wrong")
+	h.Exchange(rr, bad)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong secret: status = %d, want 401", rr.Code)
+	}
+
+	// With the correct secret it succeeds.
+	rr = httptest.NewRecorder()
+	ok := ssoRequest("Remote-Email", "op@x.com", "", "")
+	ok.Header.Set(ssoSecretHeader, "s3cr3t")
+	h.Exchange(rr, ok)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("correct secret: status = %d, want 200 (body=%s)", rr.Code, rr.Body.String())
+	}
+}
+
 func TestSSOExchangeExistingUser(t *testing.T) {
 	store := newFakeSSOStore()
 	store.byEmail["op@x.com"] = user.User{ID: "u1", Email: "op@x.com", Role: auth.RoleOperator}
