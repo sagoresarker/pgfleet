@@ -12,10 +12,11 @@ type memStore struct {
 	items   map[string]instance.Instance
 	status  map[string]instance.Status
 	runtime map[string]string
+	ports   map[string]int
 }
 
 func newStore(items ...instance.Instance) *memStore {
-	m := &memStore{items: map[string]instance.Instance{}, status: map[string]instance.Status{}, runtime: map[string]string{}}
+	m := &memStore{items: map[string]instance.Instance{}, status: map[string]instance.Status{}, runtime: map[string]string{}, ports: map[string]int{}}
 	for _, i := range items {
 		m.items[i.ID] = i
 		m.status[i.ID] = i.Status
@@ -35,8 +36,9 @@ func (m *memStore) SetStatus(_ context.Context, id string, s instance.Status, _ 
 	m.status[id] = s
 	return nil
 }
-func (m *memStore) SetRuntime(_ context.Context, id, cid string, _ int) error {
+func (m *memStore) SetRuntime(_ context.Context, id, cid string, port int) error {
 	m.runtime[id] = cid
+	m.ports[id] = port
 	inst := m.items[id]
 	inst.ContainerID = cid
 	m.items[id] = inst
