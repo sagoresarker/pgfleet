@@ -11,10 +11,12 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/provision"
 )
 
-// BackupRunner takes backups, deletes a single backup, and lists the catalog.
+// BackupRunner takes backups, deletes a single backup, verifies the repo, and
+// lists the catalog.
 type BackupRunner interface {
-	Run(ctx context.Context, instanceID, backupType string) error
+	RunWith(ctx context.Context, instanceID, backupType string, opts backup.RunOpts) error
 	Delete(ctx context.Context, instanceID, label string) error
+	Verify(ctx context.Context, instanceID string) error
 	List(ctx context.Context, instanceID string) ([]backup.Backup, error)
 }
 
@@ -49,17 +51,21 @@ var validRestoreTypes = map[string]bool{"": true, "time": true, "lsn": true, "xi
 
 type createBackupRequest struct {
 	Type string `json:"type"`
+	// Annotation, when set, names the backup (stored as the "name" annotation on
+	// the backup set and surfaced back in the catalog/info).
+	Annotation string `json:"annotation"`
 }
 
 type backupPayload struct {
-	ID          string `json:"id"`
-	Label       string `json:"label"`
-	Type        string `json:"type"`
-	RepoSize    int64  `json:"repo_size"`
-	LogicalSize int64  `json:"logical_size"`
-	WALStart    string `json:"wal_start"`
-	WALStop     string `json:"wal_stop"`
-	Error       bool   `json:"error"`
+	ID          string            `json:"id"`
+	Label       string            `json:"label"`
+	Type        string            `json:"type"`
+	RepoSize    int64             `json:"repo_size"`
+	LogicalSize int64             `json:"logical_size"`
+	WALStart    string            `json:"wal_start"`
+	WALStop     string            `json:"wal_stop"`
+	Error       bool              `json:"error"`
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 // Create starts a backup asynchronously, returning 202.
@@ -74,8 +80,9 @@ func (h *BackupsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := chi.URLParam(r, "id")
+	opts := backup.RunOpts{Annotation: req.Annotation}
 	recordAudit(h.audit, r, "backup.create", id)
-	h.async.Go(func(ctx context.Context) { _ = h.runner.Run(ctx, id, req.Type) })
+	h.async.Go(func(ctx context.Context) { _ = h.runner.RunWith(ctx, id, req.Type, opts) })
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -91,6 +98,7 @@ func (h *BackupsHandler) List(w http.ResponseWriter, r *http.Request) {
 		payloads = append(payloads, backupPayload{
 			ID: b.ID, Label: b.Label, Type: b.Type, RepoSize: b.RepoSize,
 			LogicalSize: b.LogicalSize, WALStart: b.WALStart, WALStop: b.WALStop, Error: b.Error,
+			Annotations: b.Annotations,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"backups": payloads})
@@ -116,10 +124,23 @@ func (h *BackupsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// Verify starts a repository integrity check (pgbackrest verify) asynchronously,
+// returning 202. It is read-only on the repo (it never mutates backups), so it
+// is gated at the backup-write level (see the router): it is an operational
+// action a backup operator runs, not a privileged restore/destroy.
+func (h *BackupsHandler) Verify(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	recordAudit(h.audit, r, "backup.verify", id)
+	h.async.Go(func(ctx context.Context) { _ = h.runner.Verify(ctx, id) })
+	w.WriteHeader(http.StatusAccepted)
+}
+
 type restoreRequest struct {
 	Type   string `json:"type"`
 	Target string `json:"target"`
 	Set    string `json:"set"`
+	// Delta restores only changed files into the existing data dir (--delta).
+	Delta bool `json:"delta"`
 }
 
 // Restore starts a restore (or PITR) asynchronously, returning 202.
@@ -138,7 +159,7 @@ func (h *BackupsHandler) Restore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := chi.URLParam(r, "id")
-	opts := provision.RestoreOptions{Type: req.Type, Target: req.Target, Set: req.Set}
+	opts := provision.RestoreOptions{Type: req.Type, Target: req.Target, Set: req.Set, Delta: req.Delta}
 	recordAudit(h.audit, r, "backup.restore", id)
 	h.async.Go(func(ctx context.Context) { _ = h.restorer.Restore(ctx, id, opts, nil) })
 	w.WriteHeader(http.StatusAccepted)

@@ -46,6 +46,13 @@ type Config struct {
 	// true). Set PGFLEET_AUTO_FAILOVER=false to disable automatic promotion.
 	AutoFailover bool
 
+	// BackupBlockIncr enables pgBackRest block-incremental backups (2.46+) for
+	// newly provisioned instances (PGFLEET_BACKUP_BLOCK_INCR).
+	BackupBlockIncr bool
+	// Repo2Path, if set, configures a second (local/posix) pgBackRest repo so
+	// every backup is written to both repos — 3-2-1 (PGFLEET_REPO2_PATH).
+	Repo2Path string
+
 	// Trusted-header single sign-on (Authelia / any forward-auth IdP proxy).
 	// SSOEmailHeader, when set, enables POST /api/v1/auth/sso to exchange the
 	// proxy-verified identity for a PgFleet token. Only set this when the API is
@@ -91,6 +98,8 @@ func Load(getenv func(string) string) (*Config, error) {
 		InstanceBindAddress:    orDefault(getenv("PGFLEET_INSTANCE_BIND_ADDRESS"), "127.0.0.1"),
 		AlertWebhookURL:        getenv("PGFLEET_ALERT_WEBHOOK_URL"),
 		AutoFailover:           getenv("PGFLEET_AUTO_FAILOVER") != "false",
+		BackupBlockIncr:        getenv("PGFLEET_BACKUP_BLOCK_INCR") == "true",
+		Repo2Path:              getenv("PGFLEET_REPO2_PATH"),
 		SSOEmailHeader:         getenv("PGFLEET_SSO_EMAIL_HEADER"),
 		SSOGroupsHeader:        orDefault(getenv("PGFLEET_SSO_GROUPS_HEADER"), "Remote-Groups"),
 		SSOAutoProvision:       getenv("PGFLEET_SSO_AUTO_PROVISION") == "true",

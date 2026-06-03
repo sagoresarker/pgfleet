@@ -1,6 +1,9 @@
 package pgbackrest
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 // base returns the leading args common to every pgbackrest invocation.
 func base(stanza, confPath string) []string {
@@ -19,17 +22,55 @@ func Check(stanza, confPath string) []string {
 
 var backupTypes = map[string]bool{"full": true, "incr": true, "diff": true}
 
-// Backup builds a backup command of the given type (full|incr|diff).
-func Backup(stanza, confPath, backupType string) ([]string, error) {
+// BackupOpts parameterizes a backup beyond its type.
+type BackupOpts struct {
+	// Annotations are arbitrary key/value pairs stored on the backup set and
+	// surfaced back by `info --output=json`. They are emitted as
+	// --annotation=key=value, sorted by key for a deterministic command. Use the
+	// "name" key to give a backup a human-readable label in the UI.
+	Annotations map[string]string
+	// BackupStandby, when true, takes the backup from a standby (replica) so the
+	// primary is not loaded. It only has an effect when the stanza has a reachable
+	// standby (pgN-* host configured); otherwise pgBackRest falls back to the
+	// primary.
+	BackupStandby bool
+}
+
+// Backup builds a backup command of the given type (full|incr|diff) with the
+// given options.
+func Backup(stanza, confPath, backupType string, o BackupOpts) ([]string, error) {
 	if !backupTypes[backupType] {
 		return nil, fmt.Errorf("pgbackrest: invalid backup type %q", backupType)
 	}
-	return append(base(stanza, confPath), "--type="+backupType, "backup"), nil
+	args := append(base(stanza, confPath), "--type="+backupType)
+	if o.BackupStandby {
+		args = append(args, "--backup-standby")
+	}
+	// Sort annotation keys for a deterministic argv. Empty keys are skipped
+	// (pgBackRest rejects an --annotation with no key).
+	keys := make([]string, 0, len(o.Annotations))
+	for k := range o.Annotations {
+		if k == "" {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		args = append(args, "--annotation="+k+"="+o.Annotations[k])
+	}
+	return append(args, "backup"), nil
 }
 
 // Info builds the machine-readable catalog query.
 func Info(stanza, confPath string) []string {
 	return append(base(stanza, confPath), "--output=json", "info")
+}
+
+// Verify builds a `verify` command, which checks the integrity of the
+// repository (backup files and WAL) for the stanza without restoring.
+func Verify(stanza, confPath string) []string {
+	return append(base(stanza, confPath), "verify")
 }
 
 // Expire enforces the configured retention policy.

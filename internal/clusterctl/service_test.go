@@ -149,7 +149,7 @@ func (f *fakeRouter) RemoveContainer(_ context.Context, id string, _ bool) error
 }
 
 func TestCreateValidation(t *testing.T) {
-	svc := New(newFakeClusters(), newFakeInstances(), &fakeProv{}, &fakeRouter{}, instance.RepoLocal)
+	svc := New(newFakeClusters(), newFakeInstances(), &fakeProv{}, &fakeRouter{}, instance.RepoLocal, nil)
 	cases := []Input{
 		{Name: "Bad_Name", Replicas: 1, Password: "a-good-password"},
 		{Name: "ok", Replicas: -1, Password: "a-good-password"},
@@ -164,7 +164,7 @@ func TestCreateValidation(t *testing.T) {
 
 func TestCreateMakesPrimaryAndReplicas(t *testing.T) {
 	insts := newFakeInstances()
-	svc := New(newFakeClusters(), insts, &fakeProv{}, &fakeRouter{}, instance.RepoLocal)
+	svc := New(newFakeClusters(), insts, &fakeProv{}, &fakeRouter{}, instance.RepoLocal, nil)
 
 	_, err := svc.Create(context.Background(), Input{Name: "orders", Replicas: 2, Password: "a-good-password"})
 	if err != nil {
@@ -185,7 +185,7 @@ func TestProvisionSequencesPrimaryReplicasThenRouter(t *testing.T) {
 	clusters := newFakeClusters()
 	insts := newFakeInstances()
 	prov := &fakeProv{}
-	svc := New(clusters, insts, prov, &fakeRouter{}, instance.RepoLocal)
+	svc := New(clusters, insts, prov, &fakeRouter{}, instance.RepoLocal, nil)
 
 	c, _ := svc.Create(context.Background(), Input{Name: "orders", Replicas: 2, Password: "a-good-password"})
 	if err := svc.Provision(context.Background(), c.ID, nil); err != nil {
@@ -214,7 +214,7 @@ func TestDestroyRemovesRouterAndMembers(t *testing.T) {
 	insts := newFakeInstances()
 	prov := &fakeProv{}
 	router := &fakeRouter{}
-	svc := New(clusters, insts, prov, router, instance.RepoLocal)
+	svc := New(clusters, insts, prov, router, instance.RepoLocal, nil)
 
 	c, _ := svc.Create(context.Background(), Input{Name: "orders", Replicas: 1, Password: "a-good-password"})
 	_ = clusters.SetRouter(context.Background(), c.ID, "router-c", 6432)

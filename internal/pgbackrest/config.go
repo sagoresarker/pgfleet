@@ -41,6 +41,14 @@ type InstanceConf struct {
 	// supply the identical passphrase or it cannot read the repo. Empty leaves
 	// encryption off (repo1-cipher-type defaults to none).
 	CipherPass string
+	// BlockIncr enables block-incremental backups (repo1-block=y, pgBackRest
+	// 2.46+), which deduplicate at the block level so incrementals store only the
+	// changed blocks of large files. Off by default.
+	BlockIncr bool
+	// Repo2Path, when non-empty, configures a SECOND posix (local volume) repo
+	// alongside repo1. pgBackRest then writes every backup to both repos
+	// automatically. Empty means no repo2.
+	Repo2Path string
 }
 
 // BackrestConf renders a complete pgbackrest.conf for an instance.
@@ -89,6 +97,20 @@ func BackrestConf(c InstanceConf) (string, error) {
 	}
 
 	fmt.Fprintf(&b, "repo1-retention-full=%d\n", retention)
+
+	// Block-incremental backups (pgBackRest 2.46+): emitted only when enabled.
+	if c.BlockIncr {
+		b.WriteString("repo1-block=y\n")
+	}
+
+	// Optional second posix repo. pgBackRest writes every backup to both repos,
+	// mirroring repo1's retention.
+	if c.Repo2Path != "" {
+		fmt.Fprintf(&b, "repo2-type=posix\n")
+		fmt.Fprintf(&b, "repo2-path=%s\n", c.Repo2Path)
+		fmt.Fprintf(&b, "repo2-retention-full=%d\n", retention)
+	}
+
 	b.WriteString("start-fast=y\n")
 	b.WriteString("log-level-console=info\n")
 

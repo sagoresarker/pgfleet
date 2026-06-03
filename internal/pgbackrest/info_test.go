@@ -88,6 +88,30 @@ func TestParseInfoIncrementalReferences(t *testing.T) {
 	}
 }
 
+func TestParseInfoAnnotations(t *testing.T) {
+	js := `[{"name":"db","status":{"code":0,"message":"ok"},"backup":[
+	  {"label":"20260603-120000F","type":"full","timestamp":{"start":1717416000,"stop":1717416060},
+	   "info":{"size":1024,"delta":1024,"repository":{"size":512,"delta":512}},
+	   "archive":{"start":"a","stop":"b"},"reference":null,
+	   "annotation":{"name":"nightly","app":"orders"}}
+	]}]`
+	stanzas, err := ParseInfo([]byte(js))
+	if err != nil {
+		t.Fatalf("ParseInfo: %v", err)
+	}
+	b := stanzas[0].Backups[0]
+	if b.Annotations["name"] != "nightly" || b.Annotations["app"] != "orders" {
+		t.Errorf("annotations = %v, want name=nightly app=orders", b.Annotations)
+	}
+}
+
+func TestParseInfoNoAnnotations(t *testing.T) {
+	stanzas, _ := ParseInfo([]byte(sampleInfoJSON))
+	if len(stanzas[0].Backups[0].Annotations) != 0 {
+		t.Errorf("expected no annotations, got %v", stanzas[0].Backups[0].Annotations)
+	}
+}
+
 func TestParseInfoEmpty(t *testing.T) {
 	stanzas, err := ParseInfo([]byte(`[]`))
 	if err != nil {

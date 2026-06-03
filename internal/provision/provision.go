@@ -78,6 +78,14 @@ type Options struct {
 	// existing unencrypted stanza — it only affects NEW instances provisioned
 	// after it is enabled. Existing stanzas are never modified.
 	BackupEncryption bool
+	// BlockIncr enables block-incremental backups (repo1-block=y, pgBackRest
+	// 2.46+) in the generated pgbackrest.conf for instances provisioned while it
+	// is set. Off by default.
+	BlockIncr bool
+	// Repo2Path, when non-empty, configures a SECOND posix repo (at this path,
+	// on a mounted volume) alongside repo1, so every backup is written to both.
+	// Empty disables repo2.
+	Repo2Path string
 }
 
 // store is the subset of *instance.Repository the provisioner needs.
@@ -315,6 +323,8 @@ func (p *Provisioner) backrestConf(inst instance.Instance) (string, error) {
 		PGPort:        pgPort,
 		RetentionFull: 2,
 		RepoType:      string(inst.RepoType),
+		BlockIncr:     p.opts.BlockIncr,
+		Repo2Path:     p.opts.Repo2Path,
 	}
 	// Enable at-rest repo encryption only when configured. The passphrase is
 	// derived deterministically from the master key + instance id, so the SAME

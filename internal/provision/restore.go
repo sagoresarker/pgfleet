@@ -24,6 +24,9 @@ type RestoreOptions struct {
 	Target string
 	// Set restores a specific backup label instead of the latest.
 	Set string
+	// Delta restores only files that differ from the target backup into an
+	// existing data dir, instead of a full clean restore (--delta).
+	Delta bool
 }
 
 // Restore performs an in-place restore of an instance: it stops the instance,
@@ -66,6 +69,7 @@ func (p *Provisioner) restore(ctx context.Context, id string, opts RestoreOption
 		Target:       opts.Target,
 		TargetAction: targetAction(opts.Type),
 		Set:          opts.Set,
+		Delta:        opts.Delta,
 	})
 	if err != nil {
 		return err

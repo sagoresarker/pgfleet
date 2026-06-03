@@ -126,7 +126,7 @@ func setup() (*fakeProm, *fakeClusters, *fakeInstances, *fakeRouter, cluster.Clu
 // failover (avoids reacting to transient blips).
 func TestFailoverWaitsForThreshold(t *testing.T) {
 	prom, clusters, insts, router, _ := setup()
-	c := New(clusters, insts, prom, router, nil, 3, nil)
+	c := New(clusters, insts, prom, router, nil, 3, nil, nil)
 
 	_ = c.Run(context.Background()) // strike 1
 	_ = c.Run(context.Background()) // strike 2
@@ -140,7 +140,7 @@ func TestFailoverWaitsForThreshold(t *testing.T) {
 // repointed.
 func TestFailoverPromotesMostCaughtUpReplica(t *testing.T) {
 	prom, clusters, insts, router, _ := setup()
-	c := New(clusters, insts, prom, router, nil, 3, nil)
+	c := New(clusters, insts, prom, router, nil, 3, nil, nil)
 
 	for range 3 {
 		_ = c.Run(context.Background())
@@ -185,7 +185,7 @@ func TestFailoverAbortsWithoutReplica(t *testing.T) {
 	// Both replicas also unreachable.
 	prom.reachable["r1"] = false
 	prom.reachable["r2"] = false
-	c := New(clusters, insts, prom, router, nil, 1, nil)
+	c := New(clusters, insts, prom, router, nil, 1, nil, nil)
 
 	_ = c.Run(context.Background())
 	if len(prom.promoted) != 0 {
@@ -201,7 +201,7 @@ func TestFailoverAbortsWithoutReplica(t *testing.T) {
 func TestFailoverAbortsIfFenceFails(t *testing.T) {
 	prom, clusters, insts, router, _ := setup()
 	prom.fenceErr = errFence
-	c := New(clusters, insts, prom, router, nil, 1, nil)
+	c := New(clusters, insts, prom, router, nil, 1, nil, nil)
 
 	_ = c.Run(context.Background())
 	if len(prom.promoted) != 0 {
@@ -218,7 +218,7 @@ func TestFailoverWontPromoteZeroProgressStandby(t *testing.T) {
 	prom, clusters, insts, router, _ := setup()
 	prom.lsn["r1"] = 0
 	prom.lsn["r2"] = 0
-	c := New(clusters, insts, prom, router, nil, 1, nil)
+	c := New(clusters, insts, prom, router, nil, 1, nil, nil)
 
 	_ = c.Run(context.Background())
 	if len(prom.promoted) != 0 {
@@ -232,7 +232,7 @@ func TestFailoverWontPromoteZeroProgressStandby(t *testing.T) {
 func TestFailoverQuorumMetPromotes(t *testing.T) {
 	prom, clusters, insts, router, _ := setup()
 	// reachable: r1+r2 (2 of 3 members) => strict majority => quorum met.
-	c := New(clusters, insts, prom, router, nil, 1, nil)
+	c := New(clusters, insts, prom, router, nil, 1, nil, nil)
 
 	_ = c.Run(context.Background())
 	if len(prom.promoted) != 1 || prom.promoted[0] != "r2" {
@@ -252,7 +252,7 @@ func TestFailoverQuorumNotMetAborts(t *testing.T) {
 	prom, clusters, insts, router, _ := setup()
 	// Only r1 reachable; r2 (and the primary) are partitioned away.
 	prom.reachable["r2"] = false
-	c := New(clusters, insts, prom, router, nil, 1, nil)
+	c := New(clusters, insts, prom, router, nil, 1, nil, nil)
 
 	_ = c.Run(context.Background())
 	if len(prom.promoted) != 0 {
@@ -290,7 +290,7 @@ func TestFailoverSingleReplicaQuorumPromotes(t *testing.T) {
 		items:     map[string]instance.Instance{"p": primary, "r1": r1},
 		roles:     map[string]instance.Role{},
 	}
-	c := New(clusters, insts, prom, &fakeRouter{}, nil, 1, nil)
+	c := New(clusters, insts, prom, &fakeRouter{}, nil, 1, nil, nil)
 
 	_ = c.Run(context.Background())
 	if len(prom.promoted) != 1 || prom.promoted[0] != "r1" {

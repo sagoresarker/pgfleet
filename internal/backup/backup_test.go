@@ -118,6 +118,73 @@ func TestRunExecutesBackupAndSyncsCatalog(t *testing.T) {
 	}
 }
 
+func TestRunWithAnnotationEmitsArg(t *testing.T) {
+	rt := docker.NewFake()
+	id, _ := rt.CreateContainer(context.Background(), docker.ContainerSpec{Name: "c1"})
+	_ = rt.StartContainer(context.Background(), id)
+	var sawBackupCmd []string
+	rt.ExecFunc = func(_ string, cmd []string) (docker.ExecResult, error) {
+		if last(cmd) == "backup" {
+			sawBackupCmd = cmd
+			return docker.ExecResult{ExitCode: 0}, nil
+		}
+		if last(cmd) == "info" {
+			return docker.ExecResult{ExitCode: 0, Stdout: infoTwoBackups}, nil
+		}
+		return docker.ExecResult{}, nil
+	}
+	svc := New(rt, lookupFunc(func(context.Context, string) (instance.Instance, error) {
+		in := runningInstance()
+		in.ContainerID = id
+		return in, nil
+	}), &fakeCatalog{})
+
+	if err := svc.RunWith(context.Background(), "i1", "full", RunOpts{Annotation: "my nightly"}); err != nil {
+		t.Fatalf("RunWith: %v", err)
+	}
+	if !containsArg(sawBackupCmd, "--annotation=name=my nightly") {
+		t.Errorf("backup cmd missing annotation arg: %v", sawBackupCmd)
+	}
+}
+
+func TestRunWithStandbyEmitsArg(t *testing.T) {
+	rt := docker.NewFake()
+	id, _ := rt.CreateContainer(context.Background(), docker.ContainerSpec{Name: "c1"})
+	_ = rt.StartContainer(context.Background(), id)
+	var sawBackupCmd []string
+	rt.ExecFunc = func(_ string, cmd []string) (docker.ExecResult, error) {
+		if last(cmd) == "backup" {
+			sawBackupCmd = cmd
+			return docker.ExecResult{ExitCode: 0}, nil
+		}
+		if last(cmd) == "info" {
+			return docker.ExecResult{ExitCode: 0, Stdout: infoTwoBackups}, nil
+		}
+		return docker.ExecResult{}, nil
+	}
+	svc := New(rt, lookupFunc(func(context.Context, string) (instance.Instance, error) {
+		in := runningInstance()
+		in.ContainerID = id
+		return in, nil
+	}), &fakeCatalog{})
+
+	if err := svc.RunWith(context.Background(), "i1", "full", RunOpts{Standby: true}); err != nil {
+		t.Fatalf("RunWith: %v", err)
+	}
+	if !containsArg(sawBackupCmd, "--backup-standby") {
+		t.Errorf("backup cmd missing --backup-standby: %v", sawBackupCmd)
+	}
+}
+
+func containsArg(cmd []string, want string) bool {
+	for _, a := range cmd {
+		if a == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestRunRejectsInvalidType(t *testing.T) {
 	svc := newService(docker.NewFake(), &fakeCatalog{})
 	if err := svc.Run(context.Background(), "i1", "bogus"); err == nil {
@@ -288,6 +355,64 @@ func TestRunWithoutRecorderIsNoOp(t *testing.T) {
 
 	if err := svc.Run(context.Background(), "i1", "full"); err != nil {
 		t.Fatalf("Run without recorder should still succeed: %v", err)
+	}
+}
+
+func TestVerifyRunsVerifyAndRecordsEvent(t *testing.T) {
+	rt := docker.NewFake()
+	id, _ := rt.CreateContainer(context.Background(), docker.ContainerSpec{Name: "c1"})
+	_ = rt.StartContainer(context.Background(), id)
+	var sawVerify bool
+	rt.ExecFunc = func(_ string, cmd []string) (docker.ExecResult, error) {
+		if last(cmd) == "verify" {
+			sawVerify = true
+		}
+		return docker.ExecResult{ExitCode: 0}, nil
+	}
+	rec := &fakeRecorder{}
+	svc := New(rt, lookupFunc(func(context.Context, string) (instance.Instance, error) {
+		in := runningInstance()
+		in.ContainerID = id
+		return in, nil
+	}), &fakeCatalog{}).WithEvents(rec)
+
+	if err := svc.Verify(context.Background(), "i1"); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if !sawVerify {
+		t.Error("verify command was not run")
+	}
+	evs := rec.snapshot()
+	var found bool
+	for _, e := range evs {
+		if e.Type == "backup" && strings.Contains(e.Message, "verify") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no backup verify event recorded, got %+v", evs)
+	}
+}
+
+func TestVerifyFailsWhenCommandFails(t *testing.T) {
+	rt := docker.NewFake()
+	id, _ := rt.CreateContainer(context.Background(), docker.ContainerSpec{Name: "c1"})
+	_ = rt.StartContainer(context.Background(), id)
+	rt.ExecFunc = func(_ string, cmd []string) (docker.ExecResult, error) {
+		if last(cmd) == "verify" {
+			return docker.ExecResult{ExitCode: 1, Stderr: "checksum mismatch"}, nil
+		}
+		return docker.ExecResult{}, nil
+	}
+	svc := New(rt, lookupFunc(func(context.Context, string) (instance.Instance, error) {
+		in := runningInstance()
+		in.ContainerID = id
+		return in, nil
+	}), &fakeCatalog{})
+
+	err := svc.Verify(context.Background(), "i1")
+	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Errorf("expected verify failure mentioning checksum mismatch, got %v", err)
 	}
 }
 

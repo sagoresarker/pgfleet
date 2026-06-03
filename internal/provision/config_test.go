@@ -34,6 +34,25 @@ func TestContainerSpecAppendsUserParameters(t *testing.T) {
 	}
 }
 
+// TestBackrestConfWiresBlockIncrAndRepo2 — the provisioner threads BlockIncr and
+// Repo2Path from Options into the generated pgbackrest.conf.
+func TestBackrestConfWiresBlockIncrAndRepo2(t *testing.T) {
+	p := New(docker.NewFake(), newStore(), Options{BlockIncr: true, Repo2Path: "/mnt/backups"})
+	inst := instance.Instance{
+		Name: "db", Stanza: "db", RepoType: instance.RepoLocal,
+	}
+	conf, err := p.backrestConf(inst)
+	if err != nil {
+		t.Fatalf("backrestConf: %v", err)
+	}
+	if !strings.Contains(conf, "repo1-block=y") {
+		t.Errorf("expected repo1-block=y in conf:\n%s", conf)
+	}
+	if !strings.Contains(conf, "repo2-type=posix") || !strings.Contains(conf, "repo2-path=/mnt/backups") {
+		t.Errorf("expected repo2 block in conf:\n%s", conf)
+	}
+}
+
 // TestProvisionCreatesRequestedExtensions — provisioning runs CREATE EXTENSION
 // for each requested extension (in addition to pg_stat_statements).
 func TestProvisionCreatesRequestedExtensions(t *testing.T) {

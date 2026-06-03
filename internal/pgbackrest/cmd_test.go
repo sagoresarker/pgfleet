@@ -30,7 +30,7 @@ func TestBackupCmd(t *testing.T) {
 		"diff": {"pgbackrest", "--config=" + conf, "--stanza=db", "--type=diff", "backup"},
 	}
 	for typ, want := range cases {
-		got, err := Backup("db", conf, typ)
+		got, err := Backup("db", conf, typ, BackupOpts{})
 		if err != nil {
 			t.Fatalf("Backup(%s): %v", typ, err)
 		}
@@ -41,8 +41,62 @@ func TestBackupCmd(t *testing.T) {
 }
 
 func TestBackupRejectsBadType(t *testing.T) {
-	if _, err := Backup("db", conf, "bogus"); err == nil {
+	if _, err := Backup("db", conf, "bogus", BackupOpts{}); err == nil {
 		t.Error("Backup with bad type should error")
+	}
+}
+
+func TestBackupWithAnnotationsSorted(t *testing.T) {
+	got, err := Backup("db", conf, "full", BackupOpts{
+		Annotations: map[string]string{"name": "nightly", "app": "orders"},
+	})
+	if err != nil {
+		t.Fatalf("Backup: %v", err)
+	}
+	want := []string{
+		"pgbackrest", "--config=" + conf, "--stanza=db", "--type=full",
+		"--annotation=app=orders", "--annotation=name=nightly", "backup",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Backup with annotations = %v, want %v", got, want)
+	}
+}
+
+func TestBackupSkipsEmptyAnnotationKeys(t *testing.T) {
+	got, err := Backup("db", conf, "incr", BackupOpts{
+		Annotations: map[string]string{"": "ignored", "note": "x"},
+	})
+	if err != nil {
+		t.Fatalf("Backup: %v", err)
+	}
+	want := []string{
+		"pgbackrest", "--config=" + conf, "--stanza=db", "--type=incr",
+		"--annotation=note=x", "backup",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Backup skipping empty key = %v, want %v", got, want)
+	}
+}
+
+func TestBackupStandby(t *testing.T) {
+	got, err := Backup("db", conf, "full", BackupOpts{BackupStandby: true})
+	if err != nil {
+		t.Fatalf("Backup: %v", err)
+	}
+	want := []string{
+		"pgbackrest", "--config=" + conf, "--stanza=db", "--type=full",
+		"--backup-standby", "backup",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Backup standby = %v, want %v", got, want)
+	}
+}
+
+func TestVerifyCmd(t *testing.T) {
+	got := Verify("orders-db", conf)
+	want := []string{"pgbackrest", "--config=" + conf, "--stanza=orders-db", "verify"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Verify = %v, want %v", got, want)
 	}
 }
 

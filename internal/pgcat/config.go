@@ -14,6 +14,29 @@ type Server struct {
 	Role string // "primary" or "replica"
 }
 
+// MirrorTarget is a backend that receives a shadow copy of the pool's traffic.
+type MirrorTarget struct {
+	Host string
+	Port int
+}
+
+// Pool modes PgCat supports. Transaction pooling multiplexes a server
+// connection per transaction; session pooling pins it for the client session.
+const (
+	PoolModeTransaction = "transaction"
+	PoolModeSession     = "session"
+)
+
+// Ban/health-check defaults (seconds). PgCat bans a server that fails a
+// health check and retries it after banTime, automatically routing around an
+// unhealthy backend.
+const (
+	defaultHealthcheckTimeout = 1000 // ms
+	defaultHealthcheckDelay   = 30000
+	defaultBanTime            = 60 // seconds
+	defaultShutdownTimeout    = 60000
+)
+
 // Config describes a PgCat router for one cluster.
 type Config struct {
 	ListenPort    int
@@ -23,7 +46,20 @@ type Config struct {
 	User          string // backend (and client) auth user
 	Password      string // backend (and client) password
 	PoolSize      int
+	PoolMode      string // "transaction" (default) or "session"
 	Servers       []Server
+	Mirrors       []MirrorTarget // optional shadow targets; empty = no mirroring
+}
+
+// ValidatePoolMode reports whether m is an accepted pool mode. The empty string
+// is accepted and means the default (transaction).
+func ValidatePoolMode(m string) error {
+	switch m {
+	case "", PoolModeTransaction, PoolModeSession:
+		return nil
+	default:
+		return fmt.Errorf("pgcat: invalid pool_mode %q (want %q or %q)", m, PoolModeTransaction, PoolModeSession)
+	}
 }
 
 // Generate renders a pgcat.toml. Read/write splitting routes SELECTs to
@@ -33,6 +69,11 @@ func Generate(c Config) string {
 	poolSize := c.PoolSize
 	if poolSize <= 0 {
 		poolSize = 20
+	}
+
+	poolMode := c.PoolMode
+	if poolMode == "" {
+		poolMode = PoolModeTransaction
 	}
 
 	// The pool name appears in bare TOML table headers ([pools.<name>]), where
@@ -46,13 +87,25 @@ func Generate(c Config) string {
 	fmt.Fprintf(&b, "port = %d\n", c.ListenPort)
 	b.WriteString("admin_username = \"" + tomlEscape(c.AdminUser) + "\"\n")
 	b.WriteString("admin_password = \"" + tomlEscape(c.AdminPassword) + "\"\n")
+	// Auto-ban unhealthy backends: PgCat health-checks idle server connections
+	// and bans a server that fails, retrying it after ban_time so traffic
+	// automatically routes around an unhealthy member and recovers later.
+	fmt.Fprintf(&b, "healthcheck_timeout = %d\n", defaultHealthcheckTimeout)
+	fmt.Fprintf(&b, "healthcheck_delay = %d\n", defaultHealthcheckDelay)
+	fmt.Fprintf(&b, "ban_time = %d\n", defaultBanTime)
+	fmt.Fprintf(&b, "shutdown_timeout = %d\n", defaultShutdownTimeout)
 	b.WriteString("\n")
 
 	fmt.Fprintf(&b, "[pools.%s]\n", poolKey)
-	b.WriteString("pool_mode = \"transaction\"\n")
+	b.WriteString("pool_mode = \"" + tomlEscape(poolMode) + "\"\n")
+	// Read/write split: the query parser inspects each statement and routes
+	// writes to the primary while load-balancing reads across replicas. With
+	// primary_reads_enabled = false, reads prefer replicas and only the primary
+	// receives writes (and replica-less reads).
 	b.WriteString("query_parser_enabled = true\n")
 	b.WriteString("query_parser_read_write_splitting = true\n")
-	b.WriteString("primary_reads_enabled = true\n")
+	b.WriteString("primary_reads_enabled = false\n")
+	b.WriteString("load_balancing_mode = \"loadbalancing\"\n")
 	b.WriteString("default_role = \"any\"\n")
 	b.WriteString("\n")
 
@@ -73,6 +126,20 @@ func Generate(c Config) string {
 	}
 	b.WriteString("]\n")
 	b.WriteString("database = \"" + tomlEscape(c.Database) + "\"\n")
+
+	// Query mirroring/shadowing: PgCat sends a copy of the pool's traffic to
+	// each mirror target (e.g. a staging or analytics replica) without affecting
+	// the client's results. Omitted entirely when no mirrors are configured.
+	for i, m := range c.Mirrors {
+		port := m.Port
+		if port == 0 {
+			port = 5432
+		}
+		b.WriteString("\n")
+		fmt.Fprintf(&b, "[pools.%s.shards.0.mirrors.%d]\n", poolKey, i)
+		b.WriteString("host = \"" + tomlEscape(m.Host) + "\"\n")
+		fmt.Fprintf(&b, "port = %d\n", port)
+	}
 
 	return b.String()
 }

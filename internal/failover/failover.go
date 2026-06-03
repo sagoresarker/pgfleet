@@ -5,8 +5,6 @@ package failover
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"io"
 	"log/slog"
 
@@ -63,13 +61,16 @@ type Controller struct {
 	events    EventRecorder
 	threshold int
 	failures  map[string]int
+	masterKey []byte
 	log       *slog.Logger
 }
 
 // New builds a Controller. threshold is the number of consecutive failed
 // primary checks before a failover is triggered (conservative values avoid
-// reacting to transient blips). log/events may be nil.
-func New(clusters Clusters, instances Instances, prov Promoter, router RouterRemover, ev EventRecorder, threshold int, log *slog.Logger) *Controller {
+// reacting to transient blips). masterKey derives the new router's admin
+// password (so it stays stable/re-derivable for pool stats). log/events may be
+// nil.
+func New(clusters Clusters, instances Instances, prov Promoter, router RouterRemover, ev EventRecorder, threshold int, masterKey []byte, log *slog.Logger) *Controller {
 	if threshold < 1 {
 		threshold = 3
 	}
@@ -78,7 +79,7 @@ func New(clusters Clusters, instances Instances, prov Promoter, router RouterRem
 	}
 	return &Controller{
 		clusters: clusters, instances: instances, prov: prov, router: router,
-		events: ev, threshold: threshold, failures: map[string]int{}, log: log,
+		events: ev, threshold: threshold, failures: map[string]int{}, masterKey: masterKey, log: log,
 	}
 }
 
@@ -289,10 +290,9 @@ func (c *Controller) repointRouter(ctx context.Context, clu cluster.Cluster, new
 	if err != nil {
 		return err
 	}
-	adminPassword, err := randomSecret()
-	if err != nil {
-		return err
-	}
+	// Derive the same admin password clusterctl uses, so live pool stats keep
+	// working after the router is repointed to the new primary.
+	adminPassword := provision.RouterAdminPass(c.masterKey, clu.ID)
 	routerID, port, err := c.prov.StartRouter(ctx, provision.RouterSpec{
 		ClusterID:     clu.ID,
 		ClusterName:   clu.Name,
@@ -322,12 +322,4 @@ func (c *Controller) record(ctx context.Context, clu cluster.Cluster, message, i
 		Message:    message,
 		Metadata:   map[string]string{"cluster": clu.Name},
 	})
-}
-
-func randomSecret() (string, error) {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", apperr.Wrap(apperr.KindInternal, "failover: generate secret", err)
-	}
-	return hex.EncodeToString(b), nil
 }

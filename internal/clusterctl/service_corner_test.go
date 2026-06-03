@@ -17,7 +17,7 @@ import (
 func TestCreateRejectsLongClusterNameWithoutOrphan(t *testing.T) {
 	clusters := newFakeClusters()
 	insts := newFakeInstances()
-	svc := New(clusters, insts, &fakeProv{}, &fakeRouter{}, instance.RepoLocal)
+	svc := New(clusters, insts, &fakeProv{}, &fakeRouter{}, instance.RepoLocal, nil)
 
 	// 38-char name is valid for a cluster ([a-z][a-z0-9-]{1,38} => up to 39),
 	// but "<name>-p" is 40 chars, over the instance-name limit.
@@ -58,7 +58,7 @@ func (f *failingInstances) Create(ctx context.Context, in instance.NewInstance) 
 func TestCreatePartialFailureCleansUpCluster(t *testing.T) {
 	clusters := newFakeClusters()
 	insts := &failingInstances{fakeInstances: newFakeInstances(), failName: "orders-r2"}
-	svc := New(clusters, insts, &fakeProv{}, &fakeRouter{}, instance.RepoLocal)
+	svc := New(clusters, insts, &fakeProv{}, &fakeRouter{}, instance.RepoLocal, nil)
 
 	_, err := svc.Create(context.Background(), Input{Name: "orders", Replicas: 2, Password: "a-good-password"})
 	if apperr.Kind(err) != apperr.KindConflict {
@@ -75,7 +75,7 @@ func TestCreatePartialFailureCleansUpCluster(t *testing.T) {
 // TestCreateReplicaBoundaries — 0 replicas (primary only) is valid; exactly 10
 // is invalid (max is 9).
 func TestCreateReplicaBoundaries(t *testing.T) {
-	svc := New(newFakeClusters(), newFakeInstances(), &fakeProv{}, &fakeRouter{}, instance.RepoLocal)
+	svc := New(newFakeClusters(), newFakeInstances(), &fakeProv{}, &fakeRouter{}, instance.RepoLocal, nil)
 
 	if _, err := svc.Create(context.Background(), Input{Name: "solo", Replicas: 0, Password: "a-good-password"}); err != nil {
 		t.Errorf("0 replicas should be valid: %v", err)
@@ -91,7 +91,7 @@ func TestCreateReplicaBoundaries(t *testing.T) {
 func TestConnectionDSNRejectsMissingPrimary(t *testing.T) {
 	clusters := newFakeClusters()
 	insts := newFakeInstances()
-	svc := New(clusters, insts, &fakeProv{}, &fakeRouter{}, instance.RepoLocal)
+	svc := New(clusters, insts, &fakeProv{}, &fakeRouter{}, instance.RepoLocal, nil)
 
 	c, _ := clusters.Create(context.Background(), cluster.NewCluster{Name: "orders"})
 	// Give it a ready router port directly on the stored item.

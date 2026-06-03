@@ -15,6 +15,7 @@ export function RestoreDialog({ instanceId, backups }: { instanceId: string; bac
   const [mode, setMode] = useState<Mode>("latest");
   const [target, setTarget] = useState("");
   const [set, setSet] = useState(backups[0]?.label ?? "");
+  const [delta, setDelta] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -22,13 +23,13 @@ export function RestoreDialog({ instanceId, backups }: { instanceId: string; bac
     setError(null);
     setSubmitting(true);
     try {
-      const payload =
+      const base =
         mode === "latest"
           ? {}
           : mode === "time"
             ? { type: "time", target: toPgTimestamp(target) }
             : { set };
-      await api.restore(instanceId, payload);
+      await api.restore(instanceId, { ...base, delta });
       qc.invalidateQueries({ queryKey: ["instance", instanceId] });
       setOpen(false);
     } catch (err) {
@@ -92,8 +93,23 @@ export function RestoreDialog({ instanceId, backups }: { instanceId: string; bac
             )}
           </div>
 
+          <label className="mt-4 flex cursor-pointer items-start gap-2.5 rounded-md border border-line bg-ink-850 px-3 py-2.5">
+            <input
+              type="checkbox"
+              checked={delta}
+              onChange={(e) => setDelta(e.target.checked)}
+              className="mt-0.5 h-4 w-4 cursor-pointer accent-azure"
+            />
+            <span className="text-xs text-fg-muted">
+              <span className="font-medium text-fg">Delta restore</span> — only restore files that differ from what&apos;s
+              already on disk. Much faster for large databases; leave off for a clean from-scratch restore.
+            </span>
+          </label>
+
           {error && (
-            <div className="mt-3 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{error}</div>
+            <div role="alert" className="mt-3 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+              {error}
+            </div>
           )}
 
           <div className="mt-6 flex justify-end gap-3 border-t border-line pt-5">

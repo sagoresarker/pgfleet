@@ -31,3 +31,21 @@ func deriveCipherPass(masterKey []byte, instanceID string) string {
 	mac.Write([]byte(cipherPassPrefix + instanceID))
 	return hex.EncodeToString(mac.Sum(nil))
 }
+
+// routerAdminPrefix domain-separates the PgCat router admin-password derivation.
+const routerAdminPrefix = "pgcat-admin:"
+
+// RouterAdminPass returns the deterministic PgCat admin password for a cluster's
+// router: hex(HMAC-SHA256(masterKey, "pgcat-admin:"+clusterID)). Deriving it
+// (rather than generating a random secret and discarding it) lets the control
+// plane reconnect to the router's admin interface later — e.g. to read live pool
+// stats (SHOW POOLS / SHOW STATS) — without persisting the secret. It is stable
+// per cluster and differs across clusters. Returns "" for an empty master key.
+func RouterAdminPass(masterKey []byte, clusterID string) string {
+	if len(masterKey) == 0 {
+		return ""
+	}
+	mac := hmac.New(sha256.New, masterKey)
+	mac.Write([]byte(routerAdminPrefix + clusterID))
+	return hex.EncodeToString(mac.Sum(nil))
+}

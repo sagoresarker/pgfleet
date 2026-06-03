@@ -70,6 +70,8 @@ type Deps struct {
 	Dump *DumpHandler
 	// Remote serves the migrate-in (remote backup & restore) endpoints (optional).
 	Remote *RemoteHandler
+	// Pool serves live PgCat router pool stats (optional).
+	Pool *PoolHandler
 }
 
 // NewRouter builds the control-plane HTTP handler.
@@ -193,6 +195,12 @@ func NewRouter(deps Deps) http.Handler {
 				}
 				if deps.Remote != nil {
 					mountRemoteRoutes(pr, deps.Remote)
+				}
+				if deps.Pool != nil {
+					pr.Group(func(mr chi.Router) {
+						mr.Use(auth.RequireAction(auth.ActionMetricsRead))
+						mr.Get("/clusters/{id}/pool/stats", deps.Pool.Stats)
+					})
 				}
 				if deps.Audit != nil {
 					// The audit log records who did what across the whole fleet,
@@ -324,6 +332,9 @@ func mountBackupRoutes(pr chi.Router, h *BackupsHandler) {
 	pr.Group(func(wr chi.Router) {
 		wr.Use(auth.RequireAction(auth.ActionBackupWrite))
 		wr.Post("/instances/{id}/backups", h.Create)
+		// verify is read-only on the repo (an integrity check), so it sits at the
+		// backup-write level, not the stricter restore/delete level.
+		wr.Post("/instances/{id}/backups/verify", h.Verify)
 	})
 	pr.Group(func(rs chi.Router) {
 		// Restore and single-backup deletion both permanently change recovery

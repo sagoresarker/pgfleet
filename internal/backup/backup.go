@@ -31,6 +31,11 @@ type Backup struct {
 	StartedAt   time.Time
 	StoppedAt   time.Time
 	Error       bool
+	// Annotations are the user-supplied key/value pairs stored on the backup set
+	// (e.g. "name"). Surfaced from pgBackRest info via Sync. Persisting these to
+	// the meta DB requires a migration (see advanced_backup_wiring.md); until
+	// then they are populated only on the in-memory BackupInfo, not the catalog.
+	Annotations map[string]string
 }
 
 // instanceLookup fetches the instance (container id + stanza) to operate on.
@@ -76,11 +81,33 @@ func (s *Service) WithEvents(rec EventRecorder) *Service {
 	return s
 }
 
+// RunOpts parameterizes a backup beyond its type.
+type RunOpts struct {
+	// Annotation, when non-empty, names the backup: it is stored on the backup
+	// set as the "name" annotation (--annotation=name=<value>) and surfaced back
+	// in the catalog/info so the UI can display it.
+	Annotation string
+	// Standby, when true, takes the backup from a standby (replica) to offload
+	// the primary (--backup-standby). It only takes effect when the stanza has a
+	// reachable standby configured; otherwise pgBackRest uses the primary.
+	Standby bool
+}
+
 // Run takes a backup of the given type (full|incr|diff), serialized per
 // instance, then refreshes the catalog.
 func (s *Service) Run(ctx context.Context, instanceID, backupType string) error {
+	return s.RunWith(ctx, instanceID, backupType, RunOpts{})
+}
+
+// RunWith is Run with extra backup options (annotation, standby offload).
+func (s *Service) RunWith(ctx context.Context, instanceID, backupType string, o RunOpts) error {
+	opts := pgbackrest.BackupOpts{BackupStandby: o.Standby}
+	if o.Annotation != "" {
+		opts.Annotations = map[string]string{"name": o.Annotation}
+	}
+
 	// Validate the backup type up front, before touching the instance.
-	if _, err := pgbackrest.Backup("", confPath, backupType); err != nil {
+	if _, err := pgbackrest.Backup("", confPath, backupType, opts); err != nil {
 		return err
 	}
 
@@ -97,7 +124,7 @@ func (s *Service) Run(ctx context.Context, instanceID, backupType string) error 
 	lock.Lock()
 	defer lock.Unlock()
 
-	cmd, err := pgbackrest.Backup(inst.Stanza, confPath, backupType)
+	cmd, err := pgbackrest.Backup(inst.Stanza, confPath, backupType, opts)
 	if err != nil {
 		return err
 	}
@@ -214,6 +241,32 @@ func (s *Service) Expire(ctx context.Context, instanceID string) error {
 	}
 	_, err = s.sync(ctx, inst)
 	return err
+}
+
+// Verify checks the integrity of the instance's repository (backup files and
+// WAL) by running `pgbackrest verify`, and records a "backup verify" event. It
+// does not modify the repo or catalog; a non-zero exit (corruption) is returned
+// as an error.
+func (s *Service) Verify(ctx context.Context, instanceID string) error {
+	inst, err := s.instances.Get(ctx, instanceID)
+	if err != nil {
+		return err
+	}
+	// Replicas have no backup stanza; the repo lives on the cluster primary.
+	if inst.Role == instance.RoleReplica {
+		return apperr.New(apperr.KindInvalid, "backup: replicas have no repo to verify; operate on the cluster primary")
+	}
+
+	lock := s.lockFor(instanceID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	s.record(ctx, inst, "backup verify started", "", "")
+	if err := s.execOK(ctx, inst.ContainerID, asPostgres(pgbackrest.Verify(inst.Stanza, confPath))); err != nil {
+		return err
+	}
+	s.record(ctx, inst, "backup verify completed", "", "")
+	return nil
 }
 
 // List returns the catalog for an instance.

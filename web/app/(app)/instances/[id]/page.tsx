@@ -23,6 +23,7 @@ import {
   Skeleton,
   SkeletonRows,
   Stat,
+  Tooltip,
   useToast,
 } from "@/components/ui";
 import { api, type Backup } from "@/lib/api";
@@ -44,6 +45,7 @@ import {
   Plus,
   Power,
   RefreshCw,
+  ShieldCheck,
   Trash2,
   Users,
 } from "lucide-react";
@@ -462,6 +464,12 @@ function BackupsTab({
   loading: boolean;
 }) {
   const [backupOpen, setBackupOpen] = useState(false);
+  const toast = useToast();
+  const verify = useMutation({
+    mutationFn: () => api.verifyBackups(id),
+    onSuccess: () => toast.push("Repository verify started — see Events for the result", "azure"),
+    onError: (e) => toast.push(e instanceof Error ? e.message : "Verify failed", "danger"),
+  });
 
   return (
     <Card>
@@ -472,6 +480,11 @@ function BackupsTab({
             <Button size="sm" variant="outline" onClick={() => setBackupOpen(true)}>
               <Plus className="h-4 w-4" /> Backup
             </Button>
+            <Tooltip label="Checksum-validate the whole repository">
+              <Button size="sm" variant="outline" loading={verify.isPending} onClick={() => verify.mutate()}>
+                <ShieldCheck className="h-4 w-4" /> Verify
+              </Button>
+            </Tooltip>
             <RestoreDialog instanceId={id} backups={backupList} />
           </div>
         )}
@@ -521,10 +534,12 @@ function BackupModal({ id, open, onOpenChange }: { id: string; open: boolean; on
   const qc = useQueryClient();
   const toast = useToast();
   const [type, setType] = useState("full");
+  const [note, setNote] = useState("");
   const take = useMutation({
-    mutationFn: () => api.createBackup(id, type),
+    mutationFn: () => api.createBackup(id, type, note.trim() || undefined),
     onSuccess: () => {
       toast.push(`${type} backup started — follow progress in Events`, "azure");
+      setNote("");
       onOpenChange(false);
       setTimeout(() => qc.invalidateQueries({ queryKey: ["backups", id] }), 1500);
     },
@@ -547,16 +562,18 @@ function BackupModal({ id, open, onOpenChange }: { id: string; open: boolean; on
         </>
       }
     >
-      <Field label="Backup type" hint="Full = a complete standalone copy. Differential/Incremental build on the last full and are smaller/faster.">
-        <Select value={type} onChange={(e) => setType(e.target.value)}>
-          <option value="full">Full — complete standalone backup</option>
-          <option value="diff">Differential — changes since the last full</option>
-          <option value="incr">Incremental — changes since the last backup</option>
-        </Select>
-      </Field>
-      <p className="mt-3 font-mono text-[11px] text-fg-faint">
-        pgBackRest assigns the label automatically (timestamp + type); it can&apos;t be set manually.
-      </p>
+      <div className="space-y-4">
+        <Field label="Backup type" hint="Full = a complete standalone copy. Differential/Incremental build on the last full and are smaller/faster.">
+          <Select value={type} onChange={(e) => setType(e.target.value)}>
+            <option value="full">Full — complete standalone backup</option>
+            <option value="diff">Differential — changes since the last full</option>
+            <option value="incr">Incremental — changes since the last backup</option>
+          </Select>
+        </Field>
+        <Field label="Note (optional)" hint="Stored as a pgBackRest annotation on this backup — e.g. “pre-upgrade” or a ticket number.">
+          <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="pre-migration snapshot" maxLength={200} />
+        </Field>
+      </div>
     </Modal>
   );
 }

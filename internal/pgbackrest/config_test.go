@@ -206,6 +206,73 @@ func TestBackrestConfNoCipherByDefault(t *testing.T) {
 	}
 }
 
+func TestBackrestConfBlockIncr(t *testing.T) {
+	got, err := BackrestConf(InstanceConf{
+		Stanza: "db", PGDataPath: "/d", PGPort: 5432, RetentionFull: 2, RepoType: "local",
+		Local: RepoLocal{Path: "/var/lib/pgbackrest"}, BlockIncr: true,
+	})
+	if err != nil {
+		t.Fatalf("BackrestConf: %v", err)
+	}
+	if !strings.Contains(got, "repo1-block=y") {
+		t.Errorf("expected repo1-block=y when BlockIncr set:\n%s", got)
+	}
+}
+
+func TestBackrestConfNoBlockIncrByDefault(t *testing.T) {
+	got, _ := BackrestConf(InstanceConf{
+		Stanza: "db", PGDataPath: "/d", PGPort: 5432, RepoType: "local",
+		Local: RepoLocal{Path: "/r"},
+	})
+	if strings.Contains(got, "repo1-block") {
+		t.Errorf("expected no repo1-block line when BlockIncr false:\n%s", got)
+	}
+}
+
+func TestBackrestConfRepo2(t *testing.T) {
+	got, err := BackrestConf(InstanceConf{
+		Stanza:        "orders-db",
+		PGDataPath:    "/var/lib/postgresql/data",
+		PGPort:        5432,
+		RetentionFull: 3,
+		RepoType:      "local",
+		Local:         RepoLocal{Path: "/var/lib/pgbackrest"},
+		Repo2Path:     "/mnt/backups",
+	})
+	if err != nil {
+		t.Fatalf("BackrestConf: %v", err)
+	}
+	want := strings.Join([]string{
+		"[global]",
+		"repo1-type=posix",
+		"repo1-path=/var/lib/pgbackrest",
+		"repo1-retention-full=3",
+		"repo2-type=posix",
+		"repo2-path=/mnt/backups",
+		"repo2-retention-full=3",
+		"start-fast=y",
+		"log-level-console=info",
+		"",
+		"[orders-db]",
+		"pg1-path=/var/lib/postgresql/data",
+		"pg1-port=5432",
+		"",
+	}, "\n")
+	if got != want {
+		t.Errorf("repo2 conf mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestBackrestConfNoRepo2ByDefault(t *testing.T) {
+	got, _ := BackrestConf(InstanceConf{
+		Stanza: "db", PGDataPath: "/d", PGPort: 5432, RepoType: "local",
+		Local: RepoLocal{Path: "/r"},
+	})
+	if strings.Contains(got, "repo2-") {
+		t.Errorf("expected no repo2 lines when Repo2Path empty:\n%s", got)
+	}
+}
+
 func TestBackrestConfRejectsUnknownRepoType(t *testing.T) {
 	if _, err := BackrestConf(InstanceConf{Stanza: "db", RepoType: "nfs"}); err == nil {
 		t.Error("unknown repo type should error")

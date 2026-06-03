@@ -32,6 +32,9 @@ type BackupInfo struct {
 	WALStop    string
 	References []string
 	Error      bool
+	// Annotations are the user-supplied key/value pairs stored on the backup set
+	// (e.g. a "name"). Nil/empty when the backup has none.
+	Annotations map[string]string
 }
 
 // --- raw JSON shapes ---
@@ -64,8 +67,9 @@ type rawBackup struct {
 		Start string `json:"start"`
 		Stop  string `json:"stop"`
 	} `json:"archive"`
-	Reference []string `json:"reference"`
-	Error     bool     `json:"error"`
+	Reference  []string          `json:"reference"`
+	Error      bool              `json:"error"`
+	Annotation map[string]string `json:"annotation"`
 }
 
 // epochToTime converts a pgBackRest epoch-seconds timestamp to UTC. A missing
@@ -95,18 +99,19 @@ func ParseInfo(data []byte) ([]Stanza, error) {
 		}
 		for _, rb := range rs.Backup {
 			s.Backups = append(s.Backups, BackupInfo{
-				Label:      rb.Label,
-				Type:       rb.Type,
-				StartTime:  epochToTime(rb.Timestamp.Start),
-				StopTime:   epochToTime(rb.Timestamp.Stop),
-				Size:       rb.Info.Size,
-				Delta:      rb.Info.Delta,
-				RepoSize:   rb.Info.Repository.Size,
-				RepoDelta:  rb.Info.Repository.Delta,
-				WALStart:   rb.Archive.Start,
-				WALStop:    rb.Archive.Stop,
-				References: rb.Reference,
-				Error:      rb.Error,
+				Label:       rb.Label,
+				Type:        rb.Type,
+				StartTime:   epochToTime(rb.Timestamp.Start),
+				StopTime:    epochToTime(rb.Timestamp.Stop),
+				Size:        rb.Info.Size,
+				Delta:       rb.Info.Delta,
+				RepoSize:    rb.Info.Repository.Size,
+				RepoDelta:   rb.Info.Repository.Delta,
+				WALStart:    rb.Archive.Start,
+				WALStop:     rb.Archive.Stop,
+				References:  rb.Reference,
+				Error:       rb.Error,
+				Annotations: rb.Annotation,
 			})
 		}
 		stanzas = append(stanzas, s)

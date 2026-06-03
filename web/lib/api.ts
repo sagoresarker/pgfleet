@@ -33,6 +33,34 @@ export interface AuditEntry {
   created_at: string;
 }
 
+export interface PoolStat {
+  database: string;
+  user: string;
+  pool_mode: string;
+  cl_active: number;
+  cl_waiting: number;
+  cl_idle: number;
+  sv_active: number;
+  sv_idle: number;
+  sv_used: number;
+  sv_tested: number;
+  sv_login: number;
+  maxwait: number;
+  maxwait_us: number;
+}
+
+export interface PoolDbStat {
+  database: string;
+  total_xact_count: number;
+  total_query_count: number;
+  total_received: number;
+  total_sent: number;
+  avg_xact_count: number;
+  avg_query_count: number;
+  avg_query_time: number;
+  avg_wait_time: number;
+}
+
 export interface Backup {
   id: string;
   label: string;
@@ -238,11 +266,15 @@ export const api = {
   clusterConnection: (id: string) => request<{ dsn: string }>("GET", `/api/v1/clusters/${id}/connection`),
 
   listBackups: (id: string) => request<{ backups: Backup[] }>("GET", `/api/v1/instances/${id}/backups`),
-  createBackup: (id: string, type: string) => request<void>("POST", `/api/v1/instances/${id}/backups`, { type }),
+  createBackup: (id: string, type: string, annotation?: string) =>
+    request<void>("POST", `/api/v1/instances/${id}/backups`, annotation ? { type, annotation } : { type }),
   deleteBackup: (id: string, label: string) =>
     request<void>("DELETE", `/api/v1/instances/${id}/backups/${encodeURIComponent(label)}`),
-  restore: (id: string, input: { type?: string; target?: string; set?: string }) =>
+  verifyBackups: (id: string) => request<void>("POST", `/api/v1/instances/${id}/backups/verify`),
+  restore: (id: string, input: { type?: string; target?: string; set?: string; delta?: boolean }) =>
     request<void>("POST", `/api/v1/instances/${id}/restore`, input),
+  poolStats: (clusterId: string) =>
+    request<{ pools: PoolStat[]; stats: PoolDbStat[] }>("GET", `/api/v1/clusters/${clusterId}/pool/stats`),
 
   latestMetrics: (id: string) => request<{ metrics: Record<string, MetricSample> }>("GET", `/api/v1/instances/${id}/metrics`),
   rangeMetrics: (id: string, metric: string, since: string) =>

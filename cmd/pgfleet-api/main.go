@@ -27,6 +27,7 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/metabackup"
 	"github.com/sagoresarker/pgfleet/internal/metrics"
 	"github.com/sagoresarker/pgfleet/internal/objectstore"
+	"github.com/sagoresarker/pgfleet/internal/pgcat"
 	"github.com/sagoresarker/pgfleet/internal/provision"
 	"github.com/sagoresarker/pgfleet/internal/reconcile"
 	"github.com/sagoresarker/pgfleet/internal/remotebackup"
@@ -158,9 +159,11 @@ func run() error {
 		BindAddress:      cfg.InstanceBindAddress,
 		MasterKey:        cfg.MasterKey,
 		BackupEncryption: cfg.BackupEncryption,
+		BlockIncr:        cfg.BackupBlockIncr,
+		Repo2Path:        cfg.Repo2Path,
 	})
 	clusters := cluster.NewRepository(pool)
-	clusterSvc := clusterctl.New(clusters, instances, provisioner, rt, instance.RepoType(cfg.DefaultRepoType))
+	clusterSvc := clusterctl.New(clusters, instances, provisioner, rt, instance.RepoType(cfg.DefaultRepoType), cfg.MasterKey)
 	hub := ws.NewHub()
 
 	// Reconcile on boot and on a loop so the control plane is not amnesiac
@@ -220,7 +223,7 @@ func run() error {
 	// Automatic cluster failover: detect a dead primary, fence it, promote the
 	// most-caught-up replica, reattach the others, and repoint the router.
 	if cfg.AutoFailover {
-		foController := failover.New(clusters, instances, provisioner, rt, eventStore, failoverThreshold, log)
+		foController := failover.New(clusters, instances, provisioner, rt, eventStore, failoverThreshold, cfg.MasterKey, log)
 		sched.Register("auto-failover", failoverInterval, foController.Run)
 	}
 	sched.Start(ctx)
@@ -272,6 +275,7 @@ func run() error {
 		Audit:     api.NewAuditHandler(recorder),
 		Instances: api.NewInstancesHandler(instances, provisioner, hub).WithAudit(recorder).WithAsync(async).WithCloneBackup(backups),
 		Clusters:  api.NewClustersHandler(clusterSvc, clusters, instances, cfg.InstanceHost, recorder).WithAsync(async),
+		Pool:      api.NewPoolHandler(api.PoolStatsReaderFunc(pgcat.ReadPoolStats), clusterSvc, cfg.InstanceHost),
 		Backups:   api.NewBackupsHandler(backups, provisioner, recorder).WithAsync(async),
 		Metrics:   api.NewMetricsHandler(metricStore, insights),
 		Health:    api.NewHealthHandler(healthStore),

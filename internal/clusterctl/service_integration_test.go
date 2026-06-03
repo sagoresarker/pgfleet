@@ -51,7 +51,7 @@ func TestClusterLifecycleEndToEnd(t *testing.T) {
 	clusters := cluster.NewRepository(pool)
 	instances := instance.NewRepository(pool, cipher)
 	prov := provision.New(rt, instances, provision.Options{Network: netName, InstanceHost: "localhost"})
-	svc := New(clusters, instances, prov, rt, instance.RepoLocal)
+	svc := New(clusters, instances, prov, rt, instance.RepoLocal, nil)
 
 	const pw = "cluster-pass-1"
 	c, err := svc.Create(ctx, Input{Name: "hac" + uniqueSuffix(), Replicas: 1, Password: pw})

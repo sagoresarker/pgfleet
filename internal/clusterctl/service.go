@@ -4,8 +4,6 @@ package clusterctl
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"net/url"
 
@@ -14,15 +12,6 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/instance"
 	"github.com/sagoresarker/pgfleet/internal/provision"
 )
-
-// randomSecret returns a 32-hex-char random secret (for the router admin user).
-func randomSecret() (string, error) {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", apperr.Wrap(apperr.KindInternal, "cluster: generate secret", err)
-	}
-	return hex.EncodeToString(b), nil
-}
 
 // Provisioner is the subset of the provisioner the orchestrator needs.
 type Provisioner interface {
@@ -58,6 +47,7 @@ type Service struct {
 	prov      Provisioner
 	router    RouterRemover
 	repoType  instance.RepoType
+	masterKey []byte
 }
 
 // RouterRemover removes a router container (the runtime).
@@ -65,9 +55,11 @@ type RouterRemover interface {
 	RemoveContainer(ctx context.Context, id string, force bool) error
 }
 
-// New builds a cluster Service.
-func New(clusters clusterStore, instances instanceStore, prov Provisioner, router RouterRemover, defaultRepo instance.RepoType) *Service {
-	return &Service{clusters: clusters, instances: instances, prov: prov, router: router, repoType: defaultRepo}
+// New builds a cluster Service. masterKey derives the router's admin password
+// (so the control plane can reconnect to read pool stats); it may be nil in
+// tests that don't exercise the router admin path.
+func New(clusters clusterStore, instances instanceStore, prov Provisioner, router RouterRemover, defaultRepo instance.RepoType, masterKey []byte) *Service {
+	return &Service{clusters: clusters, instances: instances, prov: prov, router: router, repoType: defaultRepo, masterKey: masterKey}
 }
 
 // Input describes a cluster to create.
@@ -187,18 +179,17 @@ func (s *Service) provision(ctx context.Context, clusterID string, progress prov
 	if err != nil {
 		return err
 	}
-	adminPassword, err := randomSecret()
-	if err != nil {
-		return err
-	}
+	// Derive the router admin password deterministically (master key + cluster id)
+	// so the control plane can reconnect to the router's admin interface later to
+	// read live pool stats — without persisting the secret. It is independent of
+	// the database superuser password, so a router-admin leak is not a DB leak.
+	adminPassword := provision.RouterAdminPass(s.masterKey, c.ID)
 	routerID, port, err := s.prov.StartRouter(ctx, provision.RouterSpec{
-		ClusterID:   c.ID,
-		ClusterName: c.Name,
-		Database:    "postgres",
-		User:        primary.Superuser,
-		Password:    password,
-		// Independent random admin password so a router-admin leak is not a
-		// database-superuser leak (and vice versa).
+		ClusterID:     c.ID,
+		ClusterName:   c.Name,
+		Database:      "postgres",
+		User:          primary.Superuser,
+		Password:      password,
 		AdminPassword: adminPassword,
 		Members:       provision.RouterMembersFromInstances(primary.Name, replicaNames),
 	}, progress)
@@ -240,6 +231,32 @@ func (s *Service) ConnectionDSN(ctx context.Context, clusterID, host string) (st
 		User:     url.UserPassword(primary.Superuser, password),
 		Host:     fmt.Sprintf("%s:%d", host, c.RouterPort),
 		Path:     "/postgres",
+		RawQuery: "sslmode=disable",
+	}
+	return u.String(), nil
+}
+
+// RouterAdminDSN returns the PgCat admin connection string for a cluster's
+// router (admin user "pgfleet_admin", database "pgcat"). It re-derives the admin
+// password from the master key, so the control plane can read live pool stats
+// without the secret ever being stored. Implements api.RouterAdminResolver.
+func (s *Service) RouterAdminDSN(ctx context.Context, clusterID, host string) (string, error) {
+	c, err := s.clusters.Get(ctx, clusterID)
+	if err != nil {
+		return "", err
+	}
+	if c.RouterPort == 0 {
+		return "", apperr.New(apperr.KindNotFound, "cluster: router not ready")
+	}
+	pass := provision.RouterAdminPass(s.masterKey, c.ID)
+	if pass == "" {
+		return "", apperr.New(apperr.KindInternal, "cluster: router admin password unavailable")
+	}
+	u := url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword("pgfleet_admin", pass),
+		Host:     fmt.Sprintf("%s:%d", host, c.RouterPort),
+		Path:     "/pgcat",
 		RawQuery: "sslmode=disable",
 	}
 	return u.String(), nil

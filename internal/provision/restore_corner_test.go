@@ -3,11 +3,47 @@ package provision
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/sagoresarker/pgfleet/internal/docker"
 	"github.com/sagoresarker/pgfleet/internal/instance"
 )
+
+// TestRestoreDeltaReachesRestoreContainer — passing Delta=true threads --delta
+// into the restore command run inside the one-shot restore container.
+func TestRestoreDeltaReachesRestoreContainer(t *testing.T) {
+	rt := docker.NewFake()
+	var restoreScript string
+	rt.OnStart = func(f *docker.Fake, _ string) {
+		if spec, ok := f.SpecByRole("restore"); ok && restoreScript == "" {
+			restoreScript = strings.Join(spec.Cmd, " ")
+		}
+		infos, _ := f.ListByLabel(context.Background(), map[string]string{docker.LabelRole: "restore"})
+		for _, in := range infos {
+			f.MarkExited(in.ID, 0)
+		}
+	}
+	origID, _ := rt.CreateContainer(context.Background(), docker.ContainerSpec{
+		Name:   "pgfleet-orders-db",
+		Labels: map[string]string{docker.LabelInstance: "inst-1"},
+	})
+	_ = rt.StartContainer(context.Background(), origID)
+
+	store := newStore()
+	store.container = origID
+	store.dataVolume = "pgfleet-data-inst-1"
+
+	p := New(rt, store, Options{})
+	_ = p.Restore(context.Background(), "inst-1", RestoreOptions{Delta: true}, nil)
+
+	if restoreScript == "" {
+		t.Fatal("no restore container was created")
+	}
+	if !strings.Contains(restoreScript, "--delta") {
+		t.Errorf("restore script missing --delta:\n%s", restoreScript)
+	}
+}
 
 // TestRestorePasswordFailureRestartsOriginal — if fetching the superuser
 // password fails AFTER the staging restore container has run (the instance is

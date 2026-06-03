@@ -35,6 +35,31 @@ Scheduled restore drills restore the latest backup into a throwaway container an
 validate it (`pg_controldata`); the Reliability page shows the pass/fail per
 instance. Use it as the source of truth for "is my backup actually restorable?".
 
+### Advanced pgBackRest (config flags)
+- `PGFLEET_BACKUP_BLOCK_INCR=true` — block-incremental backups (2.46+): much
+  smaller/faster incrementals. Applies to new instances.
+- `PGFLEET_REPO2_PATH=/path` — a second local/posix repo; every backup is written
+  to both repos (3-2-1). Pair with an offsite/second-region mount.
+- **Delta restore** — a checkbox in the Restore wizard; restores only changed
+  files (`--delta`), turning long restores into minutes.
+- **Backup annotations** — the "Note" field in the Take-a-backup dialog stores a
+  pgBackRest annotation on the backup (your named/tagged backups).
+- **Verify** — the "Verify" button runs `pgbackrest verify` to checksum-validate
+  the whole repository; the result is recorded in Events.
+- **Backup from standby** — cluster backups can offload to a replica.
+
+### Advanced PgCat (router)
+- **Pool mode** — transaction (default) or session, per cluster.
+- **Read/write split + replica load-balancing** — SELECTs route to replicas,
+  writes to the primary, with auto load-balancing.
+- **Live pool stats** — the cluster page shows `SHOW POOLS`/`SHOW STATS`
+  (waiting clients, server connections, max wait, avg query time). The router
+  admin password is derived from the master key (no stored secret).
+- **Auto-ban unhealthy backends** — PgCat health-checks and bans failing servers,
+  retrying after `ban_time`.
+- **Query mirroring** — optionally shadow live traffic to another host (validate
+  an upgrade/migration before cutover).
+
 ### Other existing guards
 Secrets at rest (AES-256-GCM envelope), argon2id + JWT + RBAC, audit log,
 instances bound to `127.0.0.1` by default, alert webhook SSRF guard, nonce CSP on

@@ -15,19 +15,31 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/provision"
 )
 
+type runWithCall struct {
+	instanceID string
+	backupType string
+	opts       backup.RunOpts
+}
+
 type fakeBackupRunner struct {
-	runs    chan [2]string
-	deletes chan [2]string
-	list    []backup.Backup
-	delErr  error
+	runs     chan runWithCall
+	deletes  chan [2]string
+	verifies chan string
+	list     []backup.Backup
+	delErr   error
+	verErr   error
 }
 
 func newFakeBackupRunner() *fakeBackupRunner {
-	return &fakeBackupRunner{runs: make(chan [2]string, 4), deletes: make(chan [2]string, 4)}
+	return &fakeBackupRunner{
+		runs:     make(chan runWithCall, 4),
+		deletes:  make(chan [2]string, 4),
+		verifies: make(chan string, 4),
+	}
 }
 
-func (f *fakeBackupRunner) Run(_ context.Context, instanceID, backupType string) error {
-	f.runs <- [2]string{instanceID, backupType}
+func (f *fakeBackupRunner) RunWith(_ context.Context, instanceID, backupType string, opts backup.RunOpts) error {
+	f.runs <- runWithCall{instanceID, backupType, opts}
 	return nil
 }
 func (f *fakeBackupRunner) Delete(_ context.Context, instanceID, label string) error {
@@ -35,6 +47,13 @@ func (f *fakeBackupRunner) Delete(_ context.Context, instanceID, label string) e
 		return f.delErr
 	}
 	f.deletes <- [2]string{instanceID, label}
+	return nil
+}
+func (f *fakeBackupRunner) Verify(_ context.Context, instanceID string) error {
+	if f.verErr != nil {
+		return f.verErr
+	}
+	f.verifies <- instanceID
 	return nil
 }
 func (f *fakeBackupRunner) List(context.Context, string) ([]backup.Backup, error) {
@@ -64,6 +83,7 @@ func mountBackupsAudited(runner BackupRunner, restorer Restorer, rec AuditRecord
 	r.Post("/api/v1/instances/{id}/backups", h.Create)
 	r.Get("/api/v1/instances/{id}/backups", h.List)
 	r.Delete("/api/v1/instances/{id}/backups/{label}", h.Delete)
+	r.Post("/api/v1/instances/{id}/backups/verify", h.Verify)
 	r.Post("/api/v1/instances/{id}/restore", h.Restore)
 	return r
 }
@@ -78,11 +98,47 @@ func TestCreateBackupReturns202AndRuns(t *testing.T) {
 	}
 	select {
 	case got := <-runner.runs:
-		if got[0] != "i1" || got[1] != "full" {
-			t.Errorf("run = %v, want [i1 full]", got)
+		if got.instanceID != "i1" || got.backupType != "full" {
+			t.Errorf("run = %+v, want i1/full", got)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("backup was not triggered")
+	}
+}
+
+func TestCreateBackupWithAnnotation(t *testing.T) {
+	runner := newFakeBackupRunner()
+	h := mountBackups(runner, newFakeRestorer())
+
+	rr := postJSON(t, h, "/api/v1/instances/i1/backups", `{"type":"full","annotation":"my note"}`)
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", rr.Code)
+	}
+	select {
+	case got := <-runner.runs:
+		if got.opts.Annotation != "my note" {
+			t.Errorf("annotation = %q, want %q", got.opts.Annotation, "my note")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("backup was not triggered")
+	}
+}
+
+func TestVerifyReturns202AndRuns(t *testing.T) {
+	runner := newFakeBackupRunner()
+	h := mountBackups(runner, newFakeRestorer())
+
+	rr := postJSON(t, h, "/api/v1/instances/i1/backups/verify", `{}`)
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", rr.Code)
+	}
+	select {
+	case got := <-runner.verifies:
+		if got != "i1" {
+			t.Errorf("verify instance = %q, want i1", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("verify was not triggered")
 	}
 }
 
@@ -174,6 +230,24 @@ func TestRestoreReturns202(t *testing.T) {
 	case opts := <-restorer.restored:
 		if opts.Type != "time" || opts.Target != "2026-06-03 12:00:00+00" {
 			t.Errorf("restore opts = %+v", opts)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("restore was not triggered")
+	}
+}
+
+func TestRestoreAcceptsDelta(t *testing.T) {
+	restorer := newFakeRestorer()
+	h := mountBackups(newFakeBackupRunner(), restorer)
+
+	rr := postJSON(t, h, "/api/v1/instances/i1/restore", `{"delta":true}`)
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", rr.Code)
+	}
+	select {
+	case opts := <-restorer.restored:
+		if !opts.Delta {
+			t.Errorf("restore opts.Delta = false, want true")
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("restore was not triggered")

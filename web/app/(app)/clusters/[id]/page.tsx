@@ -13,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
   ConfirmDialog,
+  EmptyState,
   SkeletonRows,
   Stat,
   useToast,
@@ -150,7 +151,90 @@ export default function ClusterDetailPage() {
           <ConnectionCard id={id} ready={ready} />
         </div>
       </div>
+
+      <PoolStatsPanel id={id} ready={ready} />
     </div>
+  );
+}
+
+/* ---- Live PgCat pool stats (SHOW POOLS / SHOW STATS) ---- */
+function PoolStatsPanel({ id, ready }: { id: string; ready: boolean }) {
+  const q = useQuery({
+    queryKey: ["pool-stats", id],
+    enabled: ready,
+    refetchInterval: 5000,
+    retry: false,
+    queryFn: () => api.poolStats(id),
+  });
+  const pools = q.data?.pools ?? [];
+  const stats = q.data?.stats ?? [];
+
+  return (
+    <Card className="mt-6">
+      <CardHeader>
+        <CardTitle>Router pool · live</CardTitle>
+        <span className="flex items-center gap-1.5 font-mono text-[11px] text-fg-faint">
+          <span className={"led " + (q.isFetching ? "led-signal led-pulse" : q.error ? "led-idle" : "led-healthy")} />
+          {q.error ? "unavailable" : "PgCat admin"}
+        </span>
+      </CardHeader>
+      <CardBody className="p-0">
+        {!ready ? (
+          <p className="px-5 py-8 text-center text-sm text-fg-muted">Pool stats are available once the router is running.</p>
+        ) : q.isLoading ? (
+          <div className="p-5">
+            <SkeletonRows rows={2} />
+          </div>
+        ) : q.error ? (
+          <p className="px-5 py-8 text-center text-sm text-fg-muted">
+            Could not reach the PgCat admin interface. It becomes available shortly after the router starts.
+          </p>
+        ) : pools.length === 0 ? (
+          <EmptyState icon={<Network className="h-5 w-5" />} title="No pools yet" description="The router has no active pools to report." />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-left text-sm">
+              <thead>
+                <tr className="border-b border-line bg-ink-800 font-mono text-[10px] uppercase tracking-wider text-fg-faint">
+                  <th className="px-5 py-2.5 font-medium">Pool</th>
+                  <th className="px-3 py-2.5 text-right font-medium">Clients (active/wait/idle)</th>
+                  <th className="px-3 py-2.5 text-right font-medium">Servers (active/idle)</th>
+                  <th className="px-3 py-2.5 text-right font-medium">Max wait</th>
+                  <th className="px-5 py-2.5 text-right font-medium">Avg query</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pools.map((p, i) => {
+                  const s = stats.find((x) => x.database === p.database);
+                  return (
+                    <tr key={i} className="border-b border-line/60">
+                      <td className="px-5 py-2.5">
+                        <span className="font-display text-fg">{p.database}</span>
+                        <span className="ml-2 font-mono text-[11px] text-fg-faint">{p.pool_mode}</span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono text-xs tnum">
+                        <span className="text-fg">{p.cl_active}</span>
+                        <span className={"px-1 " + (p.cl_waiting > 0 ? "text-danger" : "text-fg-faint")}>/ {p.cl_waiting}</span>
+                        <span className="text-fg-faint">/ {p.cl_idle}</span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono text-xs text-fg-muted tnum">
+                        {p.sv_active} / {p.sv_idle}
+                      </td>
+                      <td className={"px-3 py-2.5 text-right font-mono text-xs tnum " + (p.maxwait > 0 ? "text-signal" : "text-fg-muted")}>
+                        {p.maxwait}s
+                      </td>
+                      <td className="px-5 py-2.5 text-right font-mono text-xs text-fg-muted tnum">
+                        {s ? `${(s.avg_query_time / 1000).toFixed(1)}ms` : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardBody>
+    </Card>
   );
 }
 

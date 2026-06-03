@@ -37,6 +37,113 @@ func TestGenerateRoutesPrimaryAndReplicas(t *testing.T) {
 	}
 }
 
+func TestGeneratePoolModeDefaultsToTransaction(t *testing.T) {
+	got := Generate(Config{
+		Database: "postgres", User: "u", Password: "p",
+		Servers: []Server{{Host: "h", Role: "primary"}},
+	})
+	if !strings.Contains(got, `pool_mode = "transaction"`) {
+		t.Errorf("expected default pool_mode transaction:\n%s", got)
+	}
+}
+
+func TestGeneratePoolModeSession(t *testing.T) {
+	got := Generate(Config{
+		Database: "postgres", User: "u", Password: "p", PoolMode: "session",
+		Servers: []Server{{Host: "h", Role: "primary"}},
+	})
+	if !strings.Contains(got, `pool_mode = "session"`) {
+		t.Errorf("expected pool_mode session:\n%s", got)
+	}
+}
+
+func TestValidatePoolMode(t *testing.T) {
+	for _, m := range []string{"", "transaction", "session"} {
+		if err := ValidatePoolMode(m); err != nil {
+			t.Errorf("ValidatePoolMode(%q) = %v, want nil", m, err)
+		}
+	}
+	for _, m := range []string{"statement", "Transaction", "bogus"} {
+		if err := ValidatePoolMode(m); err == nil {
+			t.Errorf("ValidatePoolMode(%q) = nil, want error", m)
+		}
+	}
+}
+
+func TestGenerateReadWriteSplitAndRoles(t *testing.T) {
+	got := Generate(Config{
+		Database: "postgres", User: "u", Password: "p",
+		Servers: []Server{
+			{Host: "p1", Port: 5432, Role: "primary"},
+			{Host: "r1", Port: 5432, Role: "replica"},
+			{Host: "r2", Port: 5432, Role: "replica"},
+		},
+	})
+	for _, want := range []string{
+		"query_parser_enabled = true",
+		"query_parser_read_write_splitting = true",
+		"primary_reads_enabled = false",
+		`load_balancing_mode = "loadbalancing"`,
+		`["p1", 5432, "primary"]`,
+		`["r1", 5432, "replica"]`,
+		`["r2", 5432, "replica"]`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("config missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestGenerateHealthCheckAndBanConfig(t *testing.T) {
+	got := Generate(Config{
+		Database: "postgres", User: "u", Password: "p",
+		Servers: []Server{{Host: "h", Role: "primary"}},
+	})
+	for _, want := range []string{
+		"healthcheck_timeout =",
+		"healthcheck_delay =",
+		"ban_time = 60",
+		"shutdown_timeout =",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("config missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestGenerateMirrorsWhenSet(t *testing.T) {
+	got := Generate(Config{
+		Database: "postgres", User: "u", Password: "p",
+		Servers: []Server{{Host: "h", Role: "primary"}},
+		Mirrors: []MirrorTarget{
+			{Host: "mirror-a", Port: 5432},
+			{Host: "mirror-b", Port: 5433},
+		},
+	})
+	for _, want := range []string{
+		"[pools.postgres.shards.0.mirrors.0]",
+		`host = "mirror-a"`,
+		"port = 5432",
+		"[pools.postgres.shards.0.mirrors.1]",
+		`host = "mirror-b"`,
+		"port = 5433",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("config missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestGenerateNoMirrorBlockWhenEmpty(t *testing.T) {
+	got := Generate(Config{
+		Database: "postgres", User: "u", Password: "p",
+		Servers: []Server{{Host: "h", Role: "primary"}},
+	})
+	if strings.Contains(got, "mirrors") {
+		t.Errorf("expected no mirror block when empty:\n%s", got)
+	}
+}
+
 func TestGenerateDefaultsPoolSizeAndPort(t *testing.T) {
 	got := Generate(Config{
 		Database: "postgres", User: "u", Password: "p",
