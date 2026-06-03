@@ -106,8 +106,8 @@ function Topology({ routing }: { routing: RoutingBackend[] }) {
         </div>
       </div>
 
-      {/* Connector: stem + branch */}
-      <div className="h-5 w-px bg-line-bright" aria-hidden="true" />
+      {/* Connector: animated flow stem out of the router */}
+      <FlowEdge active={totalConns > 0} speed={1} height={22} />
       <div className="grid w-full gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {routing.map((b) => (
           <BackendNode key={b.name} backend={b} share={b.query_count / totalQ} />
@@ -127,8 +127,10 @@ function BackendNode({ backend: b, share }: { backend: RoutingBackend; share: nu
         (primary ? "border-signal/40" : "border-line")
       }
     >
-      {/* little stub up to the branch row */}
-      <div className="absolute -top-4 left-1/2 h-4 w-px -translate-x-1/2 bg-line-bright" aria-hidden="true" />
+      {/* animated flow stub up to the branch row; faster = more traffic */}
+      <div className="absolute -top-[18px] left-1/2 -translate-x-1/2">
+        <FlowEdge active={live} speed={share} height={18} color={primary ? "var(--color-signal)" : "var(--color-azure)"} />
+      </div>
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           {primary ? <Crown className="h-4 w-4 shrink-0 text-signal" /> : <Database className="h-4 w-4 shrink-0 text-fg-faint" />}
@@ -153,6 +155,30 @@ function BackendNode({ backend: b, share }: { backend: RoutingBackend; share: nu
         />
       </div>
     </div>
+  );
+}
+
+/* ---- Animated flow edge: marching dashes whose speed scales with traffic ---- */
+function FlowEdge({
+  active,
+  speed,
+  height,
+  color = "var(--color-azure)",
+}: {
+  active: boolean;
+  speed: number; // 0..1 traffic share
+  height: number;
+  color?: string;
+}) {
+  // More share → shorter duration → faster marching dashes.
+  const duration = `${(1.5 - Math.min(1, speed) * 1.1).toFixed(2)}s`;
+  return (
+    <svg width="2" height={height} aria-hidden="true" className="block">
+      <line x1="1" y1="0" x2="1" y2={height} stroke="var(--color-line-bright)" strokeWidth="2" />
+      {active && (
+        <line x1="1" y1="0" x2="1" y2={height} stroke={color} strokeWidth="2" className="flow-line" style={{ animationDuration: duration }} />
+      )}
+    </svg>
   );
 }
 

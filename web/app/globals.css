@@ -1,33 +1,34 @@
 @import "tailwindcss";
 
 /*
- * PgFleet "instrument panel" design system — LIGHT.
- * Bright, slightly-cool canvas, white raised surfaces, hairline borders,
- * glowing status LEDs, deep azure primary with amber WAL/backup signals.
- * Semantic token names are preserved (ink-950 = canvas; raised surfaces get
- * whiter) so components adapt without per-class changes.
+ * PgFleet "control room" design system — DARK.
+ * Deep slate canvas, raised surfaces a step lighter (elevation by lightness,
+ * not shadow), hairline borders, glowing status LEDs, and bright azure/amber/
+ * green instrument accents that pop on dark. Semantic token names are preserved
+ * (ink-950 = canvas; ink-900 = raised card) so every component adapts without
+ * per-class changes.
  */
 @theme {
-  --color-ink-950: #e9eef4; /* app canvas */
-  --color-ink-900: #ffffff; /* primary raised surface (cards) */
-  --color-ink-850: #fafbfd; /* secondary surface */
-  --color-ink-800: #f3f6fa; /* tertiary / inset surface */
-  --color-ink-700: #eaeff5; /* hover fill */
-  --color-ink-600: #d6deea; /* subtle fill / scrollbar thumb */
-  --color-line: #e3e8f0; /* hairline border */
-  --color-line-bright: #c6d0dd; /* hover / active border */
+  --color-ink-950: #090d14; /* app canvas (darkest) */
+  --color-ink-900: #141c2a; /* primary raised surface (cards) */
+  --color-ink-850: #0f1622; /* secondary / recessed inset (code blocks) */
+  --color-ink-800: #1b2435; /* tertiary surface (table headers) */
+  --color-ink-700: #283246; /* hover fill */
+  --color-ink-600: #36425a; /* subtle fill / scrollbar thumb */
+  --color-line: #222c3c; /* hairline border */
+  --color-line-bright: #36445d; /* hover / active border */
 
-  --color-fg: #16202e; /* primary text */
-  --color-fg-muted: #54627a; /* secondary text */
-  --color-fg-faint: #8593a6; /* tertiary text */
+  --color-fg: #e7edf6; /* primary text */
+  --color-fg-muted: #9aabc2; /* secondary text */
+  --color-fg-faint: #61728a; /* tertiary text */
 
-  --color-azure: #2563eb;
-  --color-azure-bright: #1d4ed8; /* hover (darker) */
-  --color-azure-dim: #dbe6fb; /* light azure tint */
-  --color-signal: #b45309; /* amber-700: ~4.6:1 on white for small data text */
-  --color-healthy: #15803d; /* green-700: ~4.5:1 */
-  --color-danger: #cf2030; /* ~4.3:1 */
-  --color-violet: #7c3aed;
+  --color-azure: #4f8ef7; /* primary — bright blue for dark */
+  --color-azure-bright: #6aa6fb; /* hover (lighter on dark) */
+  --color-azure-dim: #16263f; /* dark azure tint for fills */
+  --color-signal: #f5a524; /* amber: WAL/backup signal, vivid on dark */
+  --color-healthy: #2bd07a; /* green */
+  --color-danger: #fb5566; /* red */
+  --color-violet: #a98bfa;
 
   --font-display: var(--font-martian), ui-monospace, monospace;
   --font-body: var(--font-hanken), ui-sans-serif, system-ui, sans-serif;
@@ -41,7 +42,7 @@
 }
 
 html {
-  color-scheme: light;
+  color-scheme: dark;
 }
 
 body {
@@ -49,11 +50,14 @@ body {
   color: var(--color-fg);
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
-  /* Faint blueprint grid for atmosphere. */
+  /* Faint blueprint grid + a soft azure aurora for control-room atmosphere. */
   background-image:
-    linear-gradient(to right, rgba(37, 99, 235, 0.04) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(37, 99, 235, 0.04) 1px, transparent 1px);
-  background-size: 44px 44px;
+    radial-gradient(1200px 520px at 78% -8%, rgba(79, 142, 247, 0.1), transparent 60%),
+    radial-gradient(900px 480px at 8% 4%, rgba(124, 58, 237, 0.06), transparent 55%),
+    linear-gradient(to right, rgba(79, 142, 247, 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(79, 142, 247, 0.045) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 44px 44px, 44px 44px;
+  background-attachment: fixed;
 }
 
 /* Display headings: technical monospace, tightened. */
@@ -99,6 +103,28 @@ body {
   50% { opacity: 0.55; }
 }
 
+/* Connection-flow: marching dashes along the router→backend SVG edges. The
+ * faster the animation, the more traffic an edge carries (set per-edge). */
+@keyframes flow-dash {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+.flow-line {
+  stroke-dasharray: 3 7;
+  animation: flow-dash 0.8s linear infinite;
+}
+
+/* Slow drift for the replication-lag "river" gradient. */
+@keyframes river-drift {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 100% 50%;
+  }
+}
+
 /* Staggered page-load reveal. */
 @keyframes rise {
   from { opacity: 0; transform: translateY(8px); }
@@ -123,13 +149,13 @@ body {
   background: linear-gradient(
     180deg,
     transparent 0%,
-    rgba(37, 99, 235, 0.08) 50%,
+    rgba(79, 142, 247, 0.14) 50%,
     transparent 100%
   );
 }
 
 ::selection {
-  background: rgba(37, 99, 235, 0.18);
+  background: rgba(79, 142, 247, 0.28);
   color: var(--color-fg);
 }
 
@@ -145,7 +171,7 @@ body {
 
 /* Hero glow + staggered reveal for the landing page. */
 .glow-text {
-  text-shadow: 0 0 36px rgba(37, 99, 235, 0.18);
+  text-shadow: 0 0 42px rgba(79, 142, 247, 0.4);
 }
 .reveal {
   animation: rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;

@@ -1,5 +1,6 @@
 "use client";
 
+import { ConnectionPoolGaugeWall, TpsChart, WalRateChart } from "@/components/metrics-viz";
 import { Card, CardBody, CardHeader, CardTitle, Spinner, Stat } from "@/components/ui";
 import { api } from "@/lib/api";
 import { formatBytes } from "@/lib/utils";
@@ -50,6 +51,13 @@ export function AnalyticsTab({ id, running }: { id: string; running: boolean }) 
         <StatCard label="Disk used" value={m.disk_used_bytes ? formatBytes(m.disk_used_bytes.value) : "—"} sub={m.disk_total_bytes ? `of ${formatBytes(m.disk_total_bytes.value)}` : undefined} />
         <StatCard label="Data volume" value={m.disk_total_bytes ? formatBytes(m.disk_total_bytes.value) : "—"} />
       </div>
+      {/* Live derived-rate visualizations + connection-pool gauge wall. */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <TpsChart instanceId={id} running={running} />
+        <WalRateChart instanceId={id} running={running} />
+      </div>
+      <ConnectionPoolGaugeWall instanceId={id} running={running} />
+
       <div className="grid gap-6 lg:grid-cols-2">
         <TimeChart id={id} metric="disk_free_percent" title="Disk free · last hour" running={running} domain={[0, 100]} unit="%" color="var(--color-healthy)" />
         <TimeChart id={id} metric="memory_percent" title="Memory · last hour" running={running} domain={[0, 100]} unit="%" color="var(--color-signal)" />
