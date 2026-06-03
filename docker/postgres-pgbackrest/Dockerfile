@@ -8,9 +8,12 @@
 ARG PG_VERSION=16
 FROM postgres:${PG_VERSION}
 
-# ARG declared before FROM only scopes to the FROM line; re-declare it so the
-# build stage can read PG_VERSION in its RUN steps.
-ARG PG_VERSION
+# In RUN steps below we use the base image's own PG_MAJOR env (e.g. "16"), NOT
+# our PG_VERSION ARG. The postgres image already sets ENV PG_VERSION to the full
+# Debian package version (e.g. "16.14-1.pgdg13+1"), which shadows a same-named
+# ARG in the legacy builder — so referencing ${PG_VERSION} in a RUN would build
+# the wrong package name. PG_MAJOR is the clean major and is set correctly for
+# whichever postgres:<ver> base FROM selected.
 
 # pgbackrest from the Debian Bookworm repos. Pin nothing here; the integration
 # build records the resolved version. Create the directories pgBackRest needs,
@@ -39,8 +42,12 @@ RUN set -eux; \
     wget --quiet -O - https://packagecloud.io/timescale/timescaledb/gpgkey \
         | gpg --dearmor -o /etc/apt/trusted.gpg.d/timescaledb.gpg; \
     apt-get update; \
-    apt-get install -y --no-install-recommends "timescaledb-2-postgresql-${PG_VERSION}" \
-        || echo "timescaledb unavailable for PG ${PG_VERSION}, skipping"; \
+    if [ "${PG_MAJOR}" = "13" ]; then \
+        echo "timescaledb does not support PostgreSQL 13; skipping"; \
+    else \
+        apt-get install -y "timescaledb-2-postgresql-${PG_MAJOR}"; \
+        test -f "/usr/lib/postgresql/${PG_MAJOR}/lib/timescaledb.so"; \
+    fi; \
     rm -rf /var/lib/apt/lists/*
 
 LABEL org.pgfleet.image="postgres-pgbackrest"

@@ -132,7 +132,10 @@ func (s *Service) ListJobs(ctx context.Context, conn Conn) ([]Job, error) {
 			j.job_id,
 			COALESCE(j.application_name, ''),
 			COALESCE(j.schedule_interval::text, ''),
-			s.next_start,
+			-- next_start can be ±infinity (e.g. a paused/never-scheduled job),
+			-- which cannot scan into *time.Time; normalise those to NULL.
+			CASE WHEN s.next_start IN ('-infinity'::timestamptz, 'infinity'::timestamptz)
+			     THEN NULL ELSE s.next_start END,
 			COALESCE(s.last_run_status, '')
 		FROM timescaledb_information.jobs j
 		LEFT JOIN timescaledb_information.job_stats s ON s.job_id = j.job_id
