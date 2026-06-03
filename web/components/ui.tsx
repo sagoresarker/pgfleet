@@ -54,8 +54,18 @@ export const Button = forwardRef<
       {...(asChild ? {} : { disabled: isDisabled })}
       {...props}
     >
-      {loading && <Spinner className="h-3.5 w-3.5 border-current/30 border-t-current" />}
-      {children}
+      {/* When asChild, Radix Slot requires EXACTLY ONE child element, so the
+          consumer's single child is passed straight through (no injected spinner
+          sibling — that would trigger React.Children.only). The loading spinner
+          only applies to real <button> usage. */}
+      {asChild ? (
+        children
+      ) : (
+        <>
+          {loading && <Spinner className="h-3.5 w-3.5 border-current/30 border-t-current" />}
+          {children}
+        </>
+      )}
     </Comp>
   );
 });
