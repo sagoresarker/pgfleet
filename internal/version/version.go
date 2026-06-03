@@ -3,7 +3,7 @@ package version
 
 // version is the current PgFleet version. It is overridable at build time via
 // -ldflags "-X github.com/sagoresarker/pgfleet/internal/version.version=..."
-var version = "0.1.0-dev"
+var version = "0.1.1"
 
 // String returns the current PgFleet version.
 func String() string {
