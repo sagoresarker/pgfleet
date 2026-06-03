@@ -1,11 +1,11 @@
 "use client";
 
 import { PageHeader } from "@/components/shell";
-import { Badge, Card, CardBody, EmptyState, SkeletonRows } from "@/components/ui";
+import { Badge, Card, CardBody, EmptyState, SearchInput, Select, SkeletonRows } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { ScrollText, ShieldAlert } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 // Actions that change or expose data, highlighted so an auditor's eye is drawn
 // to the privileged ones.
@@ -24,6 +24,25 @@ export default function AuditPage() {
     refetchInterval: 15000,
   });
   const entries = audit.data?.entries ?? [];
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("all");
+
+  // Action categories are the prefix before the first dot (instance, backup,
+  // cluster, user, alertrule, …), derived from whatever is present.
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of entries) set.add(e.action.split(".")[0]);
+    return [...set].sort();
+  }, [entries]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return entries.filter((e) => {
+      if (category !== "all" && !e.action.startsWith(category)) return false;
+      if (!q) return true;
+      return e.actor.toLowerCase().includes(q) || (e.target ?? "").toLowerCase().includes(q) || e.action.toLowerCase().includes(q);
+    });
+  }, [entries, query, category]);
 
   return (
     <div className="rise">
@@ -37,6 +56,23 @@ export default function AuditPage() {
           </div>
         }
       />
+
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <SearchInput value={query} onChange={setQuery} placeholder="Search by email, target, or action…" className="sm:max-w-sm" />
+        <div className="flex items-center gap-2">
+          <Select value={category} onChange={(e) => setCategory(e.target.value)} className="h-9 w-44">
+            <option value="all">All actions</option>
+            {categories.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </Select>
+          <span className="font-mono text-[11px] text-fg-faint tnum">
+            {filtered.length}/{entries.length}
+          </span>
+        </div>
+      </div>
 
       <Card>
         <div className="grid grid-cols-[10rem_1fr_1fr_9rem] items-center gap-4 border-b border-line px-5 py-3 font-mono text-[10px] uppercase tracking-wider text-fg-faint">
@@ -56,9 +92,11 @@ export default function AuditPage() {
             </div>
           ) : entries.length === 0 ? (
             <EmptyState icon={<ScrollText className="h-5 w-5" />} title="No audit entries yet" description="Actions taken in the dashboard will appear here." />
+          ) : filtered.length === 0 ? (
+            <EmptyState icon={<ScrollText className="h-5 w-5" />} title="No matching entries" description="No audit entries match the current search and filter." />
           ) : (
             <ul className="divide-y divide-line">
-              {entries.map((e) => (
+              {filtered.map((e) => (
                 <li key={e.id} className="grid grid-cols-[10rem_1fr_1fr_9rem] items-center gap-4 px-5 py-3">
                   <Badge tone={tone(e.action)}>{e.action}</Badge>
                   <span className="truncate font-mono text-xs text-fg" title={e.actor}>
