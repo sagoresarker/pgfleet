@@ -12,8 +12,10 @@ import (
 // would leave goroutines writing to a closed pool and instances/clusters
 // wedged in "provisioning".
 type Async struct {
-	base context.Context
-	wg   sync.WaitGroup
+	base   context.Context
+	mu     sync.Mutex
+	closed bool
+	wg     sync.WaitGroup
 }
 
 // NewAsync creates an Async bound to a base (server-lifetime) context.
@@ -32,7 +34,17 @@ func (a *Async) Go(fn func(ctx context.Context)) {
 		}()
 		return
 	}
+	// Guard Add with the same lock Wait uses to set closed, so Add can never
+	// race with (or run after) the start of the shutdown drain — a
+	// WaitGroup.Add-after-Wait misuse. Once closed, drop the new work: the
+	// server has stopped accepting requests and the pool is about to close.
+	a.mu.Lock()
+	if a.closed {
+		a.mu.Unlock()
+		return
+	}
 	a.wg.Add(1)
+	a.mu.Unlock()
 	go func() {
 		defer a.wg.Done()
 		defer recoverAsync()
@@ -40,11 +52,15 @@ func (a *Async) Go(fn func(ctx context.Context)) {
 	}()
 }
 
-// Wait blocks until all tracked work finishes or the timeout elapses.
+// Wait blocks until all tracked work finishes or the timeout elapses. After
+// Wait is called, further Go calls are dropped.
 func (a *Async) Wait(timeout time.Duration) {
 	if a == nil {
 		return
 	}
+	a.mu.Lock()
+	a.closed = true
+	a.mu.Unlock()
 	done := make(chan struct{})
 	go func() { a.wg.Wait(); close(done) }()
 	select {
