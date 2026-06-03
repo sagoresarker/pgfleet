@@ -23,9 +23,10 @@ import {
 } from "@/components/ui";
 import { api, type Role, type User } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { SearchInput } from "@/components/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, MoreHorizontal, ShieldCheck, UserPlus, Users as UsersIcon } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 function roleTone(role: Role): "violet" | "azure" | "neutral" {
   return role === "admin" ? "violet" : role === "operator" ? "azure" : "neutral";
@@ -56,6 +57,11 @@ export default function UsersPage() {
   }
 
   const list = users.data?.users ?? [];
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q ? list.filter((u) => u.email.toLowerCase().includes(q) || u.role.toLowerCase().includes(q)) : list;
+  }, [list, query]);
 
   return (
     <div className="rise">
@@ -73,7 +79,10 @@ export default function UsersPage() {
       <Card>
         <CardHeader>
           <CardTitle>Users</CardTitle>
-          {list.length > 0 && <Badge tone="neutral">{list.length}</Badge>}
+          <div className="flex items-center gap-3">
+            {list.length > 0 && <SearchInput value={query} onChange={setQuery} placeholder="Search users…" className="w-56" />}
+            {list.length > 0 && <Badge tone="neutral">{filtered.length}</Badge>}
+          </div>
         </CardHeader>
         <CardBody className="p-0">
           {users.isLoading ? (
@@ -92,9 +101,11 @@ export default function UsersPage() {
                 </Button>
               }
             />
+          ) : filtered.length === 0 ? (
+            <EmptyState icon={<UsersIcon className="h-5 w-5" />} title="No matching users" description="No users match your search." />
           ) : (
             <ul className="divide-y divide-line">
-              {list.map((u) => (
+              {filtered.map((u) => (
                 <UserRow key={u.id} u={u} isSelf={u.id === user?.id} />
               ))}
             </ul>

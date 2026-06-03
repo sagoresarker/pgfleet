@@ -11,6 +11,7 @@ import {
   CardBody,
   ConfirmDialog,
   EmptyState,
+  SearchInput,
   SkeletonRows,
   useToast,
 } from "@/components/ui";
@@ -20,13 +21,18 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, ExternalLink, MoreHorizontal, Network, Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 export default function ClustersPage() {
   const { user } = useAuth();
   const writable = can(user?.role, "write");
   const { data, isLoading } = useQuery({ queryKey: ["clusters"], queryFn: api.listClusters, refetchInterval: 5000 });
   const items = data?.clusters ?? [];
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q ? items.filter((c) => c.name.toLowerCase().includes(q) || c.id.toLowerCase().includes(q)) : items;
+  }, [items, query]);
 
   return (
     <div className="rise">
@@ -42,6 +48,12 @@ export default function ClustersPage() {
           </Button>
         }
       />
+
+      {items.length > 0 && (
+        <div className="mb-4">
+          <SearchInput value={query} onChange={setQuery} placeholder="Search clusters…" className="sm:max-w-sm" />
+        </div>
+      )}
 
       <Card>
         <div className="grid grid-cols-[1fr_6rem_8rem_2.5rem] items-center gap-4 border-b border-line px-5 py-3 font-mono text-[10px] uppercase tracking-wider text-fg-faint">
@@ -69,9 +81,11 @@ export default function ClustersPage() {
                 </Button>
               }
             />
+          ) : filtered.length === 0 ? (
+            <EmptyState icon={<Network className="h-5 w-5" />} title="No matching clusters" description="No clusters match your search." />
           ) : (
             <ul className="divide-y divide-line">
-              {items.map((c) => (
+              {filtered.map((c) => (
                 <ClusterRow key={c.id} cluster={c} writable={writable} />
               ))}
             </ul>

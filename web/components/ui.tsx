@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import * as DropdownPrimitive from "@radix-ui/react-dropdown-menu";
 import { Slot } from "@radix-ui/react-slot";
-import { Eye, EyeOff, X } from "lucide-react";
+import { Eye, EyeOff, Search, X } from "lucide-react";
 import {
   createContext,
   forwardRef,
@@ -141,6 +141,46 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
   />
 ));
 Input.displayName = "Input";
+
+/* ---- SearchInput ---- *
+ * Reusable filter box for resource lists: an icon-led input with a clear
+ * affordance. Filtering is client-side over already-fetched rows. */
+export function SearchInput({
+  value,
+  onChange,
+  placeholder = "Search…",
+  className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  className?: string;
+}) {
+  return (
+    <div className={cn("relative", className)}>
+      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-faint" />
+      <input
+        type="search"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        spellCheck={false}
+        className="h-9 w-full rounded-md border border-line bg-ink-900 pl-9 pr-9 text-sm text-fg placeholder:text-fg-faint focus:border-azure/60 focus:outline-none focus:ring-1 focus:ring-azure/40"
+      />
+      {value && (
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          aria-label="Clear search"
+          className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer rounded p-1 text-fg-faint transition-colors hover:text-fg"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </div>
+  );
+}
 
 export function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
