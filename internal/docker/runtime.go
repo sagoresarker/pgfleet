@@ -64,6 +64,14 @@ type ContainerState struct {
 	RestartPolicy string            // configured restart policy, if any
 }
 
+// ContainerStats is a point-in-time resource-usage snapshot for a container.
+type ContainerStats struct {
+	CPUPercent       float64
+	MemoryBytes      int64
+	MemoryLimitBytes int64
+	MemoryPercent    float64
+}
+
 // ContainerInfo is a lightweight container listing entry.
 type ContainerInfo struct {
 	ID     string
@@ -81,6 +89,7 @@ type ContainerRuntime interface {
 	RemoveContainer(ctx context.Context, id string, force bool) error
 	Inspect(ctx context.Context, id string) (ContainerState, error)
 	Exec(ctx context.Context, id string, cmd []string) (ExecResult, error)
+	ContainerStats(ctx context.Context, id string) (ContainerStats, error)
 	Logs(ctx context.Context, id string, follow bool) (io.ReadCloser, error)
 	ListByLabel(ctx context.Context, labels map[string]string) ([]ContainerInfo, error)
 

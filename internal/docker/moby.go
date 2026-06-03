@@ -3,6 +3,7 @@ package docker
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
@@ -148,6 +149,60 @@ func (m *Moby) Exec(ctx context.Context, id string, cmd []string) (ExecResult, e
 		return ExecResult{}, mapErr("exec inspect", err)
 	}
 	return ExecResult{ExitCode: insp.ExitCode, Stdout: outBuf.String(), Stderr: errBuf.String()}, nil
+}
+
+// ContainerStats returns a one-shot resource-usage snapshot for a container.
+// CPU% is computed the standard Docker way from the delta between the current
+// and previous cumulative CPU samples.
+func (m *Moby) ContainerStats(ctx context.Context, id string) (ContainerStats, error) {
+	resp, err := m.cli.ContainerStatsOneShot(ctx, id)
+	if err != nil {
+		return ContainerStats{}, mapErr("container stats", err)
+	}
+	defer resp.Body.Close()
+
+	var s container.StatsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
+		return ContainerStats{}, apperr.Wrap(apperr.KindInternal, "docker: decode container stats", err)
+	}
+
+	return statsFromResponse(s), nil
+}
+
+// statsFromResponse derives the ContainerStats view from a raw stats sample.
+func statsFromResponse(s container.StatsResponse) ContainerStats {
+	out := ContainerStats{}
+
+	// CPU percentage: (cpuDelta / systemDelta) * onlineCPUs * 100.
+	cpuDelta := float64(s.CPUStats.CPUUsage.TotalUsage) - float64(s.PreCPUStats.CPUUsage.TotalUsage)
+	systemDelta := float64(s.CPUStats.SystemUsage) - float64(s.PreCPUStats.SystemUsage)
+	onlineCPUs := float64(s.CPUStats.OnlineCPUs)
+	if onlineCPUs == 0 {
+		onlineCPUs = float64(len(s.CPUStats.CPUUsage.PercpuUsage))
+	}
+	if systemDelta > 0 && cpuDelta > 0 && onlineCPUs > 0 {
+		out.CPUPercent = (cpuDelta / systemDelta) * onlineCPUs * 100
+	}
+
+	// Memory: usage minus page cache (cgroup v1 "cache" / v2 "inactive_file"),
+	// matching `docker stats`. Limit and percentage guard divide-by-zero.
+	usage := s.MemoryStats.Usage
+	if cache, ok := s.MemoryStats.Stats["cache"]; ok {
+		if cache <= usage {
+			usage -= cache
+		}
+	} else if inactive, ok := s.MemoryStats.Stats["inactive_file"]; ok {
+		if inactive <= usage {
+			usage -= inactive
+		}
+	}
+	out.MemoryBytes = int64(usage)
+	out.MemoryLimitBytes = int64(s.MemoryStats.Limit)
+	if s.MemoryStats.Limit > 0 {
+		out.MemoryPercent = float64(usage) / float64(s.MemoryStats.Limit) * 100
+	}
+
+	return out
 }
 
 func (m *Moby) Logs(ctx context.Context, id string, follow bool) (io.ReadCloser, error) {

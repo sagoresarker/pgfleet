@@ -58,7 +58,7 @@ func TestValidateExtensionsAllowlist(t *testing.T) {
 	if err := ValidateExtensions([]string{"pg_trgm", "pgcrypto", "uuid-ossp", "hstore", "citext"}); err != nil {
 		t.Errorf("allowlisted extensions should pass: %v", err)
 	}
-	for _, ext := range []string{"timescaledb", "plpython3u", "evil; DROP", "", "PG_TRGM"} {
+	for _, ext := range []string{"plpython3u", "evil; DROP", "", "PG_TRGM", "postgis"} {
 		if apperr.Kind(ValidateExtensions([]string{ext})) != apperr.KindInvalid {
 			t.Errorf("non-allowlisted extension %q must be rejected", ext)
 		}
@@ -75,6 +75,22 @@ func TestPreloadLibrariesAlwaysIncludesStatStatements(t *testing.T) {
 	got = PreloadLibraries([]string{"pg_trgm", "citext"})
 	if len(got) != 1 || got[0] != "pg_stat_statements" {
 		t.Errorf("non-preload extensions should not add preload libs, got %v", got)
+	}
+}
+
+// TestTimescaleDBNeedsPreload — timescaledb is allowlisted and its preload
+// library is merged with (never replaces) pg_stat_statements.
+func TestTimescaleDBNeedsPreload(t *testing.T) {
+	if err := ValidateExtensions([]string{"timescaledb"}); err != nil {
+		t.Errorf("timescaledb should be allowlisted: %v", err)
+	}
+	got := PreloadLibraries([]string{"timescaledb"})
+	if !slices.Contains(got, "pg_stat_statements") || !slices.Contains(got, "timescaledb") {
+		t.Errorf("preload libs = %v, want both pg_stat_statements and timescaledb", got)
+	}
+	// pg_stat_statements stays first (load order); timescaledb appended.
+	if got[0] != "pg_stat_statements" {
+		t.Errorf("pg_stat_statements must remain first, got %v", got)
 	}
 }
 

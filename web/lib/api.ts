@@ -72,6 +72,45 @@ export interface Alert {
   message: string;
 }
 
+export interface ActiveAlert {
+  id: string;
+  instance_id: string;
+  kind: string;
+  severity: "warning" | "critical";
+  state: "firing" | "resolved";
+  message: string;
+  value?: number;
+  threshold?: number;
+  fired_at: string;
+  resolved_at?: string;
+}
+
+export interface Hypertable {
+  schema: string;
+  name: string;
+  num_chunks: number;
+  size_bytes: number;
+  compression_enabled: boolean;
+}
+
+export interface TimescaleJob {
+  id: number;
+  application: string;
+  schedule_interval: string;
+  next_start?: string;
+  last_run_status: string;
+}
+
+export interface EventItem {
+  id: string;
+  instance_id?: string;
+  cluster_id?: string;
+  type: string;
+  message: string;
+  metadata?: Record<string, string>;
+  created_at: string;
+}
+
 const TOKEN_KEY = "pgfleet.token";
 
 export function getToken(): string | null {
@@ -161,6 +200,38 @@ export const api = {
   topQueries: (id: string) => request<{ queries: QueryStat[] }>("GET", `/api/v1/instances/${id}/queries`),
 
   health: () => request<{ reports: HealthReport[]; alerts: Alert[] }>("GET", "/api/v1/health"),
+
+  // Active alerts (persisted, transition-tracked).
+  listAlerts: () => request<{ alerts: ActiveAlert[] }>("GET", "/api/v1/alerts"),
+
+  // Durable event timeline.
+  listEvents: (params?: { instance_id?: string; type?: string; limit?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.instance_id) q.set("instance_id", params.instance_id);
+    if (params?.type) q.set("type", params.type);
+    if (params?.limit) q.set("limit", String(params.limit));
+    const qs = q.toString();
+    return request<{ events: EventItem[] }>("GET", `/api/v1/events/history${qs ? `?${qs}` : ""}`);
+  },
+
+  // Instance container logs (tail).
+  instanceLogs: (id: string) => request<{ logs: string }>("GET", `/api/v1/instances/${id}/logs`),
+
+  // TimescaleDB management.
+  listHypertables: (id: string) =>
+    request<{ hypertables: Hypertable[] }>("GET", `/api/v1/instances/${id}/timescale/hypertables`),
+  timescaleJobs: (id: string) =>
+    request<{ jobs: TimescaleJob[] }>("GET", `/api/v1/instances/${id}/timescale/jobs`),
+  createHypertable: (id: string, input: { table: string; time_column: string }) =>
+    request<void>("POST", `/api/v1/instances/${id}/timescale/hypertables`, input),
+  addRetention: (id: string, input: { hypertable: string; drop_after: string }) =>
+    request<void>("POST", `/api/v1/instances/${id}/timescale/retention`, input),
+  removeRetention: (id: string, hypertable: string) =>
+    request<void>("DELETE", `/api/v1/instances/${id}/timescale/retention?hypertable=${encodeURIComponent(hypertable)}`),
+  enableCompression: (id: string, input: { hypertable: string; segment_by?: string; order_by?: string; compress_after?: string }) =>
+    request<void>("POST", `/api/v1/instances/${id}/timescale/compression`, input),
+  removeCompression: (id: string, hypertable: string) =>
+    request<void>("DELETE", `/api/v1/instances/${id}/timescale/compression?hypertable=${encodeURIComponent(hypertable)}`),
 
   listUsers: () => request<{ users: User[] }>("GET", "/api/v1/users"),
   createUser: (input: { email: string; password: string; role: string }) =>

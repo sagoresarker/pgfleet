@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/sagoresarker/pgfleet/internal/alerts"
 	"github.com/sagoresarker/pgfleet/internal/api"
 	"github.com/sagoresarker/pgfleet/internal/audit"
 	"github.com/sagoresarker/pgfleet/internal/auth"
@@ -18,6 +19,7 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/clusterctl"
 	"github.com/sagoresarker/pgfleet/internal/config"
 	"github.com/sagoresarker/pgfleet/internal/docker"
+	"github.com/sagoresarker/pgfleet/internal/events"
 	"github.com/sagoresarker/pgfleet/internal/health"
 	"github.com/sagoresarker/pgfleet/internal/instance"
 	"github.com/sagoresarker/pgfleet/internal/logging"
@@ -51,6 +53,8 @@ const healthInterval = 5 * time.Minute
 
 // drillInterval is how often a restore drill is performed per instance.
 const drillInterval = 24 * time.Hour
+
+const alertsInterval = 1 * time.Minute
 
 // asyncDrainTimeout bounds how long shutdown waits for in-flight provisioning.
 const asyncDrainTimeout = 60 * time.Second
@@ -152,8 +156,12 @@ func run() error {
 	backups := backup.New(rt, instances, catalog)
 	metricStore := metrics.NewStore(pool)
 	collector := metrics.NewCollector()
+	resourceCollector := metrics.NewResourceCollector(rt)
 	healthStore := health.NewStore(pool)
 	healthChecker := health.NewChecker(rt, instances, catalog, health.DefaultThresholds())
+	alertStore := alerts.NewStore(pool)
+	alertNotifier := alerts.NewWebhookNotifier(cfg.AlertWebhookURL, 5*time.Second)
+	eventStore := events.NewStore(pool)
 
 	sched := scheduler.New(scheduler.WithErrorHandler(func(name string, err error) {
 		log.Warn("scheduled job failed", "job", name, "err", err)
@@ -163,13 +171,16 @@ func run() error {
 		return backups.RunScheduled(ctx, instances, cfg.BackupType)
 	})
 	sched.Register("collect-metrics", metricsInterval, func(ctx context.Context) error {
-		return collectMetrics(ctx, instances, provisioner, collector, metricStore)
+		return collectMetrics(ctx, instances, provisioner, collector, resourceCollector, metricStore)
 	})
 	sched.Register("prune-metrics", time.Hour, func(ctx context.Context) error {
 		return metricStore.Prune(ctx, time.Now().Add(-metricsRetention))
 	})
 	sched.Register("health-checks", healthInterval, func(ctx context.Context) error {
 		return runHealthChecks(ctx, instances, healthChecker, healthStore)
+	})
+	sched.Register("evaluate-alerts", alertsInterval, func(ctx context.Context) error {
+		return evaluateAlerts(ctx, instances, metricStore, healthStore, alertStore, alertNotifier, eventStore)
 	})
 	sched.Register("restore-drills", drillInterval, func(ctx context.Context) error {
 		return runRestoreDrills(ctx, instances, provisioner, healthStore)
@@ -201,6 +212,12 @@ func run() error {
 		Metrics:   api.NewMetricsHandler(metricStore, insights),
 		Health:    api.NewHealthHandler(healthStore),
 		Events:    hub,
+
+		Timescale:     api.NewTimescaleHandler(instances, provisioner.DSN),
+		Alerts:        api.NewAlertsHandler(alertStore),
+		EventsHistory: api.NewEventsHistoryHandler(eventStore),
+		Logs:          api.NewLogsHandler(instances, rt),
+		Prometheus:    api.NewPrometheusHandler(instances, metricStore),
 	})
 
 	serveErr := api.Serve(ctx, ln, router, log)
@@ -249,7 +266,7 @@ func runRestoreDrills(ctx context.Context, lister *instance.Repository, prov *pr
 }
 
 // collectMetrics polls every running instance and stores its samples.
-func collectMetrics(ctx context.Context, lister *instance.Repository, prov *provision.Provisioner, c *metrics.Collector, store *metrics.Store) error {
+func collectMetrics(ctx context.Context, lister *instance.Repository, prov *provision.Provisioner, c *metrics.Collector, rc *metrics.ResourceCollector, store *metrics.Store) error {
 	instances, err := lister.List(ctx)
 	if err != nil {
 		return err
@@ -258,15 +275,77 @@ func collectMetrics(ctx context.Context, lister *instance.Repository, prov *prov
 		if inst.Status != instance.StatusRunning {
 			continue
 		}
-		dsn, err := prov.DSN(ctx, inst.ID)
+		// Postgres-internal stats (via a SQL connection).
+		if dsn, err := prov.DSN(ctx, inst.ID); err == nil {
+			if samples, err := c.Collect(ctx, inst.ID, dsn); err == nil {
+				_ = store.Insert(ctx, samples)
+			}
+		}
+		// Container resource stats incl. the data-volume disk-free %.
+		if inst.ContainerID != "" {
+			if rs, err := rc.Collect(ctx, inst.ID, inst.ContainerID); err == nil {
+				_ = store.Insert(ctx, rs)
+			}
+		}
+	}
+	return nil
+}
+
+// evaluateAlerts builds a per-instance snapshot from the latest metrics + health
+// report, evaluates the alert thresholds, persists firing/resolved state, and
+// fires the webhook + records an event on each transition.
+func evaluateAlerts(ctx context.Context, lister *instance.Repository, metricStore *metrics.Store, healthStore *health.Store, alertStore *alerts.Store, notifier *alerts.WebhookNotifier, eventStore *events.Store) error {
+	instances, err := lister.List(ctx)
+	if err != nil {
+		return err
+	}
+	reports, _ := healthStore.List(ctx)
+	backupAge := make(map[string]float64, len(reports))
+	for _, rep := range reports {
+		if rep.LastBackupAge > 0 {
+			backupAge[rep.InstanceID] = rep.LastBackupAge.Seconds()
+		}
+	}
+
+	th := alerts.DefaultThresholds()
+	for _, inst := range instances {
+		if inst.Status != instance.StatusRunning {
+			continue
+		}
+		latest, err := metricStore.Latest(ctx, inst.ID)
 		if err != nil {
 			continue
 		}
-		samples, err := c.Collect(ctx, inst.ID, dsn)
-		if err != nil {
+		snap := alerts.Snapshot{InstanceID: inst.ID}
+		if s, ok := latest["disk_free_percent"]; ok {
+			v := s.Value
+			snap.DiskFreePercent = &v
+		}
+		if s, ok := latest["replication_lag_seconds"]; ok {
+			v := s.Value
+			snap.ReplicationLagSeconds = &v
+		}
+		if s, ok := latest["connection_utilization"]; ok {
+			v := s.Value
+			snap.ConnectionUtilizationPercent = &v
+		}
+		if age, ok := backupAge[inst.ID]; ok {
+			snap.BackupAgeSeconds = &age
+		}
+
+		transitions, err := alertStore.Sync(ctx, inst.ID, alerts.Evaluate(snap, th))
+		if err != nil || len(transitions) == 0 {
 			continue
 		}
-		_ = store.Insert(ctx, samples)
+		_ = notifier.Notify(ctx, transitions)
+		for _, tr := range transitions {
+			_, _ = eventStore.Record(ctx, events.NewEvent{
+				InstanceID: inst.ID,
+				Type:       "alert",
+				Message:    tr.Message,
+				Metadata:   map[string]string{"kind": tr.Kind, "state": tr.State, "severity": tr.Severity},
+			})
+		}
 	}
 	return nil
 }

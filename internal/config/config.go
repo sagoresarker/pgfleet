@@ -33,11 +33,13 @@ type Config struct {
 	// InstanceRestartPolicy is the Docker restart policy applied to managed
 	// instance + router containers so they survive a daemon/host restart.
 	InstanceRestartPolicy string
-	S3Endpoint            string
-	S3Bucket              string
-	S3Region              string
-	S3AccessKey           string
-	S3SecretKey           string
+	// AlertWebhookURL, if set, receives a JSON POST on every alert transition.
+	AlertWebhookURL string
+	S3Endpoint      string
+	S3Bucket        string
+	S3Region        string
+	S3AccessKey     string
+	S3SecretKey     string
 
 	// Scheduled backups.
 	BackupInterval time.Duration
@@ -57,6 +59,7 @@ func Load(getenv func(string) string) (*Config, error) {
 		DockerNetwork:          orDefault(getenv("PGFLEET_DOCKER_NETWORK"), "pgfleet"),
 		InstanceHost:           orDefault(getenv("PGFLEET_INSTANCE_HOST"), "localhost"),
 		InstanceRestartPolicy:  orDefault(getenv("PGFLEET_INSTANCE_RESTART_POLICY"), "unless-stopped"),
+		AlertWebhookURL:        getenv("PGFLEET_ALERT_WEBHOOK_URL"),
 		S3Endpoint:             getenv("PGFLEET_S3_ENDPOINT"),
 		S3Bucket:               getenv("PGFLEET_S3_BUCKET"),
 		S3Region:               orDefault(getenv("PGFLEET_S3_REGION"), "us-east-1"),

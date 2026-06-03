@@ -14,6 +14,8 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { AnalyticsTab } from "./analytics";
+import { LogsTab } from "./logs";
+import { TimescaleTab } from "./timescale";
 
 export default function InstanceDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -89,13 +91,19 @@ export default function InstanceDetailPage() {
 
       <Tabs.Root defaultValue="overview">
         <Tabs.List className="mb-6 flex gap-1 border-b border-line">
-          {["overview", "backups", "analytics"].map((t) => (
+          {[
+            { value: "overview", label: "Overview" },
+            { value: "backups", label: "Backups" },
+            { value: "analytics", label: "Analytics" },
+            { value: "logs", label: "Logs" },
+            ...(inst.extensions?.includes("timescaledb") ? [{ value: "timescaledb", label: "TimescaleDB" }] : []),
+          ].map((t) => (
             <Tabs.Trigger
-              key={t}
-              value={t}
-              className="border-b-2 border-transparent px-4 py-2.5 font-display text-sm capitalize text-fg-muted transition-colors data-[state=active]:border-azure data-[state=active]:text-fg"
+              key={t.value}
+              value={t.value}
+              className="border-b-2 border-transparent px-4 py-2.5 font-display text-sm text-fg-muted transition-colors data-[state=active]:border-azure data-[state=active]:text-fg"
             >
-              {t}
+              {t.label}
             </Tabs.Trigger>
           ))}
         </Tabs.List>
@@ -154,6 +162,16 @@ export default function InstanceDetailPage() {
         <Tabs.Content value="analytics">
           <AnalyticsTab id={id} running={inst.status === "running"} />
         </Tabs.Content>
+
+        <Tabs.Content value="logs">
+          <LogsTab id={id} running={inst.status === "running"} />
+        </Tabs.Content>
+
+        {inst.extensions?.includes("timescaledb") && (
+          <Tabs.Content value="timescaledb">
+            <TimescaleTab id={id} running={inst.status === "running"} writable={writable} />
+          </Tabs.Content>
+        )}
       </Tabs.Root>
     </div>
   );

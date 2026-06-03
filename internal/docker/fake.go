@@ -30,6 +30,9 @@ type Fake struct {
 
 	// ExecFunc, if set, produces the result of Exec for a running container.
 	ExecFunc func(id string, cmd []string) (ExecResult, error)
+	// StatsFunc, if set, produces the result of ContainerStats. When nil,
+	// ContainerStats returns a zero ContainerStats and no error.
+	StatsFunc func(id string) (ContainerStats, error)
 	// EnsureImageErr, if set, is returned by EnsureImage.
 	EnsureImageErr error
 	// OnStart, if set, is invoked after a container starts (outside the fake's
@@ -161,6 +164,16 @@ func (f *Fake) Exec(_ context.Context, id string, cmd []string) (ExecResult, err
 		return f.ExecFunc(id, cmd)
 	}
 	return ExecResult{ExitCode: 0}, nil
+}
+
+func (f *Fake) ContainerStats(_ context.Context, id string) (ContainerStats, error) {
+	f.mu.Lock()
+	fn := f.StatsFunc
+	f.mu.Unlock()
+	if fn == nil {
+		return ContainerStats{}, nil
+	}
+	return fn(id)
 }
 
 func (f *Fake) Logs(_ context.Context, id string, _ bool) (io.ReadCloser, error) {

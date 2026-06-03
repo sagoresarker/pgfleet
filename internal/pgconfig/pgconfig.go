@@ -40,15 +40,17 @@ type extension struct {
 	preloadLibrary string
 }
 
-// allowedExtensions is the curated allowlist. All are contrib extensions present
-// in the base postgres image and need no preload library. timescaledb is added
-// by the TimescaleDB work (Area 2), which also installs it in the image.
+// allowedExtensions is the curated allowlist. The contrib extensions are present
+// in the base postgres image and need no preload library. timescaledb (Community
+// edition, installed in the managed image) requires its preload library, which
+// PreloadLibraries merges with pg_stat_statements.
 var allowedExtensions = []extension{
 	{name: "pg_trgm"},
 	{name: "pgcrypto"},
 	{name: "uuid-ossp"},
 	{name: "hstore"},
 	{name: "citext"},
+	{name: "timescaledb", preloadLibrary: "timescaledb"},
 }
 
 // AllowedExtensionNames returns the allowlisted extension names (for API/UI).
