@@ -143,7 +143,7 @@ export const api = {
 
   listClusters: () => request<{ clusters: Cluster[] }>("GET", "/api/v1/clusters"),
   getCluster: (id: string) => request<{ cluster: Cluster; members: Instance[] }>("GET", `/api/v1/clusters/${id}`),
-  createCluster: (input: { name: string; replicas: number; password: string; repo_type?: string }) =>
+  createCluster: (input: { name: string; replicas: number; password: string; repo_type?: string; pg_version?: string }) =>
     request<void>("POST", "/api/v1/clusters", input),
   destroyCluster: (id: string) => request<void>("DELETE", `/api/v1/clusters/${id}?retain_backups=true`),
   clusterConnection: (id: string) => request<{ dsn: string }>("GET", `/api/v1/clusters/${id}/connection`),

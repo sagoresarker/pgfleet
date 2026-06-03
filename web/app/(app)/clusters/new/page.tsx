@@ -14,6 +14,7 @@ export default function NewClusterPage() {
   const [name, setName] = useState("");
   const [replicas, setReplicas] = useState(1);
   const [repoType, setRepoType] = useState<"s3" | "local">("local");
+  const [pgVersion, setPgVersion] = useState("16");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -26,7 +27,7 @@ export default function NewClusterPage() {
     setError(null);
     setSubmitting(true);
     try {
-      await api.createCluster({ name, replicas, password, repo_type: repoType });
+      await api.createCluster({ name, replicas, password, repo_type: repoType, pg_version: pgVersion });
       qc.invalidateQueries({ queryKey: ["clusters"] });
       router.push("/clusters");
     } catch (err) {
@@ -72,11 +73,20 @@ export default function NewClusterPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <Field label="Backup repository">
                 <Select value={repoType} onChange={(e) => setRepoType(e.target.value as "s3" | "local")}>
                   <option value="local">Local volume</option>
                   <option value="s3">Object store (S3/MinIO)</option>
+                </Select>
+              </Field>
+              <Field label="Postgres version">
+                <Select value={pgVersion} onChange={(e) => setPgVersion(e.target.value)}>
+                  {["17", "16", "15", "14", "13"].map((v) => (
+                    <option key={v} value={v}>
+                      {v}
+                    </option>
+                  ))}
                 </Select>
               </Field>
               <Field label="Superuser password" hint="Min 8 characters.">

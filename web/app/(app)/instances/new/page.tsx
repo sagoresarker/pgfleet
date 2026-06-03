@@ -70,7 +70,11 @@ export default function NewInstancePage() {
             <div className="grid grid-cols-2 gap-4">
               <Field label="Postgres version">
                 <Select value={pgVersion} onChange={(e) => setPgVersion(e.target.value)}>
-                  <option value="16">16</option>
+                  {["17", "16", "15", "14", "13"].map((v) => (
+                    <option key={v} value={v}>
+                      {v}
+                    </option>
+                  ))}
                 </Select>
               </Field>
               <Field label="Superuser password" hint="Min 8 characters. Stored encrypted.">
