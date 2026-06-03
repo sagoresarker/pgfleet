@@ -44,6 +44,7 @@ import {
   Download,
   Eye,
   EyeOff,
+  FileDown,
   Globe,
   Lock,
   MoreHorizontal,
@@ -258,6 +259,15 @@ function InstanceToolbar({
     }
   }
 
+  async function exportCompose() {
+    try {
+      await api.exportInstanceCompose(id, inst.name);
+      toast.push("docker-compose.yml downloaded", "healthy");
+    } catch (e) {
+      toast.push(e instanceof Error ? e.message : "Export failed", "danger");
+    }
+  }
+
   const running = inst.status === "running";
   return (
     <div className="flex items-center gap-2">
@@ -308,6 +318,9 @@ function InstanceToolbar({
         </ActionMenuItem>
         <ActionMenuItem icon={<Download className="h-4 w-4" />} onSelect={downloadDump} disabled={downloading || !running}>
           Download logical dump
+        </ActionMenuItem>
+        <ActionMenuItem icon={<FileDown className="h-4 w-4" />} onSelect={exportCompose}>
+          Export docker-compose
         </ActionMenuItem>
         <ActionMenuSeparator />
         <ActionMenuItem icon={<Trash2 className="h-4 w-4" />} danger onSelect={() => setDestroyOpen(true)}>

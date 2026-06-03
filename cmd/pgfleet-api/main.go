@@ -285,6 +285,7 @@ func run() error {
 		Timescale:     api.NewTimescaleHandler(instances, provisioner.DSN),
 		Alerts:        api.NewAlertsHandler(alertStore),
 		AlertRules:    api.NewAlertRulesHandler(alertRuleStore).WithAudit(recorder),
+		Compose:       api.NewComposeHandler(instances, composeClusterRepo{Repository: clusters, insts: instances}),
 		EventsHistory: api.NewEventsHistoryHandler(eventStore),
 		Logs:          api.NewLogsHandler(instances, rt),
 		Prometheus:    api.NewPrometheusHandler(instances, metricStore),
@@ -363,6 +364,18 @@ func collectMetrics(ctx context.Context, lister *instance.Repository, prov *prov
 		}
 	}
 	return nil
+}
+
+// composeClusterRepo adapts the cluster + instance repositories to the compose
+// handler's composeClusterReader: Get comes from the cluster repo (embedded),
+// ListByCluster from the instance repo.
+type composeClusterRepo struct {
+	*cluster.Repository
+	insts *instance.Repository
+}
+
+func (r composeClusterRepo) ListByCluster(ctx context.Context, id string) ([]instance.Instance, error) {
+	return r.insts.ListByCluster(ctx, id)
 }
 
 // evaluateAlerts builds a per-instance snapshot from the latest metrics + health

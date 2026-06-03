@@ -74,6 +74,8 @@ type Deps struct {
 	Remote *RemoteHandler
 	// Pool serves live PgCat router pool stats (optional).
 	Pool *PoolHandler
+	// Compose serves downloadable docker-compose exports (optional).
+	Compose *ComposeHandler
 }
 
 // NewRouter builds the control-plane HTTP handler.
@@ -170,6 +172,13 @@ func NewRouter(deps Deps) http.Handler {
 					pr.Group(func(lr chi.Router) {
 						lr.Use(auth.RequireAction(auth.ActionInstanceRead))
 						lr.Get("/instances/{id}/logs", deps.Logs.Get)
+					})
+				}
+				if deps.Compose != nil {
+					pr.Group(func(cr chi.Router) {
+						cr.Use(auth.RequireAction(auth.ActionInstanceRead))
+						cr.Get("/instances/{id}/compose", deps.Compose.GetInstance)
+						cr.Get("/clusters/{id}/compose", deps.Compose.GetCluster)
 					})
 				}
 				if deps.Dump != nil {

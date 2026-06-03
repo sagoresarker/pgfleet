@@ -34,6 +34,7 @@ import {
   Database,
   Eye,
   EyeOff,
+  FileDown,
   MoreHorizontal,
   Network,
   Trash2,
@@ -246,6 +247,16 @@ function PoolStatsPanel({ id, ready }: { id: string; ready: boolean }) {
 /* ---- Toolbar: secondary + destructive actions in a tidy Actions menu ---- */
 function ClusterToolbar({ id, name }: { id: string; name: string }) {
   const [destroyOpen, setDestroyOpen] = useState(false);
+  const toast = useToast();
+
+  async function exportCompose() {
+    try {
+      await api.exportClusterCompose(id, name);
+      toast.push("docker-compose.yml downloaded", "healthy");
+    } catch (e) {
+      toast.push(e instanceof Error ? e.message : "Export failed", "danger");
+    }
+  }
 
   return (
     <div className="flex items-center gap-2">
@@ -256,12 +267,15 @@ function ClusterToolbar({ id, name }: { id: string; name: string }) {
           </Button>
         }
       >
-        <ActionMenuItem icon={<Trash2 className="h-4 w-4" />} danger onSelect={() => setDestroyOpen(true)}>
-          Destroy cluster…
+        <ActionMenuItem icon={<FileDown className="h-4 w-4" />} onSelect={exportCompose}>
+          Export docker-compose
         </ActionMenuItem>
-        <ActionMenuSeparator />
         <ActionMenuItem icon={<Database className="h-4 w-4" />} disabled>
           Backups managed per member
+        </ActionMenuItem>
+        <ActionMenuSeparator />
+        <ActionMenuItem icon={<Trash2 className="h-4 w-4" />} danger onSelect={() => setDestroyOpen(true)}>
+          Destroy cluster…
         </ActionMenuItem>
       </ActionMenu>
 

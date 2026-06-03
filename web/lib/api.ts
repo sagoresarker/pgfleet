@@ -285,8 +285,29 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return (await res.json()) as T;
 }
 
+// downloadFile fetches an authenticated text endpoint and triggers a browser
+// download (used for docker-compose exports, which are YAML, not JSON).
+async function downloadFile(path: string, filename: string): Promise<void> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(path, { headers });
+  if (!res.ok) throw new ApiError(res.status, res.statusText);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export const api = {
   listAudit: (limit = 100) => request<{ entries: AuditEntry[] }>("GET", `/api/v1/audit?limit=${limit}`),
+  exportInstanceCompose: (id: string, name: string) => downloadFile(`/api/v1/instances/${id}/compose`, `${name}-compose.yml`),
+  exportClusterCompose: (id: string, name: string) => downloadFile(`/api/v1/clusters/${id}/compose`, `${name}-compose.yml`),
   login: (email: string, password: string) =>
     request<{ token: string; user: User }>("POST", "/api/v1/auth/login", { email, password }),
   // ssoLogin exchanges the proxy-verified identity (Authelia/OIDC forward-auth
