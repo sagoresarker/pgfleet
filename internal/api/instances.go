@@ -20,6 +20,7 @@ type InstanceStore interface {
 // InstanceProvisioner orchestrates instance containers.
 type InstanceProvisioner interface {
 	Provision(ctx context.Context, id string, progress provision.ProgressFunc) error
+	Clone(ctx context.Context, cloneID string, source instance.Instance, progress provision.ProgressFunc) error
 	Start(ctx context.Context, id string) error
 	Stop(ctx context.Context, id string) error
 	Restart(ctx context.Context, id string) error
@@ -123,6 +124,52 @@ func (h *InstancesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	})
 
 	writeJSON(w, http.StatusAccepted, map[string]any{"instance": toInstancePayload(inst)})
+}
+
+type cloneRequest struct {
+	Name     string `json:"name"`
+	Password string `json:"password"`
+}
+
+// Clone provisions a new instance whose data is a full copy of the source
+// (restored from the source's backup repo), returning 202.
+func (h *InstancesHandler) Clone(w http.ResponseWriter, r *http.Request) {
+	source, err := h.store.Get(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	var req cloneRequest
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, err)
+		return
+	}
+	// The clone inherits the source's repo type, version, params, and
+	// extensions; it gets its own name + password.
+	clone, err := h.store.Create(r.Context(), instance.NewInstance{
+		Name:       req.Name,
+		PGVersion:  source.PGVersion,
+		RepoType:   source.RepoType,
+		Password:   req.Password,
+		Parameters: source.Parameters,
+		Extensions: source.Extensions,
+	})
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+
+	recordAudit(h.audit, r, "instance.clone", clone.Name+" from "+source.Name)
+	cloneID := clone.ID
+	h.async.Go(func(ctx context.Context) {
+		progress := provision.ProgressFunc(nil)
+		if h.progress != nil {
+			progress = func(step, detail string) { h.progress.Publish(cloneID, step, detail) }
+		}
+		_ = h.prov.Clone(ctx, cloneID, source, progress)
+	})
+
+	writeJSON(w, http.StatusAccepted, map[string]any{"instance": toInstancePayload(clone)})
 }
 
 // List returns all instances.

@@ -81,6 +81,10 @@ func (f *fakeProvisioner) Provision(_ context.Context, id string, progress provi
 	f.provisioned <- id
 	return nil
 }
+func (f *fakeProvisioner) Clone(_ context.Context, cloneID string, _ instance.Instance, _ provision.ProgressFunc) error {
+	f.provisioned <- cloneID
+	return nil
+}
 func (f *fakeProvisioner) Start(_ context.Context, id string) error {
 	f.started = append(f.started, id)
 	return nil

@@ -9,7 +9,7 @@ import { can, useAuth } from "@/lib/auth";
 import { formatBytes } from "@/lib/utils";
 import * as Tabs from "@radix-ui/react-tabs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Eye, EyeOff, Play, Plus, Power, RefreshCw, Trash2 } from "lucide-react";
+import { Copy, Eye, EyeOff, Play, Plus, Power, RefreshCw, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
@@ -86,6 +86,7 @@ export default function InstanceDetailPage() {
           <Button size="sm" variant="outline" onClick={() => lifecycle.mutate("restart")} disabled={lifecycle.isPending}>
             <RefreshCw className="h-4 w-4" /> Restart
           </Button>
+          <CloneButton id={id} sourceName={inst.name} />
           <DestroyButton id={id} />
         </div>
       )}
@@ -275,6 +276,54 @@ function ConnectionCard({ id }: { id: string }) {
         </code>
       </CardBody>
     </Card>
+  );
+}
+
+function CloneButton({ id, sourceName }: { id: string; sourceName: string }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(`${sourceName}-clone`);
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const clone = useMutation({
+    mutationFn: () => api.cloneInstance(id, { name, password }),
+    onSuccess: () => {
+      window.location.href = "/instances";
+    },
+    onError: (e) => setError(e instanceof Error ? e.message : "Clone failed"),
+  });
+
+  const valid = /^[a-z][a-z0-9-]{1,38}$/.test(name) && password.length >= 8;
+
+  if (!open) {
+    return (
+      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+        <Copy className="h-4 w-4" /> Clone
+      </Button>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-ink-850 px-2 py-1.5">
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value.toLowerCase())}
+        placeholder="clone name"
+        className="w-40 rounded border border-line bg-ink-800 px-2 py-1 font-mono text-xs text-fg"
+      />
+      <input
+        type="password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        placeholder="new password (8+)"
+        className="w-44 rounded border border-line bg-ink-800 px-2 py-1 font-mono text-xs text-fg"
+      />
+      <Button size="sm" onClick={() => clone.mutate()} disabled={!valid || clone.isPending}>
+        {clone.isPending ? "Cloning…" : "Clone"}
+      </Button>
+      <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
+        Cancel
+      </Button>
+      {error && <span className="font-mono text-[11px] text-danger">{error}</span>}
+    </div>
   );
 }
 

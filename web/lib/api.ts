@@ -175,6 +175,8 @@ export const api = {
   getInstance: (id: string) => request<{ instance: Instance }>("GET", `/api/v1/instances/${id}`),
   createInstance: (input: { name: string; repo_type: string; password: string; pg_version?: string; parameters?: Record<string, string>; extensions?: string[] }) =>
     request<void>("POST", "/api/v1/instances", input),
+  cloneInstance: (id: string, input: { name: string; password: string }) =>
+    request<void>("POST", `/api/v1/instances/${id}/clone`, input),
   startInstance: (id: string) => request<void>("POST", `/api/v1/instances/${id}/start`),
   stopInstance: (id: string) => request<void>("POST", `/api/v1/instances/${id}/stop`),
   restartInstance: (id: string) => request<void>("POST", `/api/v1/instances/${id}/restart`),

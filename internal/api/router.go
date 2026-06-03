@@ -189,6 +189,7 @@ func mountInstanceRoutes(pr chi.Router, h *InstancesHandler) {
 	pr.Group(func(wr chi.Router) {
 		wr.Use(auth.RequireAction(auth.ActionInstanceWrite))
 		wr.Post("/instances", h.Create)
+		wr.Post("/instances/{id}/clone", h.Clone)
 		wr.Post("/instances/{id}/start", h.Start)
 		wr.Post("/instances/{id}/stop", h.Stop)
 		wr.Post("/instances/{id}/restart", h.Restart)
