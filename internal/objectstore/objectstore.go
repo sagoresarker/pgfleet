@@ -6,8 +6,10 @@ package objectstore
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"io"
+	"net/http"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -22,12 +24,13 @@ import (
 
 // Config holds S3/MinIO connection settings.
 type Config struct {
-	Endpoint  string // host:port or URL
-	Region    string
-	AccessKey string
-	SecretKey string
-	Bucket    string
-	UseTLS    bool
+	Endpoint      string // host:port or URL
+	Region        string
+	AccessKey     string
+	SecretKey     string
+	Bucket        string
+	UseTLS        bool
+	SkipTLSVerify bool // skip cert verification (for self-signed certs; implies UseTLS)
 }
 
 // Validate checks required fields.
@@ -47,7 +50,7 @@ func (c Config) endpointURL() string {
 	if strings.Contains(c.Endpoint, "://") {
 		return c.Endpoint
 	}
-	if c.UseTLS {
+	if c.UseTLS || c.SkipTLSVerify {
 		return "https://" + c.Endpoint
 	}
 	return "http://" + c.Endpoint
@@ -64,10 +67,22 @@ func (c Config) newClient(ctx context.Context) (*s3.Client, error) {
 	if err != nil {
 		return nil, apperr.Wrap(apperr.KindInternal, "objectstore: load aws config", err)
 	}
-	return s3.NewFromConfig(awsConf, func(o *s3.Options) {
-		o.BaseEndpoint = aws.String(c.endpointURL())
-		o.UsePathStyle = true
-	}), nil
+	opts := []func(*s3.Options){
+		func(o *s3.Options) {
+			o.BaseEndpoint = aws.String(c.endpointURL())
+			o.UsePathStyle = true
+		},
+	}
+	if c.SkipTLSVerify {
+		opts = append(opts, func(o *s3.Options) {
+			o.HTTPClient = &http.Client{
+				Transport: &http.Transport{
+					TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+				},
+			}
+		})
+	}
+	return s3.NewFromConfig(awsConf, opts...), nil
 }
 
 // BucketExists reports whether the configured bucket exists and is reachable.

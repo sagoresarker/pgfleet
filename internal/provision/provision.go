@@ -61,6 +61,12 @@ type Options struct {
 	Network      string
 	InstanceHost string
 	S3           objectstore.Config
+	// S3BackrestEndpoint is the S3/MinIO endpoint written into pgbackrest.conf
+	// inside managed containers. It must be reachable from inside the container
+	// (e.g. the Docker network service name "pgfleet-minio:9000"), which is
+	// different from S3.Endpoint used by the control-plane host. Defaults to
+	// S3.Endpoint when empty (safe for remote/public S3).
+	S3BackrestEndpoint string
 	// RestartPolicy is applied to managed instance and router containers so
 	// they survive a daemon/host restart without the control plane. Empty
 	// leaves the daemon default.
@@ -350,15 +356,19 @@ func (p *Provisioner) backrestConf(inst instance.Instance) (string, error) {
 	}
 	switch inst.RepoType {
 	case instance.RepoS3:
+		backrestEndpoint := p.opts.S3BackrestEndpoint
+		if backrestEndpoint == "" {
+			backrestEndpoint = p.opts.S3.Endpoint
+		}
 		c.S3 = pgbackrest.RepoS3{
-			Endpoint:   p.opts.S3.Endpoint,
+			Endpoint:   backrestEndpoint,
 			Bucket:     p.opts.S3.Bucket,
 			Region:     p.opts.S3.Region,
 			Key:        p.opts.S3.AccessKey,
 			Secret:     p.opts.S3.SecretKey,
 			PathPrefix: "/stanzas/" + inst.Stanza,
 			URIStyle:   "path",
-			VerifyTLS:  p.opts.S3.UseTLS,
+			VerifyTLS:  !p.opts.S3.SkipTLSVerify,
 		}
 	case instance.RepoLocal:
 		c.Local = pgbackrest.RepoLocal{Path: repoPath}

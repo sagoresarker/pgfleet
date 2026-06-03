@@ -30,8 +30,10 @@ services:
       - "9001:9001"
     volumes:
       - minio-data:/data
+      - ./certs:/root/.minio/certs:ro
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      # -k skips cert verification for the self-signed cert
+      test: ["CMD-SHELL", "curl -sk https://localhost:9000/minio/health/live"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -39,3 +41,8 @@ services:
 volumes:
   meta-db-data:
   minio-data:
+
+networks:
+  default:
+    name: pgfleet
+    external: true

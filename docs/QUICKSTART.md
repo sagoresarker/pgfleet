@@ -10,16 +10,27 @@ console with a real provisioned instance in a couple of minutes.
 - Docker (Desktop or Engine) running
 - Go 1.25+ and Node 20+ (only to build/run from source)
 
-You build **one image locally** (step 2); you do **not** push anything to a
+You build **one image locally** (step 3); you do **not** push anything to a
 registry. Everything else is pulled automatically.
 
-## 1. Start the dependencies
+## 1. Generate the MinIO TLS certificate (once)
+
+pgBackRest requires HTTPS for S3-compatible storage. The bundled MinIO is
+configured to serve TLS; it picks up a self-signed certificate from
+`deploy/certs/` automatically. Generate it once before you bring up the stack:
 
 ```bash
-make dev-up        # meta-db (Postgres) on :5432 + MinIO on :9000/:9001
+make certs
+# Writes deploy/certs/private.key + public.crt (gitignored)
 ```
 
-## 2. Build the managed-instance image
+## 2. Start the dependencies
+
+```bash
+make dev-up        # meta-db (Postgres) on :5433 + MinIO on :9000/:9001 (HTTPS)
+```
+
+## 3. Build the managed-instance image
 
 This is the `postgres:16 + pgBackRest` image every instance runs from.
 
@@ -34,7 +45,7 @@ make image         # builds pgfleet/postgres-pgbackrest:16
 > pulled automatically from public registries. You'd only need a registry for a
 > multi-host setup that provisions instances onto *remote* Docker daemons.
 
-## 3. Configure and run the control plane
+## 4. Configure and run the control plane
 
 ```bash
 cp .env.example .env        # then edit secrets if you like
@@ -50,7 +61,7 @@ http server listening  addr=[::]:8080
 
 Check it: `curl localhost:8080/healthz` → `{"status":"ok"}`.
 
-## 4. Start the web console
+## 5. Start the web console
 
 ```bash
 cd web
@@ -61,7 +72,7 @@ npm run dev                 # http://localhost:3000  (proxies /api to :8080)
 Open <http://localhost:3000>, click **Open the console**, and sign in with the
 `PGFLEET_BOOTSTRAP_ADMIN_*` credentials from your `.env`.
 
-## 5. Provision your first instance
+## 6. Provision your first instance
 
 From the console: **Instances → New instance**, pick a name, choose **Local
 volume** (or S3/MinIO), set a password, and create. Watch it go
@@ -77,7 +88,7 @@ splits reads and writes.
 ## One-liner script
 
 ```bash
-make dev-up && make image && cp -n .env.example .env && make run
+make certs && make dev-up && make image && cp -n .env.example .env && make run
 ```
 
 (then `cd web && npm install && npm run dev` in another terminal)

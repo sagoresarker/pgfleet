@@ -10,6 +10,15 @@ help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
+.PHONY: certs
+certs: ## Generate self-signed TLS cert for the bundled MinIO (run once before `make run`)
+	openssl req -x509 -newkey rsa:4096 -days 3650 -nodes \
+		-keyout deploy/certs/private.key \
+		-out    deploy/certs/public.crt \
+		-subj   "/CN=pgfleet-minio" \
+		-addext "subjectAltName=DNS:pgfleet-minio,DNS:localhost,IP:127.0.0.1"
+	@echo "Certs written to deploy/certs/ — restart docker compose to pick them up"
+
 .PHONY: tidy
 tidy: ## Sync go.mod/go.sum
 	$(GO) mod tidy

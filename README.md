@@ -41,7 +41,8 @@ The control plane finds this image on the **local** Docker daemon and uses it di
 ## Quickstart
 
 ```bash
-make dev-up                       # meta-DB + MinIO
+make certs                        # generate TLS cert for MinIO (once, gitignored)
+make dev-up                       # meta-DB + MinIO (TLS-enabled)
 make image                        # build the managed postgres+pgBackRest image (local only)
 cp .env.example .env && make run  # run the control plane on :8080
 cd web && npm install && npm run dev   # console on :3000

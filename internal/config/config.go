@@ -68,11 +68,14 @@ type Config struct {
 	// so a direct off-proxy request cannot forge an identity header).
 	SSOSharedSecret string
 
-	S3Endpoint  string
-	S3Bucket    string
-	S3Region    string
-	S3AccessKey string
-	S3SecretKey string
+	S3Endpoint         string
+	S3BackrestEndpoint string // endpoint pgBackRest uses from inside containers (defaults to S3Endpoint)
+	S3Bucket           string
+	S3Region           string
+	S3AccessKey        string
+	S3SecretKey        string
+	S3UseTLS           bool // use HTTPS for S3/MinIO connections
+	S3TLSSkipVerify    bool // skip TLS cert verification (for self-signed certs)
 
 	// Scheduled backups.
 	BackupInterval time.Duration
@@ -111,10 +114,13 @@ func Load(getenv func(string) string) (*Config, error) {
 		SSOOperatorGroup:       orDefault(getenv("PGFLEET_SSO_OPERATOR_GROUP"), "pgfleet-operators"),
 		SSOSharedSecret:        getenv("PGFLEET_SSO_SHARED_SECRET"),
 		S3Endpoint:             getenv("PGFLEET_S3_ENDPOINT"),
+		S3BackrestEndpoint:     orDefault(getenv("PGFLEET_S3_BACKREST_ENDPOINT"), getenv("PGFLEET_S3_ENDPOINT")),
 		S3Bucket:               getenv("PGFLEET_S3_BUCKET"),
 		S3Region:               orDefault(getenv("PGFLEET_S3_REGION"), "us-east-1"),
 		S3AccessKey:            getenv("PGFLEET_S3_ACCESS_KEY"),
 		S3SecretKey:            getenv("PGFLEET_S3_SECRET_KEY"),
+		S3UseTLS:               getenv("PGFLEET_S3_USE_TLS") == "true",
+		S3TLSSkipVerify:        getenv("PGFLEET_S3_TLS_SKIP_VERIFY") == "true",
 		BackupType:             orDefault(getenv("PGFLEET_BACKUP_TYPE"), "full"),
 		BackupEncryption:       getenv("PGFLEET_BACKUP_ENCRYPTION") == "true",
 	}

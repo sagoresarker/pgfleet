@@ -137,11 +137,13 @@ func run() error {
 	}
 
 	s3 := objectstore.Config{
-		Endpoint:  cfg.S3Endpoint,
-		Region:    cfg.S3Region,
-		AccessKey: cfg.S3AccessKey,
-		SecretKey: cfg.S3SecretKey,
-		Bucket:    cfg.S3Bucket,
+		Endpoint:      cfg.S3Endpoint,
+		Region:        cfg.S3Region,
+		AccessKey:     cfg.S3AccessKey,
+		SecretKey:     cfg.S3SecretKey,
+		Bucket:        cfg.S3Bucket,
+		UseTLS:        cfg.S3UseTLS,
+		SkipTLSVerify: cfg.S3TLSSkipVerify,
 	}
 	if cfg.S3Endpoint != "" && cfg.S3Bucket != "" {
 		if berr := objectstore.EnsureBucket(ctx, s3); berr != nil {
@@ -152,9 +154,10 @@ func run() error {
 
 	instances := instance.NewRepository(pool, cipher)
 	provisioner := provision.New(rt, instances, provision.Options{
-		Network:          cfg.DockerNetwork,
-		InstanceHost:     cfg.InstanceHost,
-		S3:               s3,
+		Network:            cfg.DockerNetwork,
+		InstanceHost:       cfg.InstanceHost,
+		S3:                 s3,
+		S3BackrestEndpoint: cfg.S3BackrestEndpoint,
 		RestartPolicy:    cfg.InstanceRestartPolicy,
 		BindAddress:      cfg.InstanceBindAddress,
 		MasterKey:        cfg.MasterKey,
