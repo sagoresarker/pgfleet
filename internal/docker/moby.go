@@ -301,7 +301,11 @@ func portConfig(ports []PortMapping) (nat.PortSet, nat.PortMap) {
 		if p.HostPort != 0 {
 			hostPort = strconv.Itoa(p.HostPort)
 		}
-		binds[port] = []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: hostPort}}
+		hostIP := p.HostIP
+		if hostIP == "" {
+			hostIP = "0.0.0.0"
+		}
+		binds[port] = []nat.PortBinding{{HostIP: hostIP, HostPort: hostPort}}
 	}
 	return set, binds
 }

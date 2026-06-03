@@ -33,6 +33,10 @@ type Config struct {
 	// InstanceRestartPolicy is the Docker restart policy applied to managed
 	// instance + router containers so they survive a daemon/host restart.
 	InstanceRestartPolicy string
+	// InstanceBindAddress is the host interface published instance/router ports
+	// bind to. Defaults to 127.0.0.1 (secure-by-default); set to a private IP
+	// or 0.0.0.0 to expose more broadly.
+	InstanceBindAddress string
 	// AlertWebhookURL, if set, receives a JSON POST on every alert transition.
 	AlertWebhookURL string
 	S3Endpoint      string
@@ -59,6 +63,7 @@ func Load(getenv func(string) string) (*Config, error) {
 		DockerNetwork:          orDefault(getenv("PGFLEET_DOCKER_NETWORK"), "pgfleet"),
 		InstanceHost:           orDefault(getenv("PGFLEET_INSTANCE_HOST"), "localhost"),
 		InstanceRestartPolicy:  orDefault(getenv("PGFLEET_INSTANCE_RESTART_POLICY"), "unless-stopped"),
+		InstanceBindAddress:    orDefault(getenv("PGFLEET_INSTANCE_BIND_ADDRESS"), "127.0.0.1"),
 		AlertWebhookURL:        getenv("PGFLEET_ALERT_WEBHOOK_URL"),
 		S3Endpoint:             getenv("PGFLEET_S3_ENDPOINT"),
 		S3Bucket:               getenv("PGFLEET_S3_BUCKET"),

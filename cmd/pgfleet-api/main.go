@@ -141,6 +141,7 @@ func run() error {
 		InstanceHost:  cfg.InstanceHost,
 		S3:            s3,
 		RestartPolicy: cfg.InstanceRestartPolicy,
+		BindAddress:   cfg.InstanceBindAddress,
 	})
 	clusters := cluster.NewRepository(pool)
 	clusterSvc := clusterctl.New(clusters, instances, provisioner, rt, instance.RepoType(cfg.DefaultRepoType))

@@ -63,7 +63,7 @@ func (p *Provisioner) StartRouter(ctx context.Context, spec RouterSpec, progress
 			docker.LabelInstance: spec.ClusterID, // group under the cluster
 			docker.LabelRole:     "router",
 		},
-		Ports:         []docker.PortMapping{{ContainerPort: pgcatPort, HostPort: 0}},
+		Ports:         []docker.PortMapping{{ContainerPort: pgcatPort, HostPort: 0, HostIP: p.opts.BindAddress}},
 		RestartPolicy: p.opts.RestartPolicy,
 	}
 	if p.opts.Network != "" {

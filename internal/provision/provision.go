@@ -64,6 +64,9 @@ type Options struct {
 	// they survive a daemon/host restart without the control plane. Empty
 	// leaves the daemon default.
 	RestartPolicy string
+	// BindAddress is the host interface published instance/router ports bind to
+	// (e.g. 127.0.0.1). Empty binds to all interfaces (0.0.0.0).
+	BindAddress string
 }
 
 // store is the subset of *instance.Repository the provisioner needs.
@@ -242,7 +245,7 @@ func (p *Provisioner) containerSpec(inst instance.Instance, password string, mou
 			"POSTGRES_DB":       "postgres",
 		},
 		Labels:        instanceLabels(inst.ID),
-		Ports:         []docker.PortMapping{{ContainerPort: pgPort, HostPort: 0}},
+		Ports:         []docker.PortMapping{{ContainerPort: pgPort, HostPort: 0, HostIP: p.opts.BindAddress}},
 		Mounts:        mounts,
 		RestartPolicy: p.opts.RestartPolicy,
 	}

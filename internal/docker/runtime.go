@@ -21,6 +21,10 @@ type PortMapping struct {
 	ContainerPort int
 	HostPort      int
 	Protocol      string // "tcp" (default) or "udp"
+	// HostIP is the host interface the published port binds to. Empty defaults
+	// to 0.0.0.0 (all interfaces); set to 127.0.0.1 or a private IP to limit
+	// exposure of the managed database.
+	HostIP string
 }
 
 // Mount binds a named volume to a path inside the container.
