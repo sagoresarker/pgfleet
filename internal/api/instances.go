@@ -38,6 +38,7 @@ type InstancesHandler struct {
 	prov     InstanceProvisioner
 	progress ProgressSink
 	audit    AuditRecorder
+	async    *Async
 }
 
 // NewInstancesHandler builds an InstancesHandler. progress may be nil.
@@ -48,6 +49,12 @@ func NewInstancesHandler(store InstanceStore, prov InstanceProvisioner, progress
 // WithAudit attaches an audit recorder.
 func (h *InstancesHandler) WithAudit(rec AuditRecorder) *InstancesHandler {
 	h.audit = rec
+	return h
+}
+
+// WithAsync attaches the background-task tracker for graceful shutdown.
+func (h *InstancesHandler) WithAsync(a *Async) *InstancesHandler {
+	h.async = a
 	return h
 }
 
@@ -99,18 +106,16 @@ func (h *InstancesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	recordAudit(h.audit, r, "instance.create", inst.Name)
-	go h.provisionAsync(inst.ID)
+	id := inst.ID
+	h.async.Go(func(ctx context.Context) {
+		progress := provision.ProgressFunc(nil)
+		if h.progress != nil {
+			progress = func(step, detail string) { h.progress.Publish(id, step, detail) }
+		}
+		_ = h.prov.Provision(ctx, id, progress)
+	})
 
 	writeJSON(w, http.StatusAccepted, map[string]any{"instance": toInstancePayload(inst)})
-}
-
-// provisionAsync runs provisioning in the background, publishing progress.
-func (h *InstancesHandler) provisionAsync(id string) {
-	progress := provision.ProgressFunc(nil)
-	if h.progress != nil {
-		progress = func(step, detail string) { h.progress.Publish(id, step, detail) }
-	}
-	_ = h.prov.Provision(context.Background(), id, progress)
 }
 
 // List returns all instances.

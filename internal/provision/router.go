@@ -74,8 +74,17 @@ func (p *Provisioner) StartRouter(ctx context.Context, spec RouterSpec, progress
 	if err != nil {
 		return "", 0, err
 	}
+	// Remove the container on any failure after create, so a router that
+	// starts but can't be inspected isn't orphaned (Destroy can't find it
+	// because SetRouter is never reached on the error path).
+	ok := false
+	defer func() {
+		if !ok {
+			_ = p.rt.RemoveContainer(context.Background(), cid, true)
+		}
+	}()
+
 	if err := p.rt.StartContainer(ctx, cid); err != nil {
-		_ = p.rt.RemoveContainer(context.Background(), cid, true)
 		return "", 0, err
 	}
 	state, err := p.rt.Inspect(ctx, cid)
@@ -86,6 +95,7 @@ func (p *Provisioner) StartRouter(ctx context.Context, spec RouterSpec, progress
 	if err != nil {
 		return "", 0, err
 	}
+	ok = true
 	return cid, port, nil
 }
 

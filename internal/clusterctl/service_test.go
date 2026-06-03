@@ -131,6 +131,7 @@ func (f *fakeProv) Destroy(_ context.Context, id string, _ bool) error {
 	f.destroyed = append(f.destroyed, id)
 	return nil
 }
+func (f *fakeProv) DropReplicationSlot(context.Context, instance.Instance, string) error { return nil }
 
 type fakeRouter struct{ removed []string }
 

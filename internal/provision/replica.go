@@ -58,6 +58,9 @@ func (p *Provisioner) provisionReplica(ctx context.Context, replicaID string, pr
 		for _, v := range createdVolumes {
 			_ = p.rt.RemoveVolume(bg, v, true)
 		}
+		// Drop the slot created on the primary so a failed replica doesn't
+		// leave an orphaned slot pinning WAL.
+		_ = p.DropReplicationSlot(bg, primary, slot)
 	}()
 
 	dataVol := volumeName("data", replicaID)
@@ -141,7 +144,7 @@ func (p *Provisioner) runBaseBackup(ctx context.Context, replica, primary instan
 		`chown postgres:postgres "$PGDATA_DIR"`,
 		`gosu postgres pg_basebackup -h "$PRIMARY_HOST" -p 5432 -U "$PRIMARY_USER" -D "$PGDATA_DIR" -X stream -S "$SLOT" -w -c fast`,
 		`touch "$PGDATA_DIR/standby.signal"`,
-		`printf "primary_conninfo = 'host=%s port=5432 user=%s application_name=%s passfile=%s'\nprimary_slot_name = '%s'\n" ` +
+		`printf "primary_conninfo = 'host=%s port=5432 user=%s application_name=%s passfile=%s'\nprimary_slot_name = '%s'\nrecovery_target_timeline = 'latest'\n" ` +
 			`"$PRIMARY_HOST" "$PRIMARY_USER" "$APP_NAME" "$PGDATA_DIR/.pgpass" "$SLOT" >> "$PGDATA_DIR/postgresql.auto.conf"`,
 		`ESC_PW=$(printf '%s' "$PGPASSWORD" | sed 's/\\/\\\\/g; s/:/\\:/g')`,
 		`printf '%s:5432:*:%s:%s\n' "$PRIMARY_HOST" "$PRIMARY_USER" "$ESC_PW" > "$PGDATA_DIR/.pgpass"`,
@@ -223,4 +226,23 @@ func (p *Provisioner) verifyStreaming(ctx context.Context, primaryContainerID, a
 // slotName derives a valid replication slot name from a replica name.
 func slotName(replicaName string) string {
 	return "pgfleet_" + strings.ReplaceAll(replicaName, "-", "_")
+}
+
+// SlotName is the exported form of slotName for callers that drop slots.
+func SlotName(replicaName string) string { return slotName(replicaName) }
+
+// DropReplicationSlot drops a physical replication slot on the primary so a
+// removed replica doesn't leave WAL pinned. Missing slots are tolerated.
+func (p *Provisioner) DropReplicationSlot(ctx context.Context, primary instance.Instance, slot string) error {
+	if primary.ContainerID == "" {
+		return nil
+	}
+	q := fmt.Sprintf(
+		`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name='%s') `+
+			`THEN PERFORM pg_drop_replication_slot('%s'); END IF; END $$;`, slot, slot)
+	res, err := p.rt.Exec(ctx, primary.ContainerID, asPostgres([]string{"psql", "-U", primary.Superuser, "-d", "postgres", "-c", q}))
+	if err != nil || res.ExitCode != 0 {
+		return apperr.New(apperr.KindInternal, "provision: drop replication slot")
+	}
+	return nil
 }

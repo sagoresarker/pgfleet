@@ -39,11 +39,18 @@ type ClustersHandler struct {
 	members MemberLister
 	host    string
 	audit   AuditRecorder
+	async   *Async
 }
 
 // NewClustersHandler builds a ClustersHandler. audit may be nil.
 func NewClustersHandler(svc ClusterService, store ClusterStore, members MemberLister, host string, rec AuditRecorder) *ClustersHandler {
 	return &ClustersHandler{svc: svc, store: store, members: members, host: host, audit: rec}
+}
+
+// WithAsync attaches the background-task tracker.
+func (h *ClustersHandler) WithAsync(a *Async) *ClustersHandler {
+	h.async = a
+	return h
 }
 
 type createClusterRequest struct {
@@ -85,7 +92,8 @@ func (h *ClustersHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	recordAudit(h.audit, r, "cluster.create", c.Name)
-	go func() { _ = h.svc.Provision(context.Background(), c.ID, nil) }()
+	id := c.ID
+	h.async.Go(func(ctx context.Context) { _ = h.svc.Provision(ctx, id, nil) })
 	writeJSON(w, http.StatusAccepted, map[string]any{"cluster": toClusterPayload(c)})
 }
 

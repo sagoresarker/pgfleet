@@ -189,6 +189,10 @@ func (p *Provisioner) containerSpec(inst instance.Instance, password string, mou
 		"-c", "archive_timeout=60",
 		"-c", "wal_level=replica",
 		"-c", "max_wal_senders=10", // headroom for replicas + concurrent base backups
+		"-c", "max_replication_slots=10",
+		// Cap WAL retained for replication slots so a dead/leaked replica slot
+		// can never fill the primary's disk (the slot is invalidated instead).
+		"-c", "max_slot_wal_keep_size=10GB",
 		"-c", "shared_preload_libraries=pg_stat_statements",
 	}
 	spec := docker.ContainerSpec{
