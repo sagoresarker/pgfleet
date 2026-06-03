@@ -73,20 +73,7 @@ export default function ClusterDetailPage() {
             <CardBody className="p-0">
               <ul className="divide-y divide-line">
                 {members.map((m) => (
-                  <li key={m.id} className="flex items-center gap-3 px-5 py-3.5">
-                    {m.role === "primary" ? (
-                      <Crown className="h-4 w-4 text-signal" />
-                    ) : (
-                      <Database className="h-4 w-4 text-fg-faint" />
-                    )}
-                    <div className="flex-1">
-                      <Link href={`/instances/${m.id}`} className="font-display text-sm text-fg hover:text-azure">
-                        {m.name}
-                      </Link>
-                    </div>
-                    <Badge tone={m.role === "primary" ? "signal" : "neutral"}>{m.role}</Badge>
-                    <span className="font-mono text-xs text-fg-faint">{m.status}</span>
-                  </li>
+                  <MemberRow key={m.id} member={m} />
                 ))}
               </ul>
             </CardBody>
@@ -99,6 +86,48 @@ export default function ClusterDetailPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+function MemberRow({ member }: { member: { id: string; name: string; role: string; status: string } }) {
+  const running = member.status === "running";
+  const latest = useQuery({
+    queryKey: ["metrics-latest", member.id],
+    queryFn: () => api.latestMetrics(member.id),
+    refetchInterval: 6000,
+    enabled: running,
+  });
+  const m = latest.data?.metrics ?? {};
+  const conns = m.connections?.value;
+  const cache = m.cache_hit_ratio?.value;
+  const lag = m.replication_lag_seconds?.value;
+
+  return (
+    <li className="flex items-center gap-3 px-5 py-3.5">
+      {member.role === "primary" ? (
+        <Crown className="h-4 w-4 text-signal" />
+      ) : (
+        <Database className="h-4 w-4 text-fg-faint" />
+      )}
+      <div className="min-w-0 flex-1">
+        <Link href={`/instances/${member.id}`} className="font-display text-sm text-fg hover:text-azure">
+          {member.name}
+        </Link>
+        {running && (
+          <div className="mt-0.5 flex gap-3 font-mono text-[11px] text-fg-faint tnum">
+            {conns !== undefined && <span>{Math.round(conns)} conn</span>}
+            {cache !== undefined && <span>{cache.toFixed(1)}% cache</span>}
+            {member.role === "replica" && lag !== undefined && (
+              <span className={lag > 10 ? "text-danger" : lag > 2 ? "text-signal" : "text-healthy"}>
+                {lag < 1 ? "<1s" : `${Math.round(lag)}s`} lag
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+      <Badge tone={member.role === "primary" ? "signal" : "neutral"}>{member.role}</Badge>
+      <span className="font-mono text-xs text-fg-faint">{member.status}</span>
+    </li>
   );
 }
 
