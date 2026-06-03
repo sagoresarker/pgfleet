@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/shell";
 import { Button, Card, CardBody, Field, Input, PasswordInput, Select } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, Minus, Network, Plus } from "lucide-react";
+import { ChevronLeft, Cloud, HardDrive, Minus, Network, Plus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -68,7 +68,7 @@ export default function NewClusterPage() {
         <CardBody>
           <form onSubmit={onSubmit} className="space-y-6" noValidate>
             <fieldset>
-              <legend className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-fg-faint">Identity</legend>
+              <legend className="mb-3 font-mono text-[10px] uppercase tracking-[0.2em] text-fg-faint">Identity</legend>
               <Field label="Name *" hint="Members are named <cluster>-p, <cluster>-r1, …">
                 <Input
                   value={name}
@@ -90,7 +90,7 @@ export default function NewClusterPage() {
             </fieldset>
 
             <fieldset>
-              <legend className="mb-2 block font-mono text-[11px] uppercase tracking-wider text-fg-muted">
+              <legend className="mb-3 font-mono text-[10px] uppercase tracking-[0.2em] text-fg-faint">
                 Read replicas
               </legend>
               <div className="flex items-center gap-3">
@@ -125,14 +125,30 @@ export default function NewClusterPage() {
               </div>
             </fieldset>
 
-            <fieldset className="grid grid-cols-3 gap-4">
+            <fieldset>
+              <legend className="mb-3 font-mono text-[10px] uppercase tracking-[0.2em] text-fg-faint">
+                Backup repository *
+              </legend>
+              <div className="grid grid-cols-2 gap-3">
+                <RepoOption
+                  active={repoType === "s3"}
+                  onClick={() => setRepoType("s3")}
+                  icon={<Cloud className="h-4 w-4" />}
+                  title="Object store"
+                  desc="S3 / MinIO bucket"
+                />
+                <RepoOption
+                  active={repoType === "local"}
+                  onClick={() => setRepoType("local")}
+                  icon={<HardDrive className="h-4 w-4" />}
+                  title="Local volume"
+                  desc="Docker volume"
+                />
+              </div>
+            </fieldset>
+
+            <fieldset className="grid grid-cols-2 gap-4">
               <legend className="sr-only">Engine</legend>
-              <Field label="Backup repository *">
-                <Select value={repoType} onChange={(e) => setRepoType(e.target.value as "s3" | "local")}>
-                  <option value="local">Local volume</option>
-                  <option value="s3">Object store (S3/MinIO)</option>
-                </Select>
-              </Field>
               <Field label="Postgres version *">
                 <Select value={pgVersion} onChange={(e) => setPgVersion(e.target.value)}>
                   {["17", "16", "15", "14", "13"].map((v) => (
@@ -140,15 +156,6 @@ export default function NewClusterPage() {
                       {v}
                     </option>
                   ))}
-                </Select>
-              </Field>
-              <Field
-                label="Router pool mode"
-                hint="Transaction pooling shares server connections per transaction (best for many short-lived clients); session keeps one server connection per client."
-              >
-                <Select value={poolMode} onChange={(e) => setPoolMode(e.target.value as "transaction" | "session")}>
-                  <option value="transaction">Transaction (recommended)</option>
-                  <option value="session">Session</option>
                 </Select>
               </Field>
               <Field label="Superuser password *" hint="Min 8 characters.">
@@ -167,6 +174,16 @@ export default function NewClusterPage() {
                 )}
               </Field>
             </fieldset>
+
+            <Field
+              label="Router pool mode"
+              hint="Transaction pooling shares server connections per transaction (best for many short-lived clients); session keeps one server connection per client."
+            >
+              <Select value={poolMode} onChange={(e) => setPoolMode(e.target.value as "transaction" | "session")}>
+                <option value="transaction">Transaction (recommended)</option>
+                <option value="session">Session</option>
+              </Select>
+            </Field>
 
             <AdvancedTuning rows={paramRows} setRows={setParamRows} exts={exts} setExts={setExts} />
 
@@ -188,5 +205,36 @@ export default function NewClusterPage() {
         </CardBody>
       </Card>
     </div>
+  );
+}
+
+function RepoOption({
+  active,
+  onClick,
+  icon,
+  title,
+  desc,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  title: string;
+  desc: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`flex min-h-[44px] cursor-pointer items-start gap-3 rounded-lg border px-4 py-3 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-azure/50 ${
+        active ? "border-azure/60 bg-azure/10" : "border-line bg-ink-900 hover:border-line-bright"
+      }`}
+    >
+      <span className={active ? "text-azure" : "text-fg-faint"}>{icon}</span>
+      <span>
+        <span className="block font-display text-sm text-fg">{title}</span>
+        <span className="block font-mono text-[11px] text-fg-faint">{desc}</span>
+      </span>
+    </button>
   );
 }

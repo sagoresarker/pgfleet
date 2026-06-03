@@ -64,7 +64,7 @@ export default function NewInstancePage() {
         <CardBody className="space-y-6">
           <form onSubmit={onSubmit} className="space-y-6" noValidate>
             <fieldset className="space-y-6">
-              <legend className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-fg-faint">Identity</legend>
+              <legend className="mb-3 font-mono text-[10px] uppercase tracking-[0.2em] text-fg-faint">Identity</legend>
 
               <Field label="Name *" hint="Lowercase, starts with a letter, 2–39 chars. Becomes the backup stanza.">
                 <Input
@@ -87,7 +87,7 @@ export default function NewInstancePage() {
             </fieldset>
 
             <fieldset>
-              <legend className="mb-2 block font-mono text-[11px] uppercase tracking-wider text-fg-muted">
+              <legend className="mb-3 font-mono text-[10px] uppercase tracking-[0.2em] text-fg-faint">
                 Backup repository *
               </legend>
               <div className="grid grid-cols-2 gap-3">

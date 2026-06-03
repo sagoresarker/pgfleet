@@ -440,7 +440,7 @@ function RestoreModal({
           </Field>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className={`grid gap-4 ${target === "cluster" ? "grid-cols-2" : "grid-cols-1"}`}>
           <Field label="Superuser password" hint="Min 8 characters.">
             <PasswordInput
               value={password}
