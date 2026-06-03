@@ -118,7 +118,7 @@ function WalTimeline({ backups }: { backups: Backup[] }) {
         <span>wal archive</span>
         <span>now</span>
       </div>
-      <div className="relative h-1.5 rounded-full bg-gradient-to-r from-ink-700 via-azure/30 to-azure/60">
+      <div className="relative h-1.5 rounded-full bg-gradient-to-r from-ink-600 via-azure/40 to-azure/70">
         {backups.length === 0 && (
           <span className="absolute inset-0 grid place-items-center text-[10px] text-fg-faint">no backups yet</span>
         )}
@@ -128,12 +128,12 @@ function WalTimeline({ backups }: { backups: Backup[] }) {
             <span
               key={b.label}
               title={`${b.label} (${b.type})`}
-              className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-ink-900 bg-signal shadow-[0_0_8px_var(--color-signal)]"
+              className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-line-bright bg-signal shadow-[0_0_8px_var(--color-signal)]"
               style={{ left: `${pct}%` }}
             />
           );
         })}
-        <span className="absolute right-0 top-1/2 h-3 w-3 -translate-y-1/2 translate-x-1/2 rounded-full border-2 border-ink-900 bg-azure shadow-[0_0_10px_var(--color-azure)]" />
+        <span className="absolute right-0 top-1/2 h-3 w-3 -translate-y-1/2 translate-x-1/2 rounded-full border-2 border-line-bright bg-azure shadow-[0_0_10px_var(--color-azure)]" />
       </div>
     </div>
   );

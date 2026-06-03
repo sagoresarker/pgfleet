@@ -86,7 +86,7 @@ func (c *Collector) Collect(ctx context.Context, instanceID, dsn string) ([]Samp
 			current_setting('max_connections')::bigint,
 			(SELECT count(*) FROM pg_stat_activity WHERE state = 'idle in transaction'),
 			(SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock'),
-			COALESCE(EXTRACT(EPOCH FROM (now() - min(xact_start))), 0)
+			COALESCE(EXTRACT(EPOCH FROM (now() - min(xact_start))), 0)::float8
 		FROM pg_stat_activity WHERE xact_start IS NOT NULL`,
 	).Scan(&maxConns, &idleInTx, &waiting, &longestTxSecs); err == nil {
 		add("max_connections", maxConns)
@@ -151,7 +151,7 @@ func (c *Collector) collectReplication(ctx context.Context, conn *pgx.Conn, addF
 	if inRecovery {
 		var lagSecs float64
 		if err := conn.QueryRow(ctx,
-			`SELECT COALESCE(EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp())), 0)`,
+			`SELECT COALESCE(EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp())), 0)::float8`,
 		).Scan(&lagSecs); err == nil {
 			addF("replication_lag_seconds", lagSecs)
 		}
@@ -161,7 +161,7 @@ func (c *Collector) collectReplication(ctx context.Context, conn *pgx.Conn, addF
 	var worstLagBytes float64
 	if err := conn.QueryRow(ctx, `
 		SELECT count(*),
-		       COALESCE(MAX(pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn)), 0)
+		       COALESCE(MAX(pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn)), 0)::float8
 		FROM pg_stat_replication`,
 	).Scan(&standbys, &worstLagBytes); err == nil {
 		addF("connected_standbys", float64(standbys))

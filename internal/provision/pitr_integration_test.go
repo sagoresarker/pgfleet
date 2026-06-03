@@ -105,6 +105,19 @@ func TestPointInTimeRecovery(t *testing.T) {
 	if batch2 != 0 {
 		t.Errorf("batch 2 rows present after PITR: %d, want 0", batch2)
 	}
+
+	// Regression: the restored (swapped) container must still have its
+	// pgbackrest.conf and be able to archive WAL. Without it, archive-push and
+	// every future backup would silently fail. `pgbackrest check` verifies the
+	// config is present and archiving round-trips.
+	restored, _ := repo.Get(ctx, inst.ID)
+	res, err := rt.Exec(ctx, restored.ContainerID, asPostgres([]string{
+		"pgbackrest", "--config=" + confPath, "--stanza=" + inst.Stanza, "check",
+	}))
+	if err != nil || res.ExitCode != 0 {
+		t.Fatalf("pgbackrest check after restore failed (config missing on swapped container?): exit %d err %v\n%s",
+			res.ExitCode, err, res.Stderr+res.Stdout)
+	}
 }
 
 func mustExec(t *testing.T, conn *pgx.Conn, sql string) {

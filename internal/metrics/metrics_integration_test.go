@@ -107,14 +107,19 @@ func TestCollectorReadsRealStats(t *testing.T) {
 	if _, ok := byMetric["checkpoints_timed"]; !ok {
 		t.Error("expected checkpoints_timed metric")
 	}
-	// Enriched metrics must be present.
+	// Enriched metrics that exist on every supported version (13–17).
 	for _, m := range []string{
 		"cache_hit_ratio", "tup_returned", "temp_files", "max_connections",
-		"connection_utilization", "locks_held", "wal_records", "longest_transaction_seconds",
+		"connection_utilization", "locks_held", "longest_transaction_seconds",
 	} {
 		if _, ok := byMetric[m]; !ok {
 			t.Errorf("expected enriched metric %q", m)
 		}
+	}
+	// wal_records comes from pg_stat_wal, which exists only on PG14+. The
+	// default test image is PG16, so assert it there but don't require it on 13.
+	if _, ok := byMetric["wal_records"]; !ok {
+		t.Log("wal_records absent (expected only on PostgreSQL < 14)")
 	}
 	if r := byMetric["cache_hit_ratio"]; r < 0 || r > 100 {
 		t.Errorf("cache_hit_ratio = %v, want 0..100", r)

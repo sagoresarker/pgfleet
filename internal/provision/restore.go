@@ -124,6 +124,14 @@ func (p *Provisioner) restore(ctx context.Context, id string, opts RestoreOption
 		p.rollbackRestore(ctx, inst, newContainer, newVol)
 		return err
 	}
+	// pgbackrest.conf is container-local (not on a mounted volume), so the fresh
+	// swap container has none. Write it now, or the restored instance — which
+	// boots with archive_mode=on + archive_command=archive-push — would fail
+	// every WAL push and every future backup. Mirrors provision().
+	if err := p.writeConfig(ctx, newContainer, inst); err != nil {
+		p.rollbackRestore(ctx, inst, newContainer, newVol)
+		return err
+	}
 
 	// New instance is healthy: commit the swap, then discard the old container
 	// and volume.
