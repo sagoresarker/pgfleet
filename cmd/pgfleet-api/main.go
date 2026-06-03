@@ -158,12 +158,12 @@ func run() error {
 		InstanceHost:       cfg.InstanceHost,
 		S3:                 s3,
 		S3BackrestEndpoint: cfg.S3BackrestEndpoint,
-		RestartPolicy:    cfg.InstanceRestartPolicy,
-		BindAddress:      cfg.InstanceBindAddress,
-		MasterKey:        cfg.MasterKey,
-		BackupEncryption: cfg.BackupEncryption,
-		BlockIncr:        cfg.BackupBlockIncr,
-		Repo2Path:        cfg.Repo2Path,
+		RestartPolicy:      cfg.InstanceRestartPolicy,
+		BindAddress:        cfg.InstanceBindAddress,
+		MasterKey:          cfg.MasterKey,
+		BackupEncryption:   cfg.BackupEncryption,
+		BlockIncr:          cfg.BackupBlockIncr,
+		Repo2Path:          cfg.Repo2Path,
 	})
 	clusters := cluster.NewRepository(pool)
 	clusterSvc := clusterctl.New(clusters, instances, provisioner, rt, instance.RepoType(cfg.DefaultRepoType), cfg.MasterKey)
