@@ -108,7 +108,7 @@ export default function InstanceDetailPage() {
         action={
           <div className="flex items-center gap-3">
             <InstanceStatus status={inst.status} />
-            {writable && <InstanceToolbar id={id} inst={inst} />}
+            {writable && <InstanceToolbar id={id} inst={inst} backupCount={backupList.length} />}
           </div>
         }
       />
@@ -123,6 +123,7 @@ export default function InstanceDetailPage() {
         <Tabs.List className="mb-6 flex gap-1 overflow-x-auto border-b border-line">
           {[
             { value: "overview", label: "Overview" },
+            { value: "databases", label: "Databases" },
             { value: "backups", label: "Backups" },
             { value: "analytics", label: "Analytics" },
             { value: "console", label: "SQL Console" },
@@ -149,6 +150,10 @@ export default function InstanceDetailPage() {
             parameters={inst.parameters}
             extensions={inst.extensions}
           />
+        </Tabs.Content>
+
+        <Tabs.Content value="databases" className="focus:outline-none">
+          <DatabasesTab id={id} running={inst.status === "running"} />
         </Tabs.Content>
 
         <Tabs.Content value="backups" className="focus:outline-none">
@@ -178,7 +183,15 @@ export default function InstanceDetailPage() {
 }
 
 /* ---- Toolbar: lifecycle inline, everything else in a tidy Actions menu ---- */
-function InstanceToolbar({ id, inst }: { id: string; inst: { name: string; status: string; public?: boolean } }) {
+function InstanceToolbar({
+  id,
+  inst,
+  backupCount,
+}: {
+  id: string;
+  inst: { name: string; status: string; public?: boolean };
+  backupCount: number;
+}) {
   const qc = useQueryClient();
   const toast = useToast();
   const [cloneOpen, setCloneOpen] = useState(false);
@@ -273,7 +286,7 @@ function InstanceToolbar({ id, inst }: { id: string; inst: { name: string; statu
         </ActionMenuItem>
       </ActionMenu>
 
-      <CloneModal id={id} sourceName={inst.name} open={cloneOpen} onOpenChange={setCloneOpen} />
+      <CloneModal id={id} sourceName={inst.name} backupCount={backupCount} open={cloneOpen} onOpenChange={setCloneOpen} />
       <DestroyModal id={id} name={inst.name} open={destroyOpen} onOpenChange={setDestroyOpen} />
     </div>
   );
@@ -282,11 +295,13 @@ function InstanceToolbar({ id, inst }: { id: string; inst: { name: string; statu
 function CloneModal({
   id,
   sourceName,
+  backupCount,
   open,
   onOpenChange,
 }: {
   id: string;
   sourceName: string;
+  backupCount: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -304,7 +319,9 @@ function CloneModal({
     onError: (e) => setError(e instanceof Error ? e.message : "Clone failed"),
   });
 
-  const valid = /^[a-z][a-z0-9-]{1,38}$/.test(name) && password.length >= 8;
+  // A clone is restored from a backup, so the source must have at least one.
+  const hasBackup = backupCount > 0;
+  const valid = hasBackup && /^[a-z][a-z0-9-]{1,38}$/.test(name) && password.length >= 8;
   return (
     <Modal
       open={open}
@@ -323,6 +340,15 @@ function CloneModal({
       }
     >
       <div className="space-y-4">
+        {!hasBackup && (
+          <div className="flex items-start gap-2.5 rounded-md border border-signal/30 bg-signal/10 px-3 py-2.5 text-xs text-signal">
+            <Database className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              A clone is restored from a backup, and <strong>{sourceName}</strong> has none yet. Take a full backup
+              (Backups tab) first, then clone.
+            </span>
+          </div>
+        )}
         <Field label="New instance name" hint="Lowercase letters, digits and hyphens; 2–39 chars.">
           <Input
             value={name}
@@ -330,10 +356,11 @@ function CloneModal({
             placeholder="orders-clone"
             autoComplete="off"
             spellCheck={false}
+            disabled={!hasBackup}
           />
         </Field>
         <Field label="New superuser password" hint="At least 8 characters. The clone gets its own credentials.">
-          <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
+          <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" disabled={!hasBackup} />
         </Field>
         {error && (
           <div role="alert" aria-live="assertive" className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
@@ -450,6 +477,80 @@ function BackupsTab({
               </li>
             ))}
           </ul>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
+/* ---- Databases tab — lists the databases inside this instance ---- */
+function DatabasesTab({ id, running }: { id: string; running: boolean }) {
+  const dbs = useQuery({
+    queryKey: ["databases", id],
+    enabled: running,
+    refetchInterval: 20000,
+    queryFn: () =>
+      api.runSQL(
+        id,
+        "SELECT datname AS database, pg_catalog.pg_get_userbyid(datdba) AS owner, " +
+          "pg_encoding_to_char(encoding) AS encoding, pg_size_pretty(pg_database_size(datname)) AS size " +
+          "FROM pg_database WHERE NOT datistemplate ORDER BY datname",
+      ),
+  });
+
+  if (!running) {
+    return (
+      <EmptyState
+        icon={<Database className="h-5 w-5" />}
+        title="Databases unavailable"
+        description="Database listing is available while the instance is running."
+      />
+    );
+  }
+
+  const rows = dbs.data?.rows ?? [];
+  const err = dbs.error instanceof Error ? dbs.error.message : null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Databases</CardTitle>
+        <span className="font-mono text-[11px] text-fg-faint tnum">{rows.length} database{rows.length === 1 ? "" : "s"}</span>
+      </CardHeader>
+      <CardBody className="p-0">
+        {dbs.isLoading ? (
+          <div className="p-5">
+            <SkeletonRows rows={3} />
+          </div>
+        ) : err ? (
+          <div role="alert" className="m-5 rounded-md border border-danger/30 bg-danger/10 px-3.5 py-2.5 font-mono text-xs text-danger">
+            {err}
+          </div>
+        ) : rows.length === 0 ? (
+          <EmptyState icon={<Database className="h-5 w-5" />} title="No databases" description="This instance has no non-template databases." />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-left text-sm">
+              <thead>
+                <tr className="border-b border-line bg-ink-800 font-mono text-[10px] uppercase tracking-wider text-fg-faint">
+                  <th className="px-5 py-2.5 font-medium">Database</th>
+                  <th className="px-5 py-2.5 font-medium">Owner</th>
+                  <th className="px-5 py-2.5 font-medium">Encoding</th>
+                  <th className="px-5 py-2.5 text-right font-medium">Size</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i} className="border-b border-line/60 transition-colors hover:bg-ink-800/50">
+                    <td className="px-5 py-2.5 font-display text-fg">{String(r[0])}</td>
+                    <td className="px-5 py-2.5 font-mono text-xs text-fg-muted">{String(r[1])}</td>
+                    <td className="px-5 py-2.5 font-mono text-xs text-fg-muted">{String(r[2])}</td>
+                    <td className="px-5 py-2.5 text-right font-mono text-xs text-fg-muted tnum">{String(r[3])}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </CardBody>
     </Card>

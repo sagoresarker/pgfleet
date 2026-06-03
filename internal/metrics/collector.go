@@ -9,6 +9,17 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/apperr"
 )
 
+// checkpointQuery returns the right checkpoint-stats query for the server's
+// version number (e.g. 160014 for PG 16.14). PG17+ uses pg_stat_checkpointer
+// with num_timed/num_requested/buffers_written; earlier majors keep the columns
+// in pg_stat_bgwriter. A zero/unknown version falls back to pg_stat_bgwriter.
+func checkpointQuery(serverVersionNum int) string {
+	if serverVersionNum >= 170000 {
+		return `SELECT num_timed, num_requested, buffers_written FROM pg_stat_checkpointer`
+	}
+	return `SELECT checkpoints_timed, checkpoints_req, buffers_checkpoint FROM pg_stat_bgwriter`
+}
+
 // Collector connects to a managed instance and reads PostgreSQL statistics.
 type Collector struct {
 	now func() time.Time
@@ -107,18 +118,15 @@ func (c *Collector) Collect(ctx context.Context, instanceID, dsn string) ([]Samp
 		add("locks_waiting", locksWaiting)
 	}
 
-	// Checkpoint activity. PG17 moved checkpoint counters from pg_stat_bgwriter
-	// to pg_stat_checkpointer; try the new view first, then fall back.
+	// Checkpoint activity. PG17 split the checkpoint counters out of
+	// pg_stat_bgwriter into pg_stat_checkpointer (with renamed columns). Pick the
+	// view by SERVER VERSION rather than try-and-fall-back, so we never issue a
+	// statement that errors on the other major — a failed query is logged at
+	// ERROR by the server and otherwise spams the instance log every poll.
+	var serverVerNum int
+	_ = conn.QueryRow(ctx, `SELECT current_setting('server_version_num')::int`).Scan(&serverVerNum)
 	var ckptTimed, ckptReq, buffersCkpt int64
-	if err := conn.QueryRow(ctx,
-		`SELECT num_timed, num_requested, buffers_written FROM pg_stat_checkpointer`,
-	).Scan(&ckptTimed, &ckptReq, &buffersCkpt); err == nil {
-		add("checkpoints_timed", ckptTimed)
-		add("checkpoints_req", ckptReq)
-		add("buffers_checkpoint", buffersCkpt)
-	} else if err := conn.QueryRow(ctx,
-		`SELECT checkpoints_timed, checkpoints_req, buffers_checkpoint FROM pg_stat_bgwriter`,
-	).Scan(&ckptTimed, &ckptReq, &buffersCkpt); err == nil {
+	if err := conn.QueryRow(ctx, checkpointQuery(serverVerNum)).Scan(&ckptTimed, &ckptReq, &buffersCkpt); err == nil {
 		add("checkpoints_timed", ckptTimed)
 		add("checkpoints_req", ckptReq)
 		add("buffers_checkpoint", buffersCkpt)

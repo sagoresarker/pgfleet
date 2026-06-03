@@ -3,10 +3,10 @@
 import { Badge, Button, EmptyState } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useMutation } from "@tanstack/react-query";
-import { CornerDownLeft, Database, Eraser, Play, Table2, TerminalSquare } from "lucide-react";
+import { CornerDownLeft, Database, Eraser, Play, SquareTerminal, Table2, TerminalSquare } from "lucide-react";
 import { useState } from "react";
 
-type Mode = "query" | "shell";
+type Mode = "query" | "psql" | "shell";
 
 export function ConsoleTab({ id, running, writable }: { id: string; running: boolean; writable: boolean }) {
   const [mode, setMode] = useState<Mode>("query");
@@ -16,26 +16,31 @@ export function ConsoleTab({ id, running, writable }: { id: string; running: boo
       <EmptyState
         icon={<TerminalSquare className="h-5 w-5" />}
         title="Console unavailable"
-        description="The query console and container shell are available while the instance is running."
+        description="The query console, psql shell and container shell are available while the instance is running."
       />
     );
   }
 
   return (
     <div className="space-y-5">
-      {/* Segmented mode toggle — one console surface, two tools. */}
-      <div className="inline-flex rounded-lg border border-line bg-ink-850 p-1">
+      {/* Segmented mode toggle — one console surface, three tools. */}
+      <div className="inline-flex flex-wrap rounded-lg border border-line bg-ink-850 p-1">
         <SegButton active={mode === "query"} onClick={() => setMode("query")} icon={<Database className="h-3.5 w-3.5" />}>
           SQL query
         </SegButton>
         {writable && (
-          <SegButton active={mode === "shell"} onClick={() => setMode("shell")} icon={<TerminalSquare className="h-3.5 w-3.5" />}>
+          <SegButton active={mode === "psql"} onClick={() => setMode("psql")} icon={<TerminalSquare className="h-3.5 w-3.5" />}>
+            psql shell
+          </SegButton>
+        )}
+        {writable && (
+          <SegButton active={mode === "shell"} onClick={() => setMode("shell")} icon={<SquareTerminal className="h-3.5 w-3.5" />}>
             Container shell
           </SegButton>
         )}
       </div>
 
-      {mode === "query" ? <QueryConsole id={id} /> : <ShellConsole id={id} />}
+      {mode === "query" ? <QueryConsole id={id} /> : mode === "psql" ? <PsqlConsole id={id} /> : <ShellConsole id={id} />}
     </div>
   );
 }
@@ -205,6 +210,69 @@ function renderCell(v: unknown): string {
   if (v === null || v === undefined) return "∅";
   if (typeof v === "object") return JSON.stringify(v);
   return String(v);
+}
+
+/* ---- psql shell ---- *
+ * Runs each line through `psql -c` in the container, so it understands BOTH SQL
+ * and psql meta-commands (\dt, \l, \d <table>, \du, …) — the things the plain
+ * SQL runner can't parse. Output is the real psql-formatted text. */
+function PsqlConsole({ id }: { id: string }) {
+  const [db, setDb] = useState("postgres");
+  const [cmd, setCmd] = useState("\\dt");
+  const psql = useMutation({
+    mutationFn: () => api.execCommand(id, ["psql", "-U", "postgres", "-d", db, "-c", cmd]),
+  });
+  const res = psql.data;
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-line shadow-sm">
+      <div className="flex items-center gap-2 border-b border-[#1c2940] bg-[#0e1726] px-3.5 py-2 font-mono text-[11px] text-[#8a97ad]">
+        <TerminalSquare className="h-3.5 w-3.5" /> psql · meta-commands &amp; SQL
+      </div>
+      <div className="bg-[#0b1320] p-3">
+        {res && (
+          <pre className="mb-3 max-h-80 overflow-auto whitespace-pre-wrap rounded-md border border-[#1c2940] bg-[#070d18] px-3 py-2.5 font-mono text-[11px] leading-relaxed text-[#cdd9ea]">
+            {res.stdout || ""}
+            {res.stderr ? <span className="text-danger">{(res.stdout ? "\n" : "") + res.stderr}</span> : null}
+          </pre>
+        )}
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-[#1c2940] bg-[#070d18] px-3 py-2">
+          <label className="flex items-center gap-1.5 font-mono text-[11px] text-[#6b7890]">
+            db
+            <input
+              value={db}
+              onChange={(e) => setDb(e.target.value)}
+              spellCheck={false}
+              aria-label="Database"
+              className="w-24 rounded bg-[#0b1320] px-2 py-1 font-mono text-xs text-[#d7e1f0] focus:outline-none focus:ring-1 focus:ring-azure/50"
+            />
+          </label>
+          <span className="font-mono text-sm text-azure">{db}=#</span>
+          <input
+            value={cmd}
+            onChange={(e) => setCmd(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && cmd.trim() && psql.mutate()}
+            spellCheck={false}
+            aria-label="psql command"
+            className="min-w-40 flex-1 bg-transparent font-mono text-xs text-[#d7e1f0] caret-azure placeholder:text-[#475569] focus:outline-none"
+            placeholder="\dt   ·   \l   ·   SELECT …"
+          />
+          <Button size="sm" variant="outline" loading={psql.isPending} disabled={!cmd.trim()} onClick={() => psql.mutate()}>
+            Run
+          </Button>
+        </div>
+        <p className="mt-2 font-mono text-[10px] text-[#475569]">
+          <code className="text-[#6b7890]">\dt</code> tables · <code className="text-[#6b7890]">\l</code> databases ·{" "}
+          <code className="text-[#6b7890]">\d table</code> describe · <code className="text-[#6b7890]">\du</code> roles
+        </p>
+      </div>
+      {res && (
+        <div className="flex items-center gap-2 border-t border-line bg-ink-850 px-3.5 py-2">
+          <Badge tone={res.exit_code === 0 ? "healthy" : "danger"}>exit {res.exit_code}</Badge>
+        </div>
+      )}
+    </div>
+  );
 }
 
 /* ---- Container shell (terminal) ---- */
