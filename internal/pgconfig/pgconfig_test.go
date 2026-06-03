@@ -78,6 +78,22 @@ func TestPreloadLibrariesAlwaysIncludesStatStatements(t *testing.T) {
 	}
 }
 
+// TestTimescaleDBNeedsPreload — timescaledb is allowlisted and its preload
+// library is merged with (never replaces) pg_stat_statements.
+func TestTimescaleDBNeedsPreload(t *testing.T) {
+	if err := ValidateExtensions([]string{"timescaledb"}); err != nil {
+		t.Errorf("timescaledb should be allowlisted: %v", err)
+	}
+	got := PreloadLibraries([]string{"timescaledb"})
+	if !slices.Contains(got, "pg_stat_statements") || !slices.Contains(got, "timescaledb") {
+		t.Errorf("preload libs = %v, want both pg_stat_statements and timescaledb", got)
+	}
+	// pg_stat_statements stays first (load order); timescaledb appended.
+	if got[0] != "pg_stat_statements" {
+		t.Errorf("pg_stat_statements must remain first, got %v", got)
+	}
+}
+
 func TestAllowedExtensionNamesStable(t *testing.T) {
 	names := AllowedExtensionNames()
 	if len(names) == 0 {
