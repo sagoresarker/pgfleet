@@ -19,6 +19,8 @@ export interface Instance {
   role: "standalone" | "primary" | "replica";
   cluster_id?: string;
   last_error?: string;
+  parameters?: Record<string, string>;
+  extensions?: string[];
 }
 
 export interface Backup {
@@ -132,7 +134,7 @@ export const api = {
 
   listInstances: () => request<{ instances: Instance[] }>("GET", "/api/v1/instances"),
   getInstance: (id: string) => request<{ instance: Instance }>("GET", `/api/v1/instances/${id}`),
-  createInstance: (input: { name: string; repo_type: string; password: string; pg_version?: string }) =>
+  createInstance: (input: { name: string; repo_type: string; password: string; pg_version?: string; parameters?: Record<string, string>; extensions?: string[] }) =>
     request<void>("POST", "/api/v1/instances", input),
   startInstance: (id: string) => request<void>("POST", `/api/v1/instances/${id}/start`),
   stopInstance: (id: string) => request<void>("POST", `/api/v1/instances/${id}/stop`),
@@ -143,7 +145,7 @@ export const api = {
 
   listClusters: () => request<{ clusters: Cluster[] }>("GET", "/api/v1/clusters"),
   getCluster: (id: string) => request<{ cluster: Cluster; members: Instance[] }>("GET", `/api/v1/clusters/${id}`),
-  createCluster: (input: { name: string; replicas: number; password: string; repo_type?: string; pg_version?: string }) =>
+  createCluster: (input: { name: string; replicas: number; password: string; repo_type?: string; pg_version?: string; parameters?: Record<string, string>; extensions?: string[] }) =>
     request<void>("POST", "/api/v1/clusters", input),
   destroyCluster: (id: string) => request<void>("DELETE", `/api/v1/clusters/${id}?retain_backups=true`),
   clusterConnection: (id: string) => request<{ dsn: string }>("GET", `/api/v1/clusters/${id}/connection`),
