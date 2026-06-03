@@ -37,7 +37,9 @@ func TestStreamingReplication(t *testing.T) {
 	repo := instance.NewRepository(pool, cipher)
 	p := New(rt, repo, Options{Network: netName, InstanceHost: "localhost"})
 
-	const pw = "replication-password-1"
+	// A password with a space + special chars exercises the .pgpass path
+	// (would silently break an inline-conninfo password).
+	const pw = "rep secret:1#pw"
 
 	// Primary.
 	primary, err := repo.Create(ctx, instance.NewInstance{

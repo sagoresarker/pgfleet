@@ -188,7 +188,7 @@ func (p *Provisioner) containerSpec(inst instance.Instance, password string, mou
 		"-c", "archive_command=" + archiveCmd,
 		"-c", "archive_timeout=60",
 		"-c", "wal_level=replica",
-		"-c", "max_wal_senders=3",
+		"-c", "max_wal_senders=10", // headroom for replicas + concurrent base backups
 		"-c", "shared_preload_libraries=pg_stat_statements",
 	}
 	spec := docker.ContainerSpec{

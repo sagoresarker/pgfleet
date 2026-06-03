@@ -131,15 +131,21 @@ func (p *Provisioner) preparePrimary(ctx context.Context, primary instance.Insta
 // runBaseBackup clones the primary into the replica's data volume and writes
 // standby recovery settings. Secrets are passed via env, never the script body.
 func (p *Provisioner) runBaseBackup(ctx context.Context, replica, primary instance.Instance, password, primaryHost, slot, dataVol string) error {
+	// The password is delivered to the standby's walreceiver via a .pgpass file
+	// (PGPASSFILE points at it in the replica container). This avoids the
+	// fragile double-quoting of a password inside a single-quoted GUC inside a
+	// single-quoted libpq conninfo, and works for any password (spaces, quotes,
+	// etc.). Only ':' and '\' need escaping in .pgpass.
 	script := strings.Join([]string{
 		"set -e",
 		`chown postgres:postgres "$PGDATA_DIR"`,
 		`gosu postgres pg_basebackup -h "$PRIMARY_HOST" -p 5432 -U "$PRIMARY_USER" -D "$PGDATA_DIR" -X stream -S "$SLOT" -w -c fast`,
 		`touch "$PGDATA_DIR/standby.signal"`,
-		// Escape the password for the conninfo single-quoted value.
-		`ESC_PW=$(printf '%s' "$PGPASSWORD" | sed "s/\\\\/\\\\\\\\/g; s/'/\\\\'/g")`,
-		`printf "primary_conninfo = 'host=%s port=5432 user=%s password=%s application_name=%s'\nprimary_slot_name = '%s'\n" ` +
-			`"$PRIMARY_HOST" "$PRIMARY_USER" "$ESC_PW" "$APP_NAME" "$SLOT" >> "$PGDATA_DIR/postgresql.auto.conf"`,
+		`printf "primary_conninfo = 'host=%s port=5432 user=%s application_name=%s passfile=%s'\nprimary_slot_name = '%s'\n" ` +
+			`"$PRIMARY_HOST" "$PRIMARY_USER" "$APP_NAME" "$PGDATA_DIR/.pgpass" "$SLOT" >> "$PGDATA_DIR/postgresql.auto.conf"`,
+		`ESC_PW=$(printf '%s' "$PGPASSWORD" | sed 's/\\/\\\\/g; s/:/\\:/g')`,
+		`printf '%s:5432:*:%s:%s\n' "$PRIMARY_HOST" "$PRIMARY_USER" "$ESC_PW" > "$PGDATA_DIR/.pgpass"`,
+		`chmod 600 "$PGDATA_DIR/.pgpass"`,
 		`chown -R postgres:postgres "$PGDATA_DIR"`,
 	}, "\n")
 
