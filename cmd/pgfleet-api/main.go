@@ -20,6 +20,7 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/config"
 	"github.com/sagoresarker/pgfleet/internal/docker"
 	"github.com/sagoresarker/pgfleet/internal/events"
+	"github.com/sagoresarker/pgfleet/internal/failover"
 	"github.com/sagoresarker/pgfleet/internal/health"
 	"github.com/sagoresarker/pgfleet/internal/instance"
 	"github.com/sagoresarker/pgfleet/internal/logging"
@@ -61,6 +62,12 @@ const alertsInterval = 1 * time.Minute
 // object store; metaBackupRetain is how many dumps it keeps.
 const metaBackupInterval = 6 * time.Hour
 const metaBackupRetain = 28 // ~1 week at 6h cadence
+
+// failoverInterval is how often clusters are checked; failoverThreshold is the
+// number of consecutive failed primary checks before promoting (conservative to
+// avoid reacting to transient blips: ~90s here).
+const failoverInterval = 30 * time.Second
+const failoverThreshold = 3
 
 // asyncDrainTimeout bounds how long shutdown waits for in-flight provisioning.
 const asyncDrainTimeout = 60 * time.Second
@@ -204,6 +211,12 @@ func run() error {
 			}
 			return metaBak.Prune(ctx, metaBackupRetain)
 		})
+	}
+	// Automatic cluster failover: detect a dead primary, fence it, promote the
+	// most-caught-up replica, reattach the others, and repoint the router.
+	if cfg.AutoFailover {
+		foController := failover.New(clusters, instances, provisioner, rt, eventStore, failoverThreshold, log)
+		sched.Register("auto-failover", failoverInterval, foController.Run)
 	}
 	sched.Start(ctx)
 	defer sched.Stop()
