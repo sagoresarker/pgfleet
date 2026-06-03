@@ -2,6 +2,8 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 
 	"github.com/sagoresarker/pgfleet/internal/apperr"
@@ -17,6 +19,11 @@ func decodeJSON(r *http.Request, dst any) error {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
 		return apperr.Wrap(apperr.KindInvalid, "invalid request body", err)
+	}
+	// Reject trailing data after the first JSON value (e.g. a second object),
+	// so the body is exactly one value as the API contract requires.
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return apperr.New(apperr.KindInvalid, "invalid request body: unexpected trailing data")
 	}
 	return nil
 }

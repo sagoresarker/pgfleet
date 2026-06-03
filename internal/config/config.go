@@ -5,6 +5,7 @@ package config
 import (
 	"encoding/base64"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -94,7 +95,10 @@ func Load(getenv func(string) string) (*Config, error) {
 }
 
 func required(getenv func(string) string, key string) (string, error) {
-	if v := getenv(key); v != "" {
+	// A value that is only whitespace is effectively unset (a low-entropy
+	// "secret" or an unusable DSN), so reject it. Return the original value
+	// unchanged so legitimately-spaced secrets are preserved.
+	if v := getenv(key); strings.TrimSpace(v) != "" {
 		return v, nil
 	}
 	return "", fmt.Errorf("%s is required", key)

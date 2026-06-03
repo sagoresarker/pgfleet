@@ -18,6 +18,7 @@ type fakeClusters struct {
 	primary map[string]string
 	router  map[string]int
 	status  map[string]cluster.Status
+	deleted []string
 }
 
 func newFakeClusters() *fakeClusters {
@@ -60,7 +61,14 @@ func (f *fakeClusters) SetStatus(_ context.Context, id string, s cluster.Status,
 	f.status[id] = s
 	return nil
 }
-func (f *fakeClusters) Delete(_ context.Context, _ string) error { return nil }
+func (f *fakeClusters) Delete(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.items, id)
+	delete(f.status, id)
+	f.deleted = append(f.deleted, id)
+	return nil
+}
 
 type fakeInstances struct {
 	mu      sync.Mutex

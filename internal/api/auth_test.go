@@ -54,8 +54,17 @@ func makeWeakHash(password string) string {
 		argon2.Version, b64.EncodeToString(salt), b64.EncodeToString(key))
 }
 
+// testIssuer builds an Issuer with a 32-byte secret (meets MinSecretLen).
+func testIssuer() *auth.Issuer {
+	iss, err := auth.NewIssuer([]byte("0123456789abcdef0123456789abcdef"), time.Hour)
+	if err != nil {
+		panic(err)
+	}
+	return iss
+}
+
 func newAuthHandler(store UserAuthStore) *AuthHandler {
-	return NewAuthHandler(store, auth.NewIssuer([]byte("test-secret"), time.Hour), nil)
+	return NewAuthHandler(store, testIssuer(), nil)
 }
 
 func postJSON(t *testing.T, h http.Handler, path, body string) *httptest.ResponseRecorder {
@@ -74,7 +83,7 @@ func TestLoginSuccessReturnsVerifiableToken(t *testing.T) {
 	hash, _ := auth.HashPassword("hunter2")
 	store.add(user.User{ID: "u1", Email: "a@b.com", PasswordHash: hash, Role: auth.RoleAdmin})
 
-	issuer := auth.NewIssuer([]byte("test-secret"), time.Hour)
+	issuer := testIssuer()
 	h := http.HandlerFunc(NewAuthHandler(store, issuer, nil).Login)
 
 	rr := postJSON(t, h, "/login", `{"email":"a@b.com","password":"hunter2"}`)

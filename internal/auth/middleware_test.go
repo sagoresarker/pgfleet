@@ -17,7 +17,7 @@ func okHandler(seen *Claims) http.Handler {
 }
 
 func TestAuthMiddlewareRejectsMissingHeader(t *testing.T) {
-	iss := NewIssuer([]byte("s"), time.Hour)
+	iss := mustIssuer(t, testSecret, time.Hour)
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/x", nil)
 
@@ -29,7 +29,7 @@ func TestAuthMiddlewareRejectsMissingHeader(t *testing.T) {
 }
 
 func TestAuthMiddlewareRejectsMalformedHeader(t *testing.T) {
-	iss := NewIssuer([]byte("s"), time.Hour)
+	iss := mustIssuer(t, testSecret, time.Hour)
 	for _, h := range []string{"Bearer", "Token abc", "abc", "Bearer "} {
 		rr := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/x", nil)
@@ -42,7 +42,7 @@ func TestAuthMiddlewareRejectsMalformedHeader(t *testing.T) {
 }
 
 func TestAuthMiddlewareAcceptsValidTokenAndInjectsClaims(t *testing.T) {
-	iss := NewIssuer([]byte("s"), time.Hour)
+	iss := mustIssuer(t, testSecret, time.Hour)
 	token, _ := iss.Issue("u1", "u1@x.com", RoleOperator)
 
 	var seen Claims

@@ -69,8 +69,10 @@ func (r *Reconciler) reconcileOne(ctx context.Context, inst instance.Instance, c
 
 	info, ok := containers[inst.ID]
 	if !ok {
-		// The container is gone but the DB expected it.
-		if inst.Status == instance.StatusRunning || inst.Status == instance.StatusProvisioning {
+		// The container is gone but the DB expected it. (Provisioning/restoring/
+		// destroying/error statuses already returned above, so only a Running
+		// instance reaches here as "should have a container".)
+		if inst.Status == instance.StatusRunning {
 			r.log.Warn("instance container missing; marking error", "instance", inst.ID)
 			_ = r.st.SetStatus(ctx, inst.ID, instance.StatusError, "container not found during reconciliation")
 		}

@@ -93,26 +93,40 @@ func (s *Service) Create(ctx context.Context, in Input) (cluster.Cluster, error)
 		repoType = s.repoType
 	}
 
+	// Build every member spec and validate them BEFORE writing anything. A
+	// long-but-valid cluster name can still overflow the instance-name limit
+	// once "-p"/"-rN" is appended; rejecting up front avoids orphaning a
+	// half-created cluster.
+	specs := make([]instance.NewInstance, 0, in.Replicas+1)
+	specs = append(specs, instance.NewInstance{
+		Name: in.Name + "-p", RepoType: repoType, Password: in.Password,
+		Role: instance.RolePrimary,
+	})
+	for i := 1; i <= in.Replicas; i++ {
+		specs = append(specs, instance.NewInstance{
+			Name: fmt.Sprintf("%s-r%d", in.Name, i), RepoType: repoType, Password: in.Password,
+			Role: instance.RoleReplica,
+		})
+	}
+	for _, spec := range specs {
+		if err := spec.Validate(); err != nil {
+			return cluster.Cluster{}, apperr.New(apperr.KindInvalid,
+				"cluster: derived member name invalid for cluster name "+in.Name+": "+err.Error())
+		}
+	}
+
 	c, err := s.clusters.Create(ctx, cluster.NewCluster{Name: in.Name})
 	if err != nil {
 		return cluster.Cluster{}, err
 	}
 
-	// Primary.
-	if _, err := s.instances.Create(ctx, instance.NewInstance{
-		Name: in.Name + "-p", RepoType: repoType, Password: in.Password,
-		ClusterID: c.ID, Role: instance.RolePrimary,
-	}); err != nil {
-		_ = s.clusters.SetStatus(ctx, c.ID, cluster.StatusError, err.Error())
-		return cluster.Cluster{}, err
-	}
-	// Replicas.
-	for i := 1; i <= in.Replicas; i++ {
-		if _, err := s.instances.Create(ctx, instance.NewInstance{
-			Name: fmt.Sprintf("%s-r%d", in.Name, i), RepoType: repoType, Password: in.Password,
-			ClusterID: c.ID, Role: instance.RoleReplica,
-		}); err != nil {
-			_ = s.clusters.SetStatus(ctx, c.ID, cluster.StatusError, err.Error())
+	// From here, any failure must not leave an orphan cluster + partial members.
+	// Deleting the cluster row cascades to its member instances (FK ON DELETE
+	// CASCADE), so a single Delete is a complete rollback.
+	for _, spec := range specs {
+		spec.ClusterID = c.ID
+		if _, err := s.instances.Create(ctx, spec); err != nil {
+			_ = s.clusters.Delete(ctx, c.ID)
 			return cluster.Cluster{}, err
 		}
 	}
@@ -205,7 +219,12 @@ func (s *Service) ConnectionDSN(ctx context.Context, clusterID, host string) (st
 	if len(members) == 0 {
 		return "", apperr.New(apperr.KindInternal, "cluster: no members")
 	}
+	// ListByCluster returns the primary first; guard against a cluster with no
+	// primary (e.g. mid-failover) so we never hand out a replica's credentials.
 	primary := members[0]
+	if primary.Role != instance.RolePrimary {
+		return "", apperr.New(apperr.KindInternal, "cluster: no primary member")
+	}
 	password, err := s.instances.Password(ctx, primary.ID)
 	if err != nil {
 		return "", err

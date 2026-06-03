@@ -5,7 +5,10 @@ package health
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -94,36 +97,55 @@ func (c *Checker) Check(ctx context.Context, instanceID string) (Report, error) 
 		r.Issues = append(r.Issues, "no backups exist")
 	} else {
 		r.HasBackup = true
-		newest := backups[0].StoppedAt
+		// Find the newest *completed* backup. A row with a zero StoppedAt never
+		// finished; using it would make the age read as decades old.
+		var newest time.Time
 		for _, b := range backups {
 			if b.StoppedAt.After(newest) {
 				newest = b.StoppedAt
 			}
 		}
-		r.LastBackupAge = c.now().Sub(newest)
-		if r.LastBackupAge > c.thresholds.MaxBackupAge {
-			r.Issues = append(r.Issues, fmt.Sprintf("last backup is %s old", r.LastBackupAge.Round(time.Minute)))
+		if newest.IsZero() {
+			r.Issues = append(r.Issues, "no completed backup yet")
+		} else {
+			r.LastBackupAge = c.now().Sub(newest)
+			if r.LastBackupAge > c.thresholds.MaxBackupAge {
+				r.Issues = append(r.Issues, fmt.Sprintf("last backup is %s old", r.LastBackupAge.Round(time.Minute)))
+			}
 		}
 	}
 
-	// pg_wal pressure.
+	// pg_wal pressure. A failed probe must NOT be mistaken for "no pressure";
+	// flag it as an issue so a broken instance is never reported healthy.
 	if res, err := c.rt.Exec(ctx, inst.ContainerID, []string{"du", "-sb", pgDataPath + "/pg_wal"}); err == nil && res.ExitCode == 0 {
 		r.WALBytes = parseDuBytes(res.Stdout)
 		if c.thresholds.MaxWALBytes > 0 && r.WALBytes > c.thresholds.MaxWALBytes {
 			r.Issues = append(r.Issues, "pg_wal is large; archiving may be stalled")
 		}
+	} else {
+		r.Issues = append(r.Issues, "pg_wal probe failed")
 	}
 
 	return r, nil
 }
 
+// parseDuBytes extracts the byte count from `du -sb` output. Overflow saturates
+// to MaxInt64 (so an absurdly large disk still trips the pressure threshold
+// rather than silently reading as zero); malformed or negative values clamp to
+// 0.
 func parseDuBytes(out string) int64 {
 	fields := strings.Fields(strings.TrimSpace(out))
 	if len(fields) == 0 {
 		return 0
 	}
-	var n int64
-	if _, err := fmt.Sscanf(fields[0], "%d", &n); err != nil {
+	n, err := strconv.ParseInt(fields[0], 10, 64)
+	if err != nil {
+		if errors.Is(err, strconv.ErrRange) && !strings.HasPrefix(fields[0], "-") {
+			return math.MaxInt64
+		}
+		return 0
+	}
+	if n < 0 {
 		return 0
 	}
 	return n

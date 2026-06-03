@@ -55,6 +55,10 @@ func (h *MetricsHandler) Range(w http.ResponseWriter, r *http.Request) {
 		respondError(w, err)
 		return
 	}
+	if since.After(until) {
+		respondError(w, apperr.New(apperr.KindInvalid, "since must not be after until"))
+		return
+	}
 
 	samples, err := h.store.Query(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "metric"), since, until)
 	if err != nil {

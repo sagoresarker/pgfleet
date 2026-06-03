@@ -11,14 +11,15 @@ import (
 
 // memStore is an in-memory store for unit-testing orchestration.
 type memStore struct {
-	inst       instance.Instance
-	password   string
-	status     instance.Status
-	lastErr    string
-	container  string
-	hostPort   int
-	dataVolume string
-	deleted    bool
+	inst        instance.Instance
+	password    string
+	status      instance.Status
+	lastErr     string
+	container   string
+	hostPort    int
+	dataVolume  string
+	deleted     bool
+	passwordErr error // if set, Password returns this error
 }
 
 func (m *memStore) Get(context.Context, string) (instance.Instance, error) {
@@ -29,7 +30,12 @@ func (m *memStore) Get(context.Context, string) (instance.Instance, error) {
 	in.DataVolume = m.dataVolume
 	return in, nil
 }
-func (m *memStore) Password(context.Context, string) (string, error) { return m.password, nil }
+func (m *memStore) Password(context.Context, string) (string, error) {
+	if m.passwordErr != nil {
+		return "", m.passwordErr
+	}
+	return m.password, nil
+}
 func (m *memStore) SetRuntime(_ context.Context, _, cid string, port int) error {
 	m.container, m.hostPort = cid, port
 	return nil

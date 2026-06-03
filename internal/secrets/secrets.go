@@ -78,6 +78,12 @@ func (c *Cipher) Encrypt(plaintext []byte) (Sealed, error) {
 // Decrypt unwraps the DEK with the KEK, then decrypts the secret. It returns
 // an error if either authentication step fails (tampering or wrong KEK).
 func (c *Cipher) Decrypt(s Sealed) ([]byte, error) {
+	// GCM.Open PANICS on a wrong-length nonce, so validate before calling it. A
+	// corrupt or NULL secret row (nil/short nonces) must surface as an error,
+	// not crash the process.
+	if len(s.DEKNonce) != c.kekGCM.NonceSize() {
+		return nil, errors.New("secrets: malformed sealed secret (DEK nonce length)")
+	}
 	dek, err := c.kekGCM.Open(nil, s.DEKNonce, s.EncryptedDEK, nil)
 	if err != nil {
 		return nil, fmt.Errorf("secrets: unwrap DEK: %w", err)
@@ -85,6 +91,9 @@ func (c *Cipher) Decrypt(s Sealed) ([]byte, error) {
 	dekGCM, err := newGCM(dek)
 	if err != nil {
 		return nil, err
+	}
+	if len(s.Nonce) != dekGCM.NonceSize() {
+		return nil, errors.New("secrets: malformed sealed secret (data nonce length)")
 	}
 	plaintext, err := dekGCM.Open(nil, s.Nonce, s.Ciphertext, nil)
 	if err != nil {

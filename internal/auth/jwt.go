@@ -31,13 +31,23 @@ func WithClock(now func() time.Time) IssuerOption {
 	return func(i *Issuer) { i.now = now }
 }
 
-// NewIssuer builds an Issuer with the given signing secret and token TTL.
-func NewIssuer(secret []byte, ttl time.Duration, opts ...IssuerOption) *Issuer {
+// MinSecretLen is the minimum HMAC signing-secret length. A short key makes
+// HS256 tokens cheap to brute-force or forge.
+const MinSecretLen = 32
+
+// NewIssuer builds an Issuer with the given signing secret and token TTL. It
+// rejects a secret shorter than MinSecretLen so a weak key can never produce a
+// forgeable issuer, even if a caller bypasses config validation.
+func NewIssuer(secret []byte, ttl time.Duration, opts ...IssuerOption) (*Issuer, error) {
+	if len(secret) < MinSecretLen {
+		return nil, apperr.New(apperr.KindInternal,
+			fmt.Sprintf("auth: jwt secret must be at least %d bytes", MinSecretLen))
+	}
 	i := &Issuer{secret: secret, ttl: ttl, now: time.Now}
 	for _, opt := range opts {
 		opt(i)
 	}
-	return i
+	return i, nil
 }
 
 // Issue mints a signed token for the given identity.
@@ -69,6 +79,9 @@ func (i *Issuer) Verify(token string) (*Claims, error) {
 	parser := jwt.NewParser(
 		jwt.WithValidMethods([]string{"HS256"}),
 		jwt.WithTimeFunc(i.now),
+		// Require an exp claim: a token without one would never expire,
+		// defeating the TTL and rotation model.
+		jwt.WithExpirationRequired(),
 	)
 	_, err := parser.ParseWithClaims(token, claims, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
@@ -78,6 +91,11 @@ func (i *Issuer) Verify(token string) (*Claims, error) {
 	})
 	if err != nil {
 		return nil, apperr.Wrap(apperr.KindUnauthorized, "auth: invalid token", err)
+	}
+	// Validate the role at the trust boundary so an unknown/empty role can
+	// never reach RBAC, regardless of how grants evolve.
+	if !claims.Role.Valid() {
+		return nil, apperr.New(apperr.KindUnauthorized, "auth: invalid role claim")
 	}
 	return claims, nil
 }

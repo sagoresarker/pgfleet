@@ -85,13 +85,23 @@ func decodeHash(encoded string) (argon2Params, []byte, []byte, error) {
 		return argon2Params{}, nil, nil, ErrInvalidHash
 	}
 
+	// fmt.Sscanf stops at the format and silently ignores trailing input, so a
+	// non-canonical string like "v=19garbage" would be accepted. Re-encode the
+	// parsed values and require an exact match to reject any trailing garbage.
 	var version int
-	if _, err := fmt.Sscanf(parts[2], "v=%d", &version); err != nil || version != argon2.Version {
+	if _, err := fmt.Sscanf(parts[2], "v=%d", &version); err != nil ||
+		version != argon2.Version || fmt.Sprintf("v=%d", version) != parts[2] {
 		return argon2Params{}, nil, nil, ErrInvalidHash
 	}
 
 	var p argon2Params
-	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &p.memory, &p.iterations, &p.parallelism); err != nil {
+	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &p.memory, &p.iterations, &p.parallelism); err != nil ||
+		fmt.Sprintf("m=%d,t=%d,p=%d", p.memory, p.iterations, p.parallelism) != parts[3] {
+		return argon2Params{}, nil, nil, ErrInvalidHash
+	}
+	// Zero cost parameters are invalid argon2 inputs (and m=0 / keyLen=0 panics
+	// deep inside the KDF). Reject them at the trust boundary.
+	if p.memory == 0 || p.iterations == 0 || p.parallelism == 0 {
 		return argon2Params{}, nil, nil, ErrInvalidHash
 	}
 
@@ -102,6 +112,11 @@ func decodeHash(encoded string) (argon2Params, []byte, []byte, error) {
 	}
 	hash, err := b64.DecodeString(parts[5])
 	if err != nil {
+		return argon2Params{}, nil, nil, ErrInvalidHash
+	}
+	// An empty salt or hash is malformed; a zero-length key makes argon2.IDKey
+	// panic with a nil-pointer deref in blake2b. Reject before deriving.
+	if len(salt) == 0 || len(hash) == 0 {
 		return argon2Params{}, nil, nil, ErrInvalidHash
 	}
 
