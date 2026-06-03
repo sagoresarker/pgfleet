@@ -21,6 +21,7 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
+import { ActivityCenter } from "./activity-center";
 import { Logo } from "./logo";
 import { Spinner } from "./ui";
 
@@ -156,8 +157,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="flex min-h-dvh">
       {/* Desktop sidebar */}
       <aside className="sticky top-0 hidden h-dvh w-[248px] shrink-0 flex-col border-r border-line bg-ink-900/60 backdrop-blur-xl lg:flex">
-        <div className="border-b border-line px-5 py-[18px]">
+        <div className="flex items-center justify-between gap-2 border-b border-line px-5 py-[18px]">
           <Logo />
+          <ActivityCenter />
         </div>
         <NavItems pathname={pathname} />
         <UserCard email={user.email} role={user.role} onLogout={doLogout} />
@@ -200,6 +202,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Menu className="h-5 w-5" />
           </button>
           <Logo />
+          <div className="ml-auto">
+            <ActivityCenter />
+          </div>
         </header>
 
         <main className="min-w-0 flex-1">
