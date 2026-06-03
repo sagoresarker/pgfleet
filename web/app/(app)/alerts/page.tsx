@@ -1,11 +1,12 @@
 "use client";
 
 import { PageHeader } from "@/components/shell";
-import { Badge, Card, CardBody, SkeletonRows, StatusLed } from "@/components/ui";
+import { Badge, Card, CardBody, EmptyState, SkeletonRows, StatusLed } from "@/components/ui";
 import { api, type ActiveAlert } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { Database, ShieldCheck } from "lucide-react";
 import Link from "next/link";
+import { useState } from "react";
 
 const kindLabels: Record<string, string> = {
   disk_full: "Disk space low",
@@ -33,12 +34,16 @@ function timeAgo(iso: string): string {
   return `${days}d ago`;
 }
 
+type SeverityFilter = "all" | "critical" | "warning";
+
 export default function AlertsPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["alerts"],
     queryFn: () => api.listAlerts(),
     refetchInterval: 5000,
   });
+
+  const [filter, setFilter] = useState<SeverityFilter>("all");
 
   const firing = (data?.alerts ?? [])
     .filter((a) => a.state === "firing")
@@ -47,28 +52,74 @@ export default function AlertsPage() {
       return new Date(b.fired_at).getTime() - new Date(a.fired_at).getTime();
     });
 
+  const criticalCount = firing.filter((a) => a.severity === "critical").length;
+  const warningCount = firing.filter((a) => a.severity === "warning").length;
+  const visible = filter === "all" ? firing : firing.filter((a) => a.severity === filter);
+
+  const filters: { value: SeverityFilter; label: string; count: number }[] = [
+    { value: "all", label: "All", count: firing.length },
+    { value: "critical", label: "Critical", count: criticalCount },
+    { value: "warning", label: "Warning", count: warningCount },
+  ];
+
   return (
     <div className="rise">
-      <PageHeader title="Alerts" subtitle="Active reliability alerts across the fleet" />
+      <PageHeader title="Alerts" subtitle="Active reliability alerts across the fleet." />
 
       {isLoading ? (
         <SkeletonRows rows={3} />
       ) : firing.length === 0 ? (
         <Card className="border-healthy/30">
-          <CardBody className="grid place-items-center gap-3 py-16 text-center">
-            <ShieldCheck className="h-8 w-8 text-healthy" />
-            <p className="text-sm text-fg">No active alerts — the fleet is healthy.</p>
-            <p className="max-w-sm text-xs text-fg-faint">
-              Reliability checks run continuously. Anything that needs attention will surface here.
-            </p>
+          <CardBody className="py-4">
+            <EmptyState
+              icon={<ShieldCheck className="h-5 w-5 text-healthy" />}
+              title="No active alerts — the fleet is healthy"
+              description="Reliability checks run continuously. Anything that needs attention will surface here."
+            />
           </CardBody>
         </Card>
       ) : (
-        <ul className="space-y-3">
-          {firing.map((alert) => (
-            <AlertRow key={alert.id} alert={alert} />
-          ))}
-        </ul>
+        <>
+          <div className="mb-6 flex flex-wrap gap-2" role="group" aria-label="Filter alerts by severity">
+            {filters.map((f) => {
+              const active = filter === f.value;
+              return (
+                <button
+                  key={f.value}
+                  type="button"
+                  onClick={() => setFilter(f.value)}
+                  aria-pressed={active}
+                  className={`inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-1.5 font-mono text-xs transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-azure/50 ${
+                    active
+                      ? "border-azure/50 bg-azure/10 text-azure"
+                      : "border-line text-fg-muted hover:border-line-bright hover:text-fg"
+                  }`}
+                >
+                  {f.label}
+                  <span className="rounded bg-ink-700/70 px-1.5 tnum text-fg-muted">{f.count}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {visible.length === 0 ? (
+            <Card>
+              <CardBody className="py-4">
+                <EmptyState
+                  icon={<ShieldCheck className="h-5 w-5" />}
+                  title="No alerts match this filter"
+                  description="Switch to “All” to see every firing alert."
+                />
+              </CardBody>
+            </Card>
+          ) : (
+            <ul className="space-y-3">
+              {visible.map((alert) => (
+                <AlertRow key={alert.id} alert={alert} />
+              ))}
+            </ul>
+          )}
+        </>
       )}
     </div>
   );
@@ -76,26 +127,21 @@ export default function AlertsPage() {
 
 function AlertRow({ alert }: { alert: ActiveAlert }) {
   const critical = alert.severity === "critical";
-  const led = critical ? "led-danger" : "led-signal";
 
   return (
     <li>
-      <Card>
+      <Card className={critical ? "border-danger/30" : undefined}>
         <CardBody className="flex items-start gap-4">
-          <span className={`led ${led} led-pulse mt-1.5 shrink-0`} aria-hidden />
+          <StatusLed status={critical ? "danger" : "signal"} pulse />
 
           <div className="min-w-0 flex-1 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="font-display text-sm font-medium tracking-tight text-fg">
-                {kindLabel(alert.kind)}
-              </span>
+              <span className="font-display text-sm font-medium tracking-tight text-fg">{kindLabel(alert.kind)}</span>
               <Badge tone={critical ? "danger" : "signal"}>
                 <StatusLed status={critical ? "danger" : "signal"} pulse />
                 {alert.severity}
               </Badge>
-              <span className="ml-auto font-mono text-[11px] text-fg-faint tnum">
-                {timeAgo(alert.fired_at)}
-              </span>
+              <span className="ml-auto font-mono text-[11px] text-fg-faint tnum">{timeAgo(alert.fired_at)}</span>
             </div>
 
             <p className="text-sm text-fg-muted">{alert.message}</p>
@@ -103,7 +149,7 @@ function AlertRow({ alert }: { alert: ActiveAlert }) {
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-fg-faint">
               <Link
                 href={`/instances/${alert.instance_id}`}
-                className="inline-flex items-center gap-1.5 transition-colors hover:text-azure"
+                className="inline-flex items-center gap-1.5 transition-colors hover:text-azure focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-azure/50 rounded"
               >
                 <Database className="h-3 w-3" />
                 <span className="tnum">{alert.instance_id}</span>

@@ -38,6 +38,19 @@ function timeAgo(iso: string): string {
   return `${days}d ago`;
 }
 
+function absoluteTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 function dotClass(type: string): string {
   switch (type) {
     case "alert":
@@ -83,7 +96,7 @@ export default function EventsPage() {
         subtitle="Lifecycle, health, and alert history (survives restarts)"
       />
 
-      <div className="mb-6 flex flex-wrap gap-2">
+      <div className="mb-6 flex flex-wrap gap-2" role="group" aria-label="Filter events by type">
         {TYPE_FILTERS.map((f) => {
           const active = (f.value === "all" ? "" : f.value) === typeFilter;
           return (
@@ -95,7 +108,7 @@ export default function EventsPage() {
               className={`cursor-pointer rounded-md border px-3 py-1.5 font-mono text-xs transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-azure/50 ${
                 active
                   ? "border-azure/50 bg-azure/10 text-azure"
-                  : "border-line text-fg-muted hover:border-line-bright"
+                  : "border-line text-fg-muted hover:border-line-bright hover:text-fg"
               }`}
             >
               {f.label}
@@ -119,10 +132,11 @@ export default function EventsPage() {
           />
         </Card>
       ) : (
-        <ol className="ml-2 border-l border-line">
+        <ol className="ml-2 border-l border-line" aria-label="Event timeline">
           {events.map((e) => (
             <li key={e.id} className="relative pb-7 pl-6 last:pb-0">
               <span
+                aria-hidden
                 className={`absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full ring-2 ring-ink-900 ${dotClass(
                   e.type
                 )}`}
@@ -132,14 +146,18 @@ export default function EventsPage() {
                 {e.instance_id && (
                   <Link
                     href={`/instances/${e.instance_id}`}
-                    className="font-mono text-xs text-azure transition-colors hover:text-azure-bright"
+                    className="font-mono text-xs text-azure transition-colors hover:text-azure-bright focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-azure/50 rounded"
                   >
                     {e.instance_id.slice(0, 8)}
                   </Link>
                 )}
-                <span className="ml-auto font-mono text-[11px] text-fg-faint tnum">
+                <time
+                  dateTime={e.created_at}
+                  title={absoluteTime(e.created_at)}
+                  className="ml-auto font-mono text-[11px] text-fg-faint tnum"
+                >
                   {timeAgo(e.created_at)}
-                </span>
+                </time>
               </div>
               <p className="mt-1.5 text-sm text-fg">{e.message}</p>
               {e.metadata && Object.keys(e.metadata).length > 0 && (

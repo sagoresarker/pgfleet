@@ -1,8 +1,10 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+import * as DropdownPrimitive from "@radix-ui/react-dropdown-menu";
 import { Slot } from "@radix-ui/react-slot";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, X } from "lucide-react";
 import {
   createContext,
   forwardRef,
@@ -313,6 +315,177 @@ export function useToast(): ToastCtx {
   // Fall back to a no-op so a component can call useToast() even if it is ever
   // rendered outside the provider (e.g. in a unit test) without crashing.
   return ctx ?? { push: () => {} };
+}
+
+/* ---- Modal ---- *
+ * A consistent Radix Dialog: focus-trapped, Esc/scrim-dismiss, animated, with a
+ * titled header + close affordance and an optional footer action row. Used for
+ * every operation that needs a form or confirmation (clone, restore, destroy, …)
+ * instead of inline expand-in-place controls. */
+const modalSizes = { sm: "max-w-sm", md: "max-w-lg", lg: "max-w-2xl" } as const;
+
+export function Modal({
+  open,
+  onOpenChange,
+  title,
+  description,
+  trigger,
+  children,
+  footer,
+  size = "md",
+}: {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  title: string;
+  description?: string;
+  trigger?: ReactNode;
+  children?: ReactNode;
+  footer?: ReactNode;
+  size?: keyof typeof modalSizes;
+}) {
+  return (
+    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
+      {trigger && <DialogPrimitive.Trigger asChild>{trigger}</DialogPrimitive.Trigger>}
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-[#0f1f33]/45 backdrop-blur-sm data-[state=open]:animate-[fadeIn_150ms_ease-out]" />
+        <DialogPrimitive.Content
+          className={cn(
+            "fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-line bg-ink-900 shadow-[0_40px_80px_-32px_rgba(15,31,51,0.3)] focus:outline-none data-[state=open]:animate-[modalIn_180ms_cubic-bezier(0.22,1,0.36,1)]",
+            modalSizes[size]
+          )}
+        >
+          <div className="flex items-start justify-between gap-4 border-b border-line px-6 py-4">
+            <div className="min-w-0">
+              <DialogPrimitive.Title className="font-display text-base font-semibold tracking-tight text-fg">
+                {title}
+              </DialogPrimitive.Title>
+              {description && (
+                <DialogPrimitive.Description className="mt-1 text-sm text-fg-muted">{description}</DialogPrimitive.Description>
+              )}
+            </div>
+            <DialogPrimitive.Close
+              className="-mr-1 shrink-0 cursor-pointer rounded-md p-1.5 text-fg-faint transition-colors hover:bg-ink-700/60 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-azure/50"
+              aria-label="Close"
+            >
+              <X className="h-4 w-4" />
+            </DialogPrimitive.Close>
+          </div>
+          {children && <div className="px-6 py-5">{children}</div>}
+          {footer && <div className="flex items-center justify-end gap-2 border-t border-line px-6 py-4">{footer}</div>}
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  );
+}
+
+/* Convenience wrapper for a destructive/confirmation modal. */
+export function ConfirmDialog({
+  open,
+  onOpenChange,
+  title,
+  description,
+  confirmLabel = "Confirm",
+  cancelLabel = "Cancel",
+  danger,
+  loading,
+  onConfirm,
+  children,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  description?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  danger?: boolean;
+  loading?: boolean;
+  onConfirm: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      title={title}
+      description={description}
+      size="sm"
+      footer={
+        <>
+          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)} disabled={loading}>
+            {cancelLabel}
+          </Button>
+          <Button variant={danger ? "danger" : "primary"} size="sm" loading={loading} onClick={onConfirm}>
+            {confirmLabel}
+          </Button>
+        </>
+      }
+    >
+      {children}
+    </Modal>
+  );
+}
+
+/* ---- ActionMenu (dropdown) ---- *
+ * Collapses secondary/overflow actions into one "⋯ Actions" menu so toolbars
+ * stay uncluttered (overflow-menu rule). Keyboard-navigable via Radix. */
+export function ActionMenu({
+  trigger,
+  children,
+  align = "end",
+}: {
+  trigger: ReactNode;
+  children: ReactNode;
+  align?: "start" | "end";
+}) {
+  return (
+    <DropdownPrimitive.Root>
+      <DropdownPrimitive.Trigger asChild>{trigger}</DropdownPrimitive.Trigger>
+      <DropdownPrimitive.Portal>
+        <DropdownPrimitive.Content
+          align={align}
+          sideOffset={6}
+          className="z-50 min-w-48 rounded-lg border border-line bg-ink-900 p-1 shadow-[0_20px_44px_-16px_rgba(15,31,51,0.28)] data-[state=open]:animate-[fadeIn_120ms_ease-out]"
+        >
+          {children}
+        </DropdownPrimitive.Content>
+      </DropdownPrimitive.Portal>
+    </DropdownPrimitive.Root>
+  );
+}
+
+export function ActionMenuItem({
+  icon,
+  children,
+  onSelect,
+  danger,
+  disabled,
+}: {
+  icon?: ReactNode;
+  children: ReactNode;
+  onSelect?: () => void;
+  danger?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <DropdownPrimitive.Item
+      disabled={disabled}
+      onSelect={(e) => {
+        e.preventDefault();
+        onSelect?.();
+      }}
+      className={cn(
+        "flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-fg-muted outline-none transition-colors data-[highlighted]:bg-ink-700/60 data-[highlighted]:text-fg data-[disabled]:cursor-not-allowed data-[disabled]:opacity-40",
+        danger && "text-danger data-[highlighted]:bg-danger/10 data-[highlighted]:text-danger"
+      )}
+    >
+      {icon && <span className="text-fg-faint">{icon}</span>}
+      {children}
+    </DropdownPrimitive.Item>
+  );
+}
+
+export function ActionMenuSeparator() {
+  return <DropdownPrimitive.Separator className="my-1 h-px bg-line" />;
 }
 
 /* ---- PasswordInput ---- *
