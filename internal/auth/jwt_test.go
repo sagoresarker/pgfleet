@@ -7,7 +7,7 @@ import (
 )
 
 func TestIssueThenVerifyCarriesClaims(t *testing.T) {
-	iss := NewIssuer([]byte("secret"), time.Hour)
+	iss := mustIssuer(t, testSecret, time.Hour)
 
 	token, err := iss.Issue("user-1", "a@b.com", RoleOperator)
 	if err != nil {
@@ -26,7 +26,7 @@ func TestIssueThenVerifyCarriesClaims(t *testing.T) {
 func TestVerifyRejectsExpiredToken(t *testing.T) {
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	clk := base
-	iss := NewIssuer([]byte("secret"), time.Hour, WithClock(func() time.Time { return clk }))
+	iss := mustIssuer(t, testSecret, time.Hour, WithClock(func() time.Time { return clk }))
 
 	token, _ := iss.Issue("u", "e", RoleViewer)
 
@@ -37,7 +37,7 @@ func TestVerifyRejectsExpiredToken(t *testing.T) {
 }
 
 func TestVerifyRejectsTamperedToken(t *testing.T) {
-	iss := NewIssuer([]byte("secret"), time.Hour)
+	iss := mustIssuer(t, testSecret, time.Hour)
 	token, _ := iss.Issue("u", "e", RoleAdmin)
 
 	// Flip a character in the signature segment.
@@ -55,8 +55,8 @@ func TestVerifyRejectsTamperedToken(t *testing.T) {
 }
 
 func TestVerifyRejectsWrongSecret(t *testing.T) {
-	issuer := NewIssuer([]byte("secret-A"), time.Hour)
-	verifier := NewIssuer([]byte("secret-B"), time.Hour)
+	issuer := mustIssuer(t, []byte("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"), time.Hour)
+	verifier := mustIssuer(t, []byte("BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"), time.Hour)
 
 	token, _ := issuer.Issue("u", "e", RoleViewer)
 	if _, err := verifier.Verify(token); err == nil {
@@ -65,7 +65,7 @@ func TestVerifyRejectsWrongSecret(t *testing.T) {
 }
 
 func TestVerifyRejectsAlgNone(t *testing.T) {
-	iss := NewIssuer([]byte("secret"), time.Hour)
+	iss := mustIssuer(t, testSecret, time.Hour)
 	// A token with alg "none" and no signature (classic JWT downgrade attack):
 	// header {"alg":"none","typ":"JWT"} . body . (empty sig)
 	noneToken := "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0." +
@@ -76,7 +76,7 @@ func TestVerifyRejectsAlgNone(t *testing.T) {
 }
 
 func TestVerifyRejectsMalformedToken(t *testing.T) {
-	iss := NewIssuer([]byte("secret"), time.Hour)
+	iss := mustIssuer(t, testSecret, time.Hour)
 	for _, bad := range []string{"", "not.a.jwt", "only-one-part", "a.b"} {
 		if _, err := iss.Verify(bad); err == nil {
 			t.Errorf("malformed token %q should fail", bad)

@@ -89,7 +89,10 @@ func run() error {
 		return err
 	}
 
-	issuer := auth.NewIssuer([]byte(cfg.JWTSecret), tokenTTL)
+	issuer, err := auth.NewIssuer([]byte(cfg.JWTSecret), tokenTTL)
+	if err != nil {
+		return err
+	}
 	users := user.NewRepository(pool)
 	recorder := audit.NewRecorder(pool)
 

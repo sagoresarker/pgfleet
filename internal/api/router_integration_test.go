@@ -20,7 +20,10 @@ import (
 func fullStack(t *testing.T) (http.Handler, *user.Repository) {
 	pool, _ := testsupport.MigratedPool(t)
 	repo := user.NewRepository(pool)
-	issuer := auth.NewIssuer([]byte("integration-secret"), time.Hour)
+	issuer, err := auth.NewIssuer([]byte("integration-secret-at-least-32by"), time.Hour)
+	if err != nil {
+		t.Fatalf("NewIssuer: %v", err)
+	}
 
 	router := NewRouter(Deps{
 		Issuer: issuer,
