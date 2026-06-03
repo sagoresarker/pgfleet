@@ -409,7 +409,7 @@ func (p *Provisioner) execOK(ctx context.Context, containerID string, cmd []stri
 // that is a prefix of another (repo1-s3-key vs repo1-s3-key-secret) does not
 // partially redact the longer one.
 func redactSecrets(s string) string {
-	for _, key := range []string{"repo1-s3-key-secret", "repo1-s3-key", "repo1-cipher-pass"} {
+	for _, key := range []string{"repo1-s3-key-secret", "repo1-s3-key", "repo1-cipher-pass", "repo2-cipher-pass"} {
 		marker := key + "="
 		// Build the result left-to-right, advancing past each replacement. An
 		// in-place replace would loop forever, because the replacement value

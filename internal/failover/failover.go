@@ -233,9 +233,20 @@ func (c *Controller) failover(ctx context.Context, clu cluster.Cluster, oldPrima
 		_ = c.clusters.SetStatus(ctx, clu.ID, cluster.StatusError, "promotion failed: "+err.Error())
 		return err
 	}
-	_ = c.instances.SetRole(ctx, newP.ID, instance.RolePrimary)
+	// Physical promotion succeeded (irreversible). These writes record WHICH node
+	// is now primary; if they fail, the meta DB still points at the old primary —
+	// a dangerous mismatch (a later failover pass would try to fence the wrong
+	// node and re-promote). Can't roll back the promotion, so surface it loudly
+	// and mark the cluster degraded for operator attention.
+	roleErr := c.instances.SetRole(ctx, newP.ID, instance.RolePrimary)
 	_ = c.instances.SetStatus(ctx, newP.ID, instance.StatusRunning, "")
-	_ = c.clusters.SetPrimary(ctx, clu.ID, newP.ID)
+	primErr := c.clusters.SetPrimary(ctx, clu.ID, newP.ID)
+	if roleErr != nil || primErr != nil {
+		c.log.Error("failover: promoted new primary but failed to persist new-primary metadata",
+			"cluster", clu.ID, "new_primary", newP.ID, "set_role_err", roleErr, "set_primary_err", primErr)
+		_ = c.clusters.SetStatus(ctx, clu.ID, cluster.StatusDegraded,
+			"promoted "+newP.Name+" but failed to update primary metadata; manual check needed")
+	}
 	if oldPrimary != nil {
 		_ = c.instances.SetStatus(ctx, oldPrimary.ID, instance.StatusError, "failed over; rebuild as a replica")
 		_ = c.instances.SetRole(ctx, oldPrimary.ID, instance.RoleReplica)

@@ -12,8 +12,12 @@ const statusMap: Record<Instance["status"], { led: LedStatus; tone: "healthy" | 
   destroying: { led: "danger", tone: "danger", pulse: true },
 };
 
+const fallbackStatus = { led: "idle", tone: "neutral" } as const;
+
 export function InstanceStatus({ status }: { status: Instance["status"] }) {
-  const s = statusMap[status];
+  // Fall back gracefully if the API ever returns a status outside the union
+  // (status is a plain string server-side) — never crash a whole list row.
+  const s = statusMap[status] ?? fallbackStatus;
   return (
     <Badge tone={s.tone}>
       <StatusLed status={s.led} pulse={s.pulse} />
@@ -31,7 +35,7 @@ const clusterStatusMap: Record<Cluster["status"], { led: LedStatus; tone: "healt
 };
 
 export function ClusterStatus({ status }: { status: Cluster["status"] }) {
-  const s = clusterStatusMap[status];
+  const s = clusterStatusMap[status] ?? fallbackStatus;
   return (
     <Badge tone={s.tone}>
       <StatusLed status={s.led} pulse={s.pulse} />

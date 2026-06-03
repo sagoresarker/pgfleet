@@ -135,7 +135,13 @@ export default function InstanceDetailPage() {
         </div>
       )}
 
-      <Tabs.Root value={tab} onValueChange={changeTab}>
+      {/* Fall back to Overview if the selected tab is timescaledb on an instance
+          without the extension (e.g. a #timescaledb deep link) — otherwise Radix
+          shows a blank, no-tab-active panel. */}
+      <Tabs.Root
+        value={tab === "timescaledb" && !inst.extensions?.includes("timescaledb") ? "overview" : tab}
+        onValueChange={changeTab}
+      >
         {/* Edge-faded horizontal scroller: on narrow widths the tab strip
             scrolls instead of wrapping/overflowing, and the right fade hints
             there is more to reveal. */}

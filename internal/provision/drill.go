@@ -46,7 +46,11 @@ func (p *Provisioner) RestoreDrill(ctx context.Context, id string) (DrillResult,
 	script := strings.Join([]string{
 		"set -e",
 		"mkdir -p /etc/pgbackrest",
-		"chown -R postgres:postgres " + repoPath + " " + pgDataPath,
+		// Only chown the writable drill data dir. The repo is mounted read-only
+		// (a drill only READS the live instance's backups), so it must not be
+		// chowned, and a writable mount + recursive chown would race the live
+		// instance's concurrent backup/archive into that same repo.
+		"chown postgres:postgres " + pgDataPath,
 		"umask 0177",
 		"cat > " + confPath + " <<'PGBR_EOF'",
 		conf,
@@ -59,7 +63,7 @@ func (p *Provisioner) RestoreDrill(ctx context.Context, id string) (DrillResult,
 
 	mounts := []docker.Mount{{Volume: drillVol, Path: pgDataPath}}
 	if inst.RepoType == instance.RepoLocal {
-		mounts = append(mounts, docker.Mount{Volume: volumeName("repo", inst.ID), Path: repoPath})
+		mounts = append(mounts, docker.Mount{Volume: volumeName("repo", inst.ID), Path: repoPath, ReadOnly: true})
 	}
 	spec := docker.ContainerSpec{
 		Name:  "pgfleet-drill-" + inst.Name + "-" + shortStamp(),

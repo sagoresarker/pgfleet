@@ -165,6 +165,12 @@ func Load(getenv func(string) string) (*Config, error) {
 	if err := validateRepo2Path(cfg.Repo2Path); err != nil {
 		return nil, err
 	}
+	if cfg.DefaultRepoType != "s3" && cfg.DefaultRepoType != "local" {
+		return nil, fmt.Errorf("config: PGFLEET_DEFAULT_REPO_TYPE must be 's3' or 'local', got %q", cfg.DefaultRepoType)
+	}
+	if cfg.BackupType != "full" && cfg.BackupType != "incr" && cfg.BackupType != "diff" {
+		return nil, fmt.Errorf("config: PGFLEET_BACKUP_TYPE must be full, incr, or diff, got %q", cfg.BackupType)
+	}
 
 	return cfg, nil
 }

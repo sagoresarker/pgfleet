@@ -105,7 +105,10 @@ func (s *RuleStore) ListEffective(ctx context.Context, instanceID string) ([]Rul
 		`SELECT `+ruleColumns+`
 		   FROM alert_rules
 		  WHERE enabled = true AND (instance_id IS NULL OR instance_id = $1)
-		  ORDER BY created_at ASC`, instanceID)
+		  -- Global rules first, instance-scoped last, so that with last-wins merge
+		  -- in EffectiveThresholds a specific rule ALWAYS beats a global one for the
+		  -- same kind, regardless of which was created first.
+		  ORDER BY (instance_id IS NULL) DESC, created_at ASC`, instanceID)
 	if err != nil {
 		return nil, apperr.Wrap(apperr.KindInternal, "alert rules: list effective", err)
 	}

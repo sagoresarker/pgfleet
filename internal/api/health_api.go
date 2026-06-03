@@ -41,5 +41,5 @@ func (h *HealthHandler) List(w http.ResponseWriter, r *http.Request) {
 			alerts = append(alerts, alert{InstanceID: rep.InstanceID, Message: issue})
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"reports": reports, "alerts": alerts})
+	writeJSON(w, http.StatusOK, map[string]any{"reports": orEmpty(reports), "alerts": alerts})
 }

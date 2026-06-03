@@ -61,14 +61,16 @@ func RequireAction(action Action) func(http.Handler) http.Handler {
 	}
 }
 
-// bearerToken extracts a non-empty token from the Authorization header.
+// bearerToken extracts a non-empty token from the Authorization header. The
+// "Bearer" auth scheme is case-insensitive per RFC 7235/6750, so match it that
+// way (some clients/proxies normalize the casing).
 func bearerToken(r *http.Request) (string, bool) {
-	const prefix = "Bearer "
 	h := r.Header.Get("Authorization")
-	if !strings.HasPrefix(h, prefix) {
+	scheme, token, found := strings.Cut(h, " ")
+	if !found || !strings.EqualFold(scheme, "Bearer") {
 		return "", false
 	}
-	token := strings.TrimSpace(strings.TrimPrefix(h, prefix))
+	token = strings.TrimSpace(token)
 	return token, token != ""
 }
 

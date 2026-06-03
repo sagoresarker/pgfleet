@@ -259,9 +259,9 @@ export default function DashboardPage() {
                   No outstanding issues across the fleet.
                 </div>
               ) : (
-                alerts.slice(0, 6).map((a, idx) => (
+                alerts.slice(0, 6).map((a) => (
                   <Link
-                    key={idx}
+                    key={a.instance_id + ":" + a.message}
                     href={`/instances/${a.instance_id}`}
                     className="flex items-start gap-2.5 rounded-md border border-danger/20 bg-danger/5 px-3 py-2.5 transition-colors hover:border-danger/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/40"
                   >

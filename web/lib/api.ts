@@ -264,8 +264,12 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   });
 
   if (res.status === 401) {
-    setToken(null);
-    if (typeof window !== "undefined" && !path.includes("/auth/login")) {
+    // Don't hard-redirect for the auth probes themselves: /auth/login and
+    // /auth/sso return 401 as a normal "wrong creds / not behind the IdP proxy"
+    // signal that the login page handles inline. Redirecting would clobber that.
+    const isAuthProbe = path.includes("/auth/login") || path.includes("/auth/sso");
+    if (!isAuthProbe) setToken(null);
+    if (typeof window !== "undefined" && !isAuthProbe) {
       window.location.href = "/login";
     }
   }

@@ -65,7 +65,7 @@ func (h *MetricsHandler) Range(w http.ResponseWriter, r *http.Request) {
 		respondError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"samples": samples})
+	writeJSON(w, http.StatusOK, map[string]any{"samples": orEmpty(samples)})
 }
 
 // Queries returns top queries (pg_stat_statements) for an instance.
@@ -80,12 +80,15 @@ func (h *MetricsHandler) Queries(w http.ResponseWriter, r *http.Request) {
 			limit = n
 		}
 	}
+	if limit > 200 { // clamp so a huge ?limit= can't force a giant scan/allocation
+		limit = 200
+	}
 	queries, err := h.insights(r.Context(), chi.URLParam(r, "id"), limit)
 	if err != nil {
 		respondError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"queries": queries})
+	writeJSON(w, http.StatusOK, map[string]any{"queries": orEmpty(queries)})
 }
 
 func parseTimeParam(r *http.Request, name string, def time.Time) (time.Time, error) {

@@ -8,6 +8,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"net/url"
+	"os"
 	"os/exec"
 	"regexp"
 	"sort"
@@ -91,16 +93,51 @@ func serverMajorFromVersionNum(num int) int {
 	return num / 10000
 }
 
+// splitDSNPassword strips the password from a URL-form DSN, returning the
+// password-free DSN and the password separately, so the password is passed via
+// PGPASSWORD env rather than the process argv (visible in ps/proc). A DSN
+// without a parseable password is returned unchanged with an empty password.
+func splitDSNPassword(dsn string) (clean, password string) {
+	u, err := url.Parse(dsn)
+	if err != nil || u.User == nil {
+		return dsn, ""
+	}
+	pw, has := u.User.Password()
+	if !has {
+		return dsn, ""
+	}
+	u.User = url.User(u.User.Username())
+	return u.String(), pw
+}
+
+// withPGPassword returns the process env plus PGPASSWORD (when non-empty).
+func withPGPassword(pw string) []string {
+	if pw == "" {
+		return os.Environ()
+	}
+	return append(os.Environ(), "PGPASSWORD="+pw)
+}
+
+// redactPW scrubs the password from text (e.g. libpq stderr that echoes the DSN).
+func redactPW(s, pw string) string {
+	if pw == "" {
+		return s
+	}
+	return strings.ReplaceAll(s, pw, "****")
+}
+
 // Backup runs pg_dump against dsn, captures the custom-format dump, and uploads
 // it to the object store. It returns the object key.
 func (s *Service) Backup(ctx context.Context, dsn string) (string, error) {
-	cmd := exec.CommandContext(ctx, "pg_dump", "--format=custom", "--dbname="+dsn)
+	clean, pw := splitDSNPassword(dsn)
+	cmd := exec.CommandContext(ctx, "pg_dump", "--format=custom", "--dbname="+clean)
+	cmd.Env = withPGPassword(pw)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		return "", apperr.Wrap(apperr.KindInternal,
-			"metabackup: pg_dump failed: "+strings.TrimSpace(stderr.String()), err)
+			"metabackup: pg_dump failed: "+redactPW(strings.TrimSpace(stderr.String()), pw), err)
 	}
 
 	key := s.stampKey(s.now())
@@ -150,14 +187,16 @@ func (s *Service) Restore(ctx context.Context, dsn, key string) error {
 		return err
 	}
 
+	clean, pw := splitDSNPassword(dsn)
 	cmd := exec.CommandContext(ctx, "pg_restore",
-		"--clean", "--if-exists", "--no-owner", "--dbname="+dsn)
+		"--clean", "--if-exists", "--no-owner", "--dbname="+clean)
+	cmd.Env = withPGPassword(pw)
 	cmd.Stdin = bytes.NewReader(data)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		return apperr.Wrap(apperr.KindInternal,
-			"metabackup: pg_restore failed: "+strings.TrimSpace(stderr.String()), err)
+			"metabackup: pg_restore failed: "+redactPW(strings.TrimSpace(stderr.String()), pw), err)
 	}
 	return nil
 }

@@ -34,10 +34,20 @@ export function ComposePreview({
 
   async function copy() {
     if (!q.data) return;
-    await navigator.clipboard.writeText(q.data);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-    toast.push("Compose file copied", "healthy");
+    // navigator.clipboard is undefined on insecure (non-HTTPS, non-localhost)
+    // origins — guard so the button doesn't throw an unhandled rejection.
+    if (!navigator.clipboard) {
+      toast.push("Clipboard unavailable here — select the text to copy", "danger");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(q.data);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+      toast.push("Compose file copied", "healthy");
+    } catch {
+      toast.push("Copy failed", "danger");
+    }
   }
 
   async function download() {

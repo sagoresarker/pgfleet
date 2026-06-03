@@ -115,9 +115,13 @@ func (m *Moby) Inspect(ctx context.Context, id string) (ContainerState, error) {
 			st.Health = j.State.Health.Status
 		}
 	}
-	for port, binds := range j.NetworkSettings.Ports {
-		if len(binds) > 0 {
-			st.Ports[string(port)] = binds[0].HostPort
+	// NetworkSettings can be nil for a just-created/odd-state container; guard the
+	// deref so Inspect never panics.
+	if j.NetworkSettings != nil {
+		for port, binds := range j.NetworkSettings.Ports {
+			if len(binds) > 0 {
+				st.Ports[string(port)] = binds[0].HostPort
+			}
 		}
 	}
 	return st, nil

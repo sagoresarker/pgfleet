@@ -195,12 +195,17 @@ func (p *Provisioner) runBaseBackup(ctx context.Context, replica, primary instan
 // settings come from the base backup).
 func (p *Provisioner) replicaSpec(replica instance.Instance, dataVol string) docker.ContainerSpec {
 	spec := docker.ContainerSpec{
-		Name:   InstanceContainerName(replica.Name),
-		Image:  replica.Image,
-		Cmd:    []string{"postgres", "-c", "hot_standby=on"},
-		Labels: instanceLabels(replica.ID),
-		Ports:  []docker.PortMapping{{ContainerPort: pgPort, HostPort: 0}},
-		Mounts: []docker.Mount{{Volume: dataVol, Path: pgDataPath}},
+		Name:  InstanceContainerName(replica.Name),
+		Image: replica.Image,
+		Cmd:   []string{"postgres", "-c", "hot_standby=on"},
+		// Mirror the primary: full recovery labels (so the replica can be
+		// reconstructed from Docker alone), the configured bind address (don't
+		// publish on 0.0.0.0 unless intended), and the restart policy (survive a
+		// daemon restart like the primary/router).
+		Labels:        recoveryLabels(replica),
+		Ports:         []docker.PortMapping{{ContainerPort: pgPort, HostPort: 0, HostIP: p.bindAddrFor(replica)}},
+		Mounts:        []docker.Mount{{Volume: dataVol, Path: pgDataPath}},
+		RestartPolicy: p.opts.RestartPolicy,
 	}
 	if p.opts.Network != "" {
 		spec.Networks = []string{p.opts.Network}

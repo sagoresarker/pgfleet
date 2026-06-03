@@ -39,6 +39,13 @@ const KINDS: KindMeta[] = [
 ];
 const kindMeta = (k: string): KindMeta => KINDS.find((m) => m.value === k) ?? KINDS[0];
 const kindLabel = (k: string): string => kindMeta(k).label;
+// Render an active alert's value/threshold in the rule's display unit (e.g.
+// backup_stale stores seconds but reads as hours), matching the rule editor.
+function fmtAlertValue(kind: string, raw: number): string {
+  const m = kindMeta(kind);
+  const v = raw / m.factor;
+  return `${Number.isInteger(v) ? v : v.toFixed(1)} ${m.unit}`;
+}
 
 function timeAgo(iso: string): string {
   const then = new Date(iso).getTime();
@@ -183,7 +190,7 @@ function AlertRow({ alert }: { alert: ActiveAlert }) {
               </Link>
               {alert.value !== undefined && alert.threshold !== undefined && (
                 <span className="tnum">
-                  {alert.value} vs {alert.threshold}
+                  {fmtAlertValue(alert.kind, alert.value)} vs {fmtAlertValue(alert.kind, alert.threshold)}
                 </span>
               )}
             </div>

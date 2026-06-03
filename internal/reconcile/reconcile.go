@@ -45,8 +45,17 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 		return err
 	}
 
+	// Transient helper containers (base-backup, restore, drill, router) carry the
+	// same LabelInstance as the instance they serve. They must NOT be indexed as
+	// the instance's MAIN container — otherwise a reconcile tick during one of
+	// these short-lived operations would adopt the helper as the runtime and, when
+	// it exits, mark the instance "error". Only main-role containers count.
+	transientRole := map[string]bool{"restore": true, "basebackup": true, "drill": true, "router": true}
 	byInstance := make(map[string]docker.ContainerInfo, len(containers))
 	for _, c := range containers {
+		if transientRole[c.Labels[docker.LabelRole]] {
+			continue
+		}
 		if id := c.Labels[docker.LabelInstance]; id != "" {
 			byInstance[id] = c
 		}

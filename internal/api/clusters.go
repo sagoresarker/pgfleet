@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -100,7 +101,14 @@ func (h *ClustersHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	recordAudit(h.audit, r, "cluster.create", c.Name)
 	id := c.ID
-	h.async.Go(func(ctx context.Context) { _ = h.svc.Provision(ctx, id, nil) })
+	h.async.Go(func(ctx context.Context) {
+		// Bound the async provision (primary + replicas + router) so a hung step
+		// can't leak a goroutine past shutdown drain. Generous for multi-replica
+		// base-backups.
+		ctx, cancel := context.WithTimeout(ctx, 40*time.Minute)
+		defer cancel()
+		_ = h.svc.Provision(ctx, id, nil)
+	})
 	writeJSON(w, http.StatusAccepted, map[string]any{"cluster": toClusterPayload(c)})
 }
 

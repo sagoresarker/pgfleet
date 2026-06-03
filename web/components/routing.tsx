@@ -44,7 +44,12 @@ export function RouterObservability({ id, ready }: { id: string; ready: boolean 
     const reads = routing.filter((b) => b.role === "replica").reduce((a, b) => a + b.query_count, 0);
     const writes = routing.filter((b) => b.role !== "replica").reduce((a, b) => a + b.query_count, 0);
     setHistory((h) => [...h, { t: q.dataUpdatedAt, qps, latency, reads, writes }].slice(-MAX_POINTS));
-  }, [q.data, q.dataUpdatedAt, stats, routing]);
+    // Depend only on the fetch timestamp: stats/routing are derived from q.data
+    // and are fresh in this closure whenever dataUpdatedAt changes (the guard
+    // above makes the body idempotent per fetch). Listing the freshly-allocated
+    // arrays as deps would just churn the effect every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q.dataUpdatedAt]);
 
   const reads = routing.filter((b) => b.role === "replica").reduce((a, b) => a + b.query_count, 0);
   const writes = routing.filter((b) => b.role !== "replica").reduce((a, b) => a + b.query_count, 0);

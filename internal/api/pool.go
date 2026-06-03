@@ -115,17 +115,27 @@ func (h *PoolHandler) Stats(w http.ResponseWriter, r *http.Request) {
 	}
 	// Routing is best-effort enrichment: if the topology lookup fails we still
 	// return the raw pool/stats/clients so the core panel keeps working.
-	var routing []RoutingBackend
+	routing := []RoutingBackend{}
 	if backends, err := h.resolver.RouterBackends(r.Context(), id); err == nil {
 		routing = buildRouting(backends, stats.Servers)
 	}
+	// Normalize nil slices to [] so the JSON is arrays, never null (the frontend
+	// iterates these directly).
 	writeJSON(w, http.StatusOK, map[string]any{
-		"pools":   stats.Pools,
-		"stats":   stats.Stats,
-		"servers": stats.Servers,
-		"clients": stats.Clients,
+		"pools":   orEmpty(stats.Pools),
+		"stats":   orEmpty(stats.Stats),
+		"servers": orEmpty(stats.Servers),
+		"clients": orEmpty(stats.Clients),
 		"routing": routing,
 	})
+}
+
+// orEmpty returns a non-nil slice so JSON encodes [] instead of null.
+func orEmpty[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
 }
 
 // PoolStatsReaderFunc adapts pgcat.ReadPoolStats (or a fake) to PoolStatsReader.

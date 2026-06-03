@@ -205,12 +205,13 @@ func (s *Service) sync(ctx context.Context, inst instance.Instance) ([]pgbackres
 	}
 
 	var backups []pgbackrest.BackupInfo
-	var found bool
+	var found, healthy bool
 	for _, st := range stanzas {
 		if st.Name != inst.Stanza {
 			continue
 		}
 		found = true
+		healthy = st.Healthy()
 		backups = st.Backups
 	}
 	// If the stanza is absent from `info` output entirely, the repo is
@@ -220,6 +221,13 @@ func (s *Service) sync(ctx context.Context, inst instance.Instance) ([]pgbackres
 	if !found {
 		return nil, apperr.New(apperr.KindInternal,
 			"backup: stanza "+inst.Stanza+" not present in pgbackrest info; skipping catalog sync")
+	}
+	// Same protection for a stanza that IS present but UNHEALTHY (repo error,
+	// status.code != 0) and reports zero backups: that zero is unreliable, so
+	// don't prune the catalog to empty and hide restorable backups.
+	if !healthy && len(backups) == 0 {
+		return nil, apperr.New(apperr.KindInternal,
+			"backup: stanza "+inst.Stanza+" is unhealthy and reports no backups; skipping catalog prune")
 	}
 
 	labels := make([]string, 0, len(backups))

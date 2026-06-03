@@ -12,6 +12,11 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/provision"
 )
 
+// provisionTimeout bounds an async provision so a hung Docker/Postgres step
+// can't leave a goroutine running forever (and writing to a closed pool/runtime
+// after shutdown drains). Generous: pulling an image + initdb + stanza-create.
+const provisionTimeout = 20 * time.Minute
+
 // cloneTimeout bounds the full clone flow (source backup + restore + bring-up)
 // so a hung pgBackRest operation can't leak the background goroutine.
 const cloneTimeout = 30 * time.Minute
@@ -142,6 +147,8 @@ func (h *InstancesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	recordAudit(h.audit, r, "instance.create", inst.Name)
 	id := inst.ID
 	h.async.Go(func(ctx context.Context) {
+		ctx, cancel := context.WithTimeout(ctx, provisionTimeout)
+		defer cancel()
 		progress := provision.ProgressFunc(nil)
 		if h.progress != nil {
 			progress = func(step, detail string) { h.progress.Publish(id, step, detail) }

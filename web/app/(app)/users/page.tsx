@@ -38,6 +38,14 @@ export default function UsersPage() {
 
   const users = useQuery({ queryKey: ["users"], queryFn: api.listUsers, enabled: isAdmin });
   const [createOpen, setCreateOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  // All hooks MUST run before any early return (Rules of Hooks): a non-admin
+  // render must not change the hook count, or React crashes on the next render.
+  const list = users.data?.users ?? [];
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q ? list.filter((u) => u.email.toLowerCase().includes(q) || u.role.toLowerCase().includes(q)) : list;
+  }, [list, query]);
 
   if (!isAdmin) {
     return (
@@ -55,13 +63,6 @@ export default function UsersPage() {
       </div>
     );
   }
-
-  const list = users.data?.users ?? [];
-  const [query, setQuery] = useState("");
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return q ? list.filter((u) => u.email.toLowerCase().includes(q) || u.role.toLowerCase().includes(q)) : list;
-  }, [list, query]);
 
   return (
     <div className="rise">

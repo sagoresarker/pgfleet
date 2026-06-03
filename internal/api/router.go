@@ -84,7 +84,10 @@ func NewRouter(deps Deps) http.Handler {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
 	r.Use(securityHeaders)
-	r.Use(httprate.LimitByIP(120, time.Minute)) // 120 req/min per client
+	// NB: the rate limiter is applied to the /api/v1 group only, NOT globally —
+	// k8s liveness/readiness probes and the Prometheus scraper hit /healthz,
+	// /readyz and /metrics from a few source IPs and would otherwise share one
+	// 120/min bucket, causing probe flaps and dropped scrapes.
 
 	r.Get("/healthz", handleHealthz)
 	r.Get("/readyz", handleReadyz(deps.Ready))
@@ -95,6 +98,7 @@ func NewRouter(deps Deps) http.Handler {
 	}
 
 	r.Route("/api/v1", func(api chi.Router) {
+		api.Use(httprate.LimitByIP(120, time.Minute)) // 120 req/min per client, API only
 		if deps.Auth != nil {
 			api.Post("/auth/login", deps.Auth.Login)
 		}

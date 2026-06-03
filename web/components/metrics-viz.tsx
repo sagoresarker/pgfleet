@@ -22,9 +22,18 @@ function toRate(samples: MetricSample[]): { at: string; value: number }[] {
   return out;
 }
 
+// sumRates merges rate series by TIMESTAMP (not array index): a counter reset or
+// duplicate timestamp can make the input series differ in length, so zipping by
+// index would add a commit-rate at T to a rollback-rate at T+1 and report a
+// silently-wrong TPS.
 function sumRates(...series: { at: string; value: number }[][]): { at: string; value: number }[] {
-  const base = series[0] ?? [];
-  return base.map((p, i) => ({ at: p.at, value: series.reduce((a, s) => a + (s[i]?.value ?? 0), 0) }));
+  const byAt = new Map<string, number>();
+  for (const s of series) {
+    for (const p of s) byAt.set(p.at, (byAt.get(p.at) ?? 0) + p.value);
+  }
+  return [...byAt.entries()]
+    .map(([at, value]) => ({ at, value }))
+    .sort((a, b) => a.at.localeCompare(b.at));
 }
 
 function useRange(id: string, metric: string, enabled: boolean) {
@@ -232,7 +241,7 @@ export function ConnectionPoolGaugeWall({ instanceId, running }: { instanceId: s
         ) : (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <GaugeRing label="Utilization" value={util ?? 0} max={100} unit="%" warnAt={75} critAt={90} />
-            <GaugeRing label="Connections" value={conns ?? 0} max={max ?? 100} sub={max ? `of ${Math.round(max)}` : undefined} warnAt={(max ?? 100) * 0.75} critAt={(max ?? 100) * 0.9} />
+            <GaugeRing label="Connections" value={conns ?? 0} max={Math.max(1, max ?? 100)} sub={max ? `of ${Math.round(max)}` : undefined} warnAt={Math.max(1, max ?? 100) * 0.75} critAt={Math.max(1, max ?? 100) * 0.9} />
             <GaugeRing label="Active" value={active ?? 0} max={Math.max(1, conns ?? 1)} tone="healthy" />
             <GaugeRing label="Idle in txn" value={idleTx ?? 0} max={Math.max(1, conns ?? 1)} warnAt={1} critAt={5} integer />
             {waiting !== undefined && (

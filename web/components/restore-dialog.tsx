@@ -4,7 +4,7 @@ import { api, type Backup } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Clock, History, Layers, RotateCcw, Target, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, Field, Input, Select } from "./ui";
 
 type Mode = "latest" | "time" | "set" | "advanced";
@@ -22,6 +22,12 @@ export function RestoreDialog({ instanceId, backups }: { instanceId: string; bac
   const [delta, setDelta] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // backups arrive async, after this dialog mounts; keep the "Backup" select's
+  // value in sync so submitting "set" mode never posts an empty label.
+  useEffect(() => {
+    if (!set && backups.length > 0) setSet(backups[0].label);
+  }, [backups, set]);
 
   async function onRestore() {
     setError(null);
