@@ -205,6 +205,97 @@ func TestResourceCollectorOmitsCPUPercent(t *testing.T) {
 	}
 }
 
+// TestResourceCollectorEmitsDiskIO verifies that when the runtime surfaces
+// blkio counters, the collector emits the cumulative disk I/O byte and op
+// counters as-is (the rollup layer computes rates).
+func TestResourceCollectorEmitsDiskIO(t *testing.T) {
+	rt := docker.NewFake()
+	id, _ := rt.CreateContainer(context.Background(), docker.ContainerSpec{Name: "pg"})
+	_ = rt.StartContainer(context.Background(), id)
+
+	rt.StatsFunc = func(string) (docker.ContainerStats, error) {
+		return docker.ContainerStats{
+			MemoryBytes:     256 << 20,
+			MemoryPercent:   25.0,
+			DiskIOAvailable: true,
+			DiskReadBytes:   1500,
+			DiskWriteBytes:  2250,
+			DiskReadOps:     13,
+			DiskWriteOps:    24,
+		}, nil
+	}
+	rt.ExecFunc = func(_ string, _ []string) (docker.ExecResult, error) {
+		return docker.ExecResult{
+			ExitCode: 0,
+			Stdout: "Filesystem 1B-blocks Used Available Use% Mounted on\n" +
+				"overlay 1000 250 750 25% /var/lib/postgresql/data\n",
+		}, nil
+	}
+
+	got, err := NewResourceCollector(rt).Collect(context.Background(), "inst-1", id)
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	by := samplesByMetric(got)
+	want := map[string]float64{
+		"disk_read_bytes":  1500,
+		"disk_write_bytes": 2250,
+		"disk_read_ops":    13,
+		"disk_write_ops":   24,
+	}
+	for metric, val := range want {
+		sm, ok := by[metric]
+		if !ok {
+			t.Errorf("missing metric %q", metric)
+			continue
+		}
+		if sm.Value != val {
+			t.Errorf("metric %q = %v, want %v", metric, sm.Value, val)
+		}
+	}
+}
+
+// TestResourceCollectorOmitsDiskIOWhenUnavailable verifies that when the runtime
+// reports blkio as unavailable (empty recursive lists, e.g. Docker Desktop on
+// macOS / some cgroup v2 setups), the collector emits NO disk I/O samples rather
+// than fabricated zeros — mirroring the cpu_percent care.
+func TestResourceCollectorOmitsDiskIOWhenUnavailable(t *testing.T) {
+	rt := docker.NewFake()
+	id, _ := rt.CreateContainer(context.Background(), docker.ContainerSpec{Name: "pg"})
+	_ = rt.StartContainer(context.Background(), id)
+
+	rt.StatsFunc = func(string) (docker.ContainerStats, error) {
+		return docker.ContainerStats{
+			MemoryBytes:     256 << 20,
+			MemoryPercent:   25.0,
+			DiskIOAvailable: false,
+			// Counters left zero; they must not surface.
+		}, nil
+	}
+	rt.ExecFunc = func(_ string, _ []string) (docker.ExecResult, error) {
+		return docker.ExecResult{
+			ExitCode: 0,
+			Stdout: "Filesystem 1B-blocks Used Available Use% Mounted on\n" +
+				"overlay 1000 250 750 25% /var/lib/postgresql/data\n",
+		}, nil
+	}
+
+	got, err := NewResourceCollector(rt).Collect(context.Background(), "inst-1", id)
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	by := samplesByMetric(got)
+	for _, m := range []string{"disk_read_bytes", "disk_write_bytes", "disk_read_ops", "disk_write_ops"} {
+		if _, ok := by[m]; ok {
+			t.Errorf("metric %q must not be emitted when blkio is unavailable (no fabricated zeros)", m)
+		}
+	}
+	// Memory metrics are still emitted.
+	if _, ok := by["memory_bytes"]; !ok {
+		t.Error("expected memory_bytes to still be emitted")
+	}
+}
+
 func TestResourceCollectorDiskOnlyWhenStatsFail(t *testing.T) {
 	rt := docker.NewFake()
 	id, _ := rt.CreateContainer(context.Background(), docker.ContainerSpec{Name: "pg"})

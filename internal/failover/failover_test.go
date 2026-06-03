@@ -226,6 +226,81 @@ func TestFailoverWontPromoteZeroProgressStandby(t *testing.T) {
 	}
 }
 
+// TestFailoverQuorumMetPromotes — 3-node cluster (1 primary + 2 replicas,
+// majority = 2). The primary is down but BOTH replicas are reachable, so the
+// controller is on the majority side of any partition and may safely promote.
+func TestFailoverQuorumMetPromotes(t *testing.T) {
+	prom, clusters, insts, router, _ := setup()
+	// reachable: r1+r2 (2 of 3 members) => strict majority => quorum met.
+	c := New(clusters, insts, prom, router, nil, 1, nil)
+
+	_ = c.Run(context.Background())
+	if len(prom.promoted) != 1 || prom.promoted[0] != "r2" {
+		t.Errorf("quorum met but did not promote highest-LSN replica: promoted = %v", prom.promoted)
+	}
+	if clusters.status["c1"] != cluster.StatusRunning {
+		t.Errorf("status = %q, want running", clusters.status["c1"])
+	}
+}
+
+// TestFailoverQuorumNotMetAborts — 3-node cluster (majority = 2). The primary is
+// down and only ONE replica is reachable (the other replica + the primary are on
+// the far side of a partition). The controller is likely on the MINORITY side,
+// so promoting risks split-brain. It must NOT promote and must mark the cluster
+// degraded/error with a quorum message.
+func TestFailoverQuorumNotMetAborts(t *testing.T) {
+	prom, clusters, insts, router, _ := setup()
+	// Only r1 reachable; r2 (and the primary) are partitioned away.
+	prom.reachable["r2"] = false
+	c := New(clusters, insts, prom, router, nil, 1, nil)
+
+	_ = c.Run(context.Background())
+	if len(prom.promoted) != 0 {
+		t.Errorf("promoted without quorum (split-brain risk): %v", prom.promoted)
+	}
+	if len(prom.fenced) != 0 {
+		t.Errorf("fenced old primary without quorum: %v", prom.fenced)
+	}
+	if clusters.status["c1"] != cluster.StatusError && clusters.status["c1"] != cluster.StatusDegraded {
+		t.Errorf("status = %q, want error/degraded (quorum not met)", clusters.status["c1"])
+	}
+}
+
+// TestFailoverSingleReplicaQuorumPromotes — a 2-node cluster (1 primary + 1
+// replica, total = 2, majority = 2). The primary is down and the one replica is
+// reachable. That single replica is the only candidate, so the math must not
+// deadlock legitimate 2-node failover: it still promotes. (2-node clusters
+// cannot truly avoid split-brain without a witness — see the comment in
+// failover.go.)
+func TestFailoverSingleReplicaQuorumPromotes(t *testing.T) {
+	clu := cluster.Cluster{ID: "c1", Name: "orders", Status: cluster.StatusRunning, RouterContainerID: "router-old"}
+	primary := instance.Instance{ID: "p", Name: "orders-p", Role: instance.RolePrimary, ContainerID: "cp", Superuser: "postgres"}
+	r1 := instance.Instance{ID: "r1", Name: "orders-r1", Role: instance.RoleReplica, ContainerID: "cr1", Superuser: "postgres"}
+
+	prom := &fakeProm{
+		reachable: map[string]bool{"p": false, "r1": true},
+		lsn:       map[string]int64{"r1": 100},
+	}
+	clusters := &fakeClusters{
+		items:   map[string]cluster.Cluster{"c1": clu},
+		primary: map[string]string{}, status: map[string]cluster.Status{},
+	}
+	insts := &fakeInstances{
+		byCluster: map[string][]instance.Instance{"c1": {primary, r1}},
+		items:     map[string]instance.Instance{"p": primary, "r1": r1},
+		roles:     map[string]instance.Role{},
+	}
+	c := New(clusters, insts, prom, &fakeRouter{}, nil, 1, nil)
+
+	_ = c.Run(context.Background())
+	if len(prom.promoted) != 1 || prom.promoted[0] != "r1" {
+		t.Errorf("2-node failover did not promote the sole replica: promoted = %v", prom.promoted)
+	}
+	if clusters.status["c1"] != cluster.StatusRunning {
+		t.Errorf("status = %q, want running", clusters.status["c1"])
+	}
+}
+
 var errFence = &fenceError{}
 
 type fenceError struct{}

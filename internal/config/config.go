@@ -66,6 +66,13 @@ type Config struct {
 	// Scheduled backups.
 	BackupInterval time.Duration
 	BackupType     string // full | incr | diff
+
+	// BackupEncryption enables at-rest pgBackRest repository encryption
+	// (aes-256-cbc) for instances provisioned while it is true (default false).
+	// pgBackRest fixes the repo cipher at stanza-create time, so this CANNOT be
+	// retrofitted onto stanzas created while it was off — it only affects NEW
+	// instances. Set PGFLEET_BACKUP_ENCRYPTION=true to enable.
+	BackupEncryption bool
 }
 
 // Load reads configuration using the provided getenv function (typically
@@ -95,6 +102,7 @@ func Load(getenv func(string) string) (*Config, error) {
 		S3AccessKey:            getenv("PGFLEET_S3_ACCESS_KEY"),
 		S3SecretKey:            getenv("PGFLEET_S3_SECRET_KEY"),
 		BackupType:             orDefault(getenv("PGFLEET_BACKUP_TYPE"), "full"),
+		BackupEncryption:       getenv("PGFLEET_BACKUP_ENCRYPTION") == "true",
 	}
 
 	var err error

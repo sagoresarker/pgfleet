@@ -34,6 +34,13 @@ type InstanceConf struct {
 	RepoType      string // "s3" | "local"
 	S3            RepoS3
 	Local         RepoLocal
+	// CipherPass, when non-empty, enables at-rest repository encryption
+	// (aes-256-cbc) for this stanza's backups and WAL. It MUST be the same value
+	// for the life of the stanza: pgBackRest fixes the cipher at stanza-create
+	// time, and every subsequent command (backup, archive-push, restore) must
+	// supply the identical passphrase or it cannot read the repo. Empty leaves
+	// encryption off (repo1-cipher-type defaults to none).
+	CipherPass string
 }
 
 // BackrestConf renders a complete pgbackrest.conf for an instance.
@@ -70,6 +77,15 @@ func BackrestConf(c InstanceConf) (string, error) {
 		fmt.Fprintf(&b, "repo1-path=%s\n", c.Local.Path)
 	default:
 		return "", fmt.Errorf("pgbackrest: unknown repo type %q", c.RepoType)
+	}
+
+	// At-rest repository encryption. Emitted for every repo type when a cipher
+	// pass is supplied; absent (cipher-type defaults to none) when it is not.
+	// This is set at stanza-create and CANNOT be added to an existing stanza, so
+	// the caller only sets CipherPass for newly provisioned instances.
+	if c.CipherPass != "" {
+		fmt.Fprintf(&b, "repo1-cipher-type=aes-256-cbc\n")
+		fmt.Fprintf(&b, "repo1-cipher-pass=%s\n", c.CipherPass)
 	}
 
 	fmt.Fprintf(&b, "repo1-retention-full=%d\n", retention)

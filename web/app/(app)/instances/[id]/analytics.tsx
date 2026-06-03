@@ -65,6 +65,8 @@ export function AnalyticsTab({ id, running }: { id: string; running: boolean }) 
         <TimeChart id={id} metric="deadlocks" title="Deadlocks · last hour" running={running} color="var(--color-danger)" />
       </div>
 
+      <LongRunningQueries id={id} running={running} />
+
       <Card>
         <CardHeader>
           <CardTitle>Top queries · pg_stat_statements</CardTitle>
@@ -89,6 +91,60 @@ export function AnalyticsTab({ id, running }: { id: string; running: boolean }) 
         </CardBody>
       </Card>
     </div>
+  );
+}
+
+/* Live in-flight queries running longer than a couple of seconds — the first
+ * place to look when an instance feels slow or is holding locks. */
+function LongRunningQueries({ id, running }: { id: string; running: boolean }) {
+  const q = useQuery({
+    queryKey: ["long-running", id],
+    enabled: running,
+    refetchInterval: 5000,
+    queryFn: () =>
+      api.runSQL(
+        id,
+        "SELECT pid::text, COALESCE(usename,'') , state, " +
+          "EXTRACT(EPOCH FROM (now()-query_start))::int::text AS secs, left(query, 140) AS query " +
+          "FROM pg_stat_activity " +
+          "WHERE state <> 'idle' AND query_start IS NOT NULL AND now()-query_start > interval '2 seconds' " +
+          "AND pid <> pg_backend_pid() ORDER BY query_start ASC LIMIT 15",
+      ),
+  });
+  const rows = q.data?.rows ?? [];
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Long-running queries</CardTitle>
+        <span className="font-mono text-[11px] text-fg-faint tnum">{rows.length} active &gt; 2s</span>
+      </CardHeader>
+      <CardBody className="p-0">
+        {rows.length === 0 ? (
+          <p className="px-5 py-8 text-center text-sm text-fg-muted">No queries running longer than 2 seconds.</p>
+        ) : (
+          <ul className="divide-y divide-line">
+            {rows.map((r, i) => {
+              const secs = Number(r[3]);
+              return (
+                <li key={i} className="px-5 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <code className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{String(r[4])}</code>
+                    <span className={`shrink-0 font-mono text-xs tnum ${secs > 30 ? "text-danger" : secs > 10 ? "text-signal" : "text-fg-muted"}`}>
+                      {secs}s
+                    </span>
+                  </div>
+                  <div className="mt-1 flex gap-3 font-mono text-[11px] text-fg-faint">
+                    <span>pid {String(r[0])}</span>
+                    <span>{String(r[1]) || "—"}</span>
+                    <span>{String(r[2])}</span>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </CardBody>
+    </Card>
   );
 }
 

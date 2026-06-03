@@ -104,6 +104,108 @@ func TestBackrestConfLocal(t *testing.T) {
 	}
 }
 
+func TestBackrestConfCipherS3(t *testing.T) {
+	// When CipherPass is set, both cipher lines appear immediately after the
+	// repo block and before retention, for an s3 repo.
+	got, err := BackrestConf(InstanceConf{
+		Stanza:        "orders-db",
+		PGDataPath:    "/var/lib/postgresql/data",
+		PGPort:        5432,
+		RetentionFull: 2,
+		RepoType:      "s3",
+		S3: RepoS3{
+			Endpoint:   "minio:9000",
+			Bucket:     "pgbackrest",
+			Region:     "us-east-1",
+			Key:        "AKIA",
+			Secret:     "s3cr3t",
+			PathPrefix: "/stanzas/orders-db",
+			URIStyle:   "path",
+		},
+		CipherPass: "deadbeef",
+	})
+	if err != nil {
+		t.Fatalf("BackrestConf: %v", err)
+	}
+	want := strings.Join([]string{
+		"[global]",
+		"repo1-type=s3",
+		"repo1-path=/stanzas/orders-db",
+		"repo1-s3-endpoint=minio:9000",
+		"repo1-s3-bucket=pgbackrest",
+		"repo1-s3-region=us-east-1",
+		"repo1-s3-uri-style=path",
+		"repo1-s3-key=AKIA",
+		"repo1-s3-key-secret=s3cr3t",
+		"repo1-storage-verify-tls=n",
+		"repo1-cipher-type=aes-256-cbc",
+		"repo1-cipher-pass=deadbeef",
+		"repo1-retention-full=2",
+		"start-fast=y",
+		"log-level-console=info",
+		"",
+		"[orders-db]",
+		"pg1-path=/var/lib/postgresql/data",
+		"pg1-port=5432",
+		"",
+	}, "\n")
+	if got != want {
+		t.Errorf("S3 cipher conf mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestBackrestConfCipherLocal(t *testing.T) {
+	// The same two lines must appear for a local (posix) repo.
+	got, err := BackrestConf(InstanceConf{
+		Stanza:        "orders-db",
+		PGDataPath:    "/var/lib/postgresql/data",
+		PGPort:        5432,
+		RetentionFull: 3,
+		RepoType:      "local",
+		Local:         RepoLocal{Path: "/var/lib/pgbackrest"},
+		CipherPass:    "cafef00d",
+	})
+	if err != nil {
+		t.Fatalf("BackrestConf: %v", err)
+	}
+	want := strings.Join([]string{
+		"[global]",
+		"repo1-type=posix",
+		"repo1-path=/var/lib/pgbackrest",
+		"repo1-cipher-type=aes-256-cbc",
+		"repo1-cipher-pass=cafef00d",
+		"repo1-retention-full=3",
+		"start-fast=y",
+		"log-level-console=info",
+		"",
+		"[orders-db]",
+		"pg1-path=/var/lib/postgresql/data",
+		"pg1-port=5432",
+		"",
+	}, "\n")
+	if got != want {
+		t.Errorf("local cipher conf mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+func TestBackrestConfNoCipherByDefault(t *testing.T) {
+	// With CipherPass empty, neither cipher line is emitted (cipher-type defaults
+	// to none) for either repo type.
+	for _, c := range []InstanceConf{
+		{Stanza: "db", PGDataPath: "/d", PGPort: 5432, RepoType: "local", Local: RepoLocal{Path: "/r"}},
+		{Stanza: "db", PGDataPath: "/d", PGPort: 5432, RepoType: "s3",
+			S3: RepoS3{Endpoint: "minio:9000", Bucket: "b", Region: "us-east-1", Key: "k", Secret: "s", PathPrefix: "/p"}},
+	} {
+		got, err := BackrestConf(c)
+		if err != nil {
+			t.Fatalf("BackrestConf(%s): %v", c.RepoType, err)
+		}
+		if strings.Contains(got, "repo1-cipher-type") || strings.Contains(got, "repo1-cipher-pass") {
+			t.Errorf("expected no cipher lines for %s when CipherPass empty:\n%s", c.RepoType, got)
+		}
+	}
+}
+
 func TestBackrestConfRejectsUnknownRepoType(t *testing.T) {
 	if _, err := BackrestConf(InstanceConf{Stanza: "db", RepoType: "nfs"}); err == nil {
 		t.Error("unknown repo type should error")

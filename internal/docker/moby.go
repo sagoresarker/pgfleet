@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
@@ -205,7 +206,37 @@ func statsFromResponse(s container.StatsResponse) ContainerStats {
 		out.MemoryPercent = float64(usage) / float64(s.MemoryStats.Limit) * 100
 	}
 
+	// Block I/O: cumulative lifetime counters summed across every backing device
+	// from the recursive blkio lists. These come back empty on some platforms
+	// (Docker Desktop on macOS, some cgroup v2 setups); in that case leave
+	// DiskIOAvailable false so the collector omits the metrics rather than
+	// emitting fabricated zeros.
+	if len(s.BlkioStats.IoServiceBytesRecursive) > 0 {
+		out.DiskIOAvailable = true
+		out.DiskReadBytes, out.DiskWriteBytes = sumBlkioReadWrite(s.BlkioStats.IoServiceBytesRecursive)
+	}
+	if len(s.BlkioStats.IoServicedRecursive) > 0 {
+		out.DiskIOAvailable = true
+		out.DiskReadOps, out.DiskWriteOps = sumBlkioReadWrite(s.BlkioStats.IoServicedRecursive)
+	}
+
 	return out
+}
+
+// sumBlkioReadWrite totals the Read and Write entries of a recursive blkio list,
+// summing across all backing devices. Other ops (Sync/Async/Discard/Total) are
+// ignored. The op name match is case-insensitive to tolerate runtime spelling
+// differences.
+func sumBlkioReadWrite(entries []container.BlkioStatEntry) (read, write uint64) {
+	for _, e := range entries {
+		switch {
+		case strings.EqualFold(e.Op, "read"):
+			read += e.Value
+		case strings.EqualFold(e.Op, "write"):
+			write += e.Value
+		}
+	}
+	return read, write
 }
 
 func (m *Moby) Logs(ctx context.Context, id string, follow bool) (io.ReadCloser, error) {

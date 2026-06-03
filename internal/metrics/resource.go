@@ -64,6 +64,20 @@ func (c *ResourceCollector) collectStats(ctx context.Context, containerID string
 	}
 	add("memory_bytes", float64(st.MemoryBytes))
 	add("memory_percent", st.MemoryPercent)
+
+	// Disk I/O: cumulative lifetime counters (like the checkpoint/WAL counters);
+	// emitted as-is, with the rollup layer computing rates from successive
+	// samples. Only emitted when the runtime actually surfaced blkio data. On
+	// some platforms (Docker Desktop on macOS, some cgroup v2 setups) the
+	// recursive blkio lists come back empty, leaving the counters as meaningless
+	// zeros; mirroring the cpu_percent care above, we omit them entirely rather
+	// than emit fabricated zeros that look like real measurements.
+	if st.DiskIOAvailable {
+		add("disk_read_bytes", float64(st.DiskReadBytes))
+		add("disk_write_bytes", float64(st.DiskWriteBytes))
+		add("disk_read_ops", float64(st.DiskReadOps))
+		add("disk_write_ops", float64(st.DiskWriteOps))
+	}
 	return nil
 }
 

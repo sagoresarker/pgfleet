@@ -80,11 +80,29 @@ type ContainerState struct {
 }
 
 // ContainerStats is a point-in-time resource-usage snapshot for a container.
+//
+// The DiskIO* fields carry cumulative block-I/O counters summed from the
+// runtime's recursive blkio stats (Docker's BlkioStats). They are lifetime
+// totals (monotonic counters), not rates; the rollup layer computes rates by
+// deltaing successive samples. DiskIOAvailable reports whether the runtime
+// actually surfaced blkio data: on some platforms (notably Docker Desktop on
+// macOS, and some cgroup v2 setups) the recursive blkio lists come back empty,
+// in which case the counters are meaningless zeros and must not be emitted as
+// if they were real measurements. Callers must check DiskIOAvailable before
+// using any DiskIO* field.
 type ContainerStats struct {
 	CPUPercent       float64
 	MemoryBytes      int64
 	MemoryLimitBytes int64
 	MemoryPercent    float64
+
+	// DiskIOAvailable is true only when the runtime returned non-empty blkio
+	// stats and the DiskIO* counters below are meaningful.
+	DiskIOAvailable bool
+	DiskReadBytes   uint64
+	DiskWriteBytes  uint64
+	DiskReadOps     uint64
+	DiskWriteOps    uint64
 }
 
 // ContainerInfo is a lightweight container listing entry.

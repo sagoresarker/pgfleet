@@ -68,6 +68,16 @@ type Options struct {
 	// BindAddress is the host interface published instance/router ports bind to
 	// (e.g. 127.0.0.1). Empty binds to all interfaces (0.0.0.0).
 	BindAddress string
+	// MasterKey is the 32-byte control-plane KEK. It is used to deterministically
+	// derive each instance's pgBackRest repo-cipher passphrase (never stored), so
+	// no new DB column is needed. Required for BackupEncryption to take effect.
+	MasterKey []byte
+	// BackupEncryption enables at-rest pgBackRest repository encryption
+	// (aes-256-cbc) for instances provisioned while it is true. pgBackRest fixes
+	// the repo cipher at stanza-create, so this CANNOT be retrofitted onto an
+	// existing unencrypted stanza — it only affects NEW instances provisioned
+	// after it is enabled. Existing stanzas are never modified.
+	BackupEncryption bool
 }
 
 // store is the subset of *instance.Repository the provisioner needs.
@@ -305,6 +315,16 @@ func (p *Provisioner) backrestConf(inst instance.Instance) (string, error) {
 		PGPort:        pgPort,
 		RetentionFull: 2,
 		RepoType:      string(inst.RepoType),
+	}
+	// Enable at-rest repo encryption only when configured. The passphrase is
+	// derived deterministically from the master key + instance id, so the SAME
+	// value is produced on every provision/backup/restore for this instance
+	// (pgBackRest fixes the cipher at stanza-create and rejects a changed
+	// passphrase). This is applied at stanza-create and CANNOT be added to a
+	// stanza that was created without it, so it only affects instances first
+	// provisioned while BackupEncryption is on.
+	if p.opts.BackupEncryption {
+		c.CipherPass = deriveCipherPass(p.opts.MasterKey, inst.ID)
 	}
 	switch inst.RepoType {
 	case instance.RepoS3:

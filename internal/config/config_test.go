@@ -327,3 +327,34 @@ func TestLoadOverridesDefaults(t *testing.T) {
 		t.Errorf("LogLevel = %q, want \"debug\"", cfg.LogLevel)
 	}
 }
+
+func TestLoadBackupEncryptionDefaultsOff(t *testing.T) {
+	cfg, err := Load(envMap(validEnv()))
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+	if cfg.BackupEncryption {
+		t.Error("BackupEncryption should default to false")
+	}
+}
+
+func TestLoadBackupEncryptionParsesBool(t *testing.T) {
+	cases := map[string]bool{
+		"true":  true,
+		"false": false,
+		"1":     false, // only the literal "true" enables it
+		"":      false,
+		"TRUE":  false,
+	}
+	for value, want := range cases {
+		env := validEnv()
+		env["PGFLEET_BACKUP_ENCRYPTION"] = value
+		cfg, err := Load(envMap(env))
+		if err != nil {
+			t.Fatalf("Load(%q) unexpected error: %v", value, err)
+		}
+		if cfg.BackupEncryption != want {
+			t.Errorf("PGFLEET_BACKUP_ENCRYPTION=%q -> %v, want %v", value, cfg.BackupEncryption, want)
+		}
+	}
+}

@@ -161,6 +161,53 @@ func elect(ctx context.Context, prov Promoter, replicas []instance.Instance) (in
 }
 
 func (c *Controller) failover(ctx context.Context, clu cluster.Cluster, oldPrimary *instance.Instance, replicas []instance.Instance) error {
+	// Quorum / witness guard (split-brain prevention). The controller only
+	// reaches a failover when it cannot see the primary. But the primary may
+	// actually be alive on the far side of a network partition with the
+	// controller stranded on the MINORITY side. Promoting then yields two live
+	// primaries (split-brain). So before promoting, require that the members the
+	// controller CAN currently reach form a strict majority of total membership.
+	//
+	// Total membership = len(replicas) + 1 (the primary). In a failover the
+	// primary is unreachable, so it contributes 0; only the reachable replicas
+	// count toward quorum. Rule: reachableReplicas >= floor(total/2) + 1.
+	//
+	//   3-node (1p+2r, total=3, majority=2): need BOTH replicas reachable.
+	//     Only 1 reachable (1 < 2) => likely minority side => abort.
+	//   2-node (1p+1r, total=2, majority=2): need that 1 replica reachable. It
+	//     is also the only promotion candidate, so this does not deadlock a
+	//     legitimate 2-node failover. CAVEAT: a 2-node cluster cannot truly
+	//     avoid split-brain on a partition without an external witness/arbiter —
+	//     if the lone replica is reachable but the primary is alive-but-isolated,
+	//     we will still promote. Add a third node (or a witness) for real safety.
+	total := len(replicas) + 1
+	majority := total/2 + 1
+	reachable := 0
+	for _, r := range replicas {
+		if c.prov.PrimaryReachable(ctx, r) {
+			reachable++
+		}
+	}
+	// 2-node exception: with total=2 the majority is 2, but the primary is down
+	// (contributes 0) and there is exactly one replica, so the majority is
+	// mathematically unreachable from replicas alone. Requiring it would deadlock
+	// every legitimate 2-node failover. We therefore allow promotion when that
+	// sole replica is reachable. This is the documented 2-node caveat above: a
+	// 2-node cluster cannot truly avoid split-brain on a partition without an
+	// external witness. For total >= 3 the strict-majority rule applies normally.
+	needed := majority
+	if len(replicas) == 1 {
+		needed = 1
+	}
+	if reachable < needed {
+		msg := "quorum not met — refusing to promote (possible partition)"
+		_ = c.clusters.SetStatus(ctx, clu.ID, cluster.StatusError, msg)
+		c.record(ctx, clu, "failover aborted: "+msg, "")
+		c.log.Warn("failover aborted: quorum not met",
+			"cluster", clu.Name, "reachable_replicas", reachable, "majority", majority, "total_members", total)
+		return apperr.New(apperr.KindInternal, "failover: "+msg)
+	}
+
 	newP, ok := elect(ctx, c.prov, replicas)
 	if !ok {
 		_ = c.clusters.SetStatus(ctx, clu.ID, cluster.StatusError, "primary unreachable and no promotable replica")

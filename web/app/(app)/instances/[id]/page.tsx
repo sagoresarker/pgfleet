@@ -146,6 +146,7 @@ export default function InstanceDetailPage() {
         <Tabs.Content value="overview" className="focus:outline-none">
           <OverviewTab
             id={id}
+            running={inst.status === "running"}
             repoType={inst.repo_type}
             hostPort={inst.host_port}
             isPublic={!!inst.public}
@@ -160,7 +161,7 @@ export default function InstanceDetailPage() {
         </Tabs.Content>
 
         <Tabs.Content value="roles" className="focus:outline-none">
-          <RolesTab id={id} running={inst.status === "running"} />
+          <RolesTab id={id} running={inst.status === "running"} writable={writable} />
         </Tabs.Content>
 
         <Tabs.Content value="backups" className="focus:outline-none">
@@ -741,8 +742,76 @@ function CreateDatabaseModal({ id, open, onOpenChange }: { id: string; open: boo
   );
 }
 
+function CreateRoleModal({ id, open, onOpenChange }: { id: string; open: boolean; onOpenChange: (o: boolean) => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const create = useMutation({
+    // Least-privilege by default: a LOGIN role with none of the elevated
+    // attributes. Identifier is regex-validated; the password literal is escaped.
+    mutationFn: () =>
+      api.runSQL(
+        id,
+        `CREATE ROLE "${name}" LOGIN PASSWORD '${password.replace(/'/g, "''")}' NOSUPERUSER NOCREATEDB NOCREATEROLE`,
+      ),
+    onSuccess: () => {
+      toast.push(`Role ${name} created`, "healthy");
+      setName("");
+      setPassword("");
+      onOpenChange(false);
+      qc.invalidateQueries({ queryKey: ["roles", id] });
+    },
+    onError: (e) => setError(e instanceof Error ? e.message : "Create failed"),
+  });
+  const valid = /^[a-z_][a-z0-9_]{0,62}$/.test(name) && password.length >= 8;
+  return (
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Create role"
+      description="A least-privilege login role — no superuser, createdb or createrole. Grant it only what your app needs."
+      footer={
+        <>
+          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)} disabled={create.isPending}>
+            Cancel
+          </Button>
+          <Button size="sm" loading={create.isPending} disabled={!valid} onClick={() => create.mutate()}>
+            <Plus className="h-4 w-4" /> Create role
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <Field label="Role name" hint="Lowercase letters, digits and underscores; start with a letter or underscore.">
+          <Input
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value.toLowerCase());
+              setError(null);
+            }}
+            placeholder="app_readwrite"
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </Field>
+        <Field label="Password" hint="At least 8 characters.">
+          <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
+        </Field>
+        {error && (
+          <div role="alert" aria-live="assertive" className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+            {error}
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 /* ---- Roles tab — lists the database roles/users in this instance ---- */
-function RolesTab({ id, running }: { id: string; running: boolean }) {
+function RolesTab({ id, running, writable }: { id: string; running: boolean; writable: boolean }) {
+  const [createOpen, setCreateOpen] = useState(false);
   const roles = useQuery({
     queryKey: ["roles", id],
     enabled: running,
@@ -768,8 +837,18 @@ function RolesTab({ id, running }: { id: string; running: boolean }) {
     <Card>
       <CardHeader>
         <CardTitle>Roles &amp; users</CardTitle>
-        <span className="font-mono text-[11px] text-fg-faint tnum">{rows.length} role{rows.length === 1 ? "" : "s"}</span>
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-[11px] text-fg-faint tnum">
+            {rows.length} role{rows.length === 1 ? "" : "s"}
+          </span>
+          {writable && (
+            <Button size="sm" variant="outline" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" /> Create role
+            </Button>
+          )}
+        </div>
       </CardHeader>
+      <CreateRoleModal id={id} open={createOpen} onOpenChange={setCreateOpen} />
       <CardBody className="p-0">
         {roles.isLoading ? (
           <div className="p-5">
@@ -816,6 +895,7 @@ function RolesTab({ id, running }: { id: string; running: boolean }) {
 
 function OverviewTab({
   id,
+  running,
   repoType,
   hostPort,
   isPublic,
@@ -824,6 +904,7 @@ function OverviewTab({
   extensions,
 }: {
   id: string;
+  running: boolean;
   repoType: string;
   hostPort: number;
   isPublic: boolean;
@@ -833,8 +914,10 @@ function OverviewTab({
 }) {
   const paramEntries = Object.entries(parameters ?? {});
   const hasConfig = paramEntries.length > 0 || (extensions?.length ?? 0) > 0;
+  const engine = extensions?.includes("timescaledb") ? "TimescaleDB" : "PostgreSQL";
   return (
     <div className="space-y-6">
+      <LiveOverviewStats id={id} running={running} engine={engine} />
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Card>
           <CardBody>
@@ -888,6 +971,61 @@ function OverviewTab({
           </CardBody>
         </Card>
       )}
+    </div>
+  );
+}
+
+/* Live, at-a-glance stats pulled in one round-trip while the instance runs. */
+function LiveOverviewStats({ id, running, engine }: { id: string; running: boolean; engine: string }) {
+  const q = useQuery({
+    queryKey: ["overview-live", id],
+    enabled: running,
+    refetchInterval: 8000,
+    queryFn: () =>
+      api.runSQL(
+        id,
+        "SELECT " +
+          "(SELECT count(*) FROM pg_stat_activity)::text, " +
+          "(SELECT count(*) FROM pg_database WHERE NOT datistemplate)::text, " +
+          "(SELECT count(*) FROM pg_roles)::text, " +
+          "(SELECT pg_size_pretty(COALESCE(sum(pg_database_size(datname)),0)) FROM pg_database WHERE NOT datistemplate), " +
+          "date_trunc('second', now() - pg_postmaster_start_time())::text",
+      ),
+  });
+  const r = q.data?.rows?.[0];
+  const v = (i: number) => (r ? String(r[i]) : running ? "…" : "—");
+  return (
+    <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+      <Card>
+        <CardBody>
+          <Stat label="Engine" value={engine} tone={engine === "TimescaleDB" ? "violet" : undefined} />
+        </CardBody>
+      </Card>
+      <Card>
+        <CardBody>
+          <Stat label="Uptime" value={v(4)} />
+        </CardBody>
+      </Card>
+      <Card>
+        <CardBody>
+          <Stat label="Connections" value={v(0)} />
+        </CardBody>
+      </Card>
+      <Card>
+        <CardBody>
+          <Stat label="Total size" value={v(3)} />
+        </CardBody>
+      </Card>
+      <Card>
+        <CardBody>
+          <Stat label="Databases" value={v(1)} />
+        </CardBody>
+      </Card>
+      <Card>
+        <CardBody>
+          <Stat label="Roles" value={v(2)} />
+        </CardBody>
+      </Card>
     </div>
   );
 }
