@@ -66,13 +66,16 @@ type instancePayload struct {
 	PGVersion string `json:"pg_version"`
 	HostPort  int    `json:"host_port"`
 	Stanza    string `json:"stanza"`
+	Role      string `json:"role"`
+	ClusterID string `json:"cluster_id,omitempty"`
 	LastError string `json:"last_error,omitempty"`
 }
 
 func toInstancePayload(i instance.Instance) instancePayload {
 	return instancePayload{
 		ID: i.ID, Name: i.Name, Status: string(i.Status), RepoType: string(i.RepoType),
-		PGVersion: i.PGVersion, HostPort: i.HostPort, Stanza: i.Stanza, LastError: i.LastError,
+		PGVersion: i.PGVersion, HostPort: i.HostPort, Stanza: i.Stanza,
+		Role: string(i.Role), ClusterID: i.ClusterID, LastError: i.LastError,
 	}
 }
 

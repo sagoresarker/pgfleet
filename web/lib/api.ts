@@ -16,6 +16,8 @@ export interface Instance {
   pg_version: string;
   host_port: number;
   stanza: string;
+  role: "standalone" | "primary" | "replica";
+  cluster_id?: string;
   last_error?: string;
 }
 
@@ -28,6 +30,14 @@ export interface Backup {
   wal_start: string;
   wal_stop: string;
   error: boolean;
+}
+
+export interface Cluster {
+  id: string;
+  name: string;
+  status: "provisioning" | "running" | "degraded" | "error" | "destroying";
+  router_port: number;
+  last_error?: string;
 }
 
 export interface MetricSample {
@@ -130,6 +140,13 @@ export const api = {
   destroyInstance: (id: string, retain: boolean) =>
     request<void>("DELETE", `/api/v1/instances/${id}?retain_backups=${retain}`),
   connection: (id: string) => request<{ dsn: string }>("GET", `/api/v1/instances/${id}/connection`),
+
+  listClusters: () => request<{ clusters: Cluster[] }>("GET", "/api/v1/clusters"),
+  getCluster: (id: string) => request<{ cluster: Cluster; members: Instance[] }>("GET", `/api/v1/clusters/${id}`),
+  createCluster: (input: { name: string; replicas: number; password: string; repo_type?: string }) =>
+    request<void>("POST", "/api/v1/clusters", input),
+  destroyCluster: (id: string) => request<void>("DELETE", `/api/v1/clusters/${id}?retain_backups=true`),
+  clusterConnection: (id: string) => request<{ dsn: string }>("GET", `/api/v1/clusters/${id}/connection`),
 
   listBackups: (id: string) => request<{ backups: Backup[] }>("GET", `/api/v1/instances/${id}/backups`),
   createBackup: (id: string, type: string) => request<void>("POST", `/api/v1/instances/${id}/backups`, { type }),
