@@ -64,6 +64,7 @@ func (f *fakeInstanceStore) List(_ context.Context) ([]instance.Instance, error)
 
 type fakeProvisioner struct {
 	provisioned chan string
+	visibility  chan string
 	started     []string
 	stopped     []string
 	destroyed   []string
@@ -71,7 +72,11 @@ type fakeProvisioner struct {
 }
 
 func newFakeProvisioner() *fakeProvisioner {
-	return &fakeProvisioner{provisioned: make(chan string, 4), dsn: "postgres://u:p@localhost:5432/postgres"}
+	return &fakeProvisioner{
+		provisioned: make(chan string, 4),
+		visibility:  make(chan string, 4),
+		dsn:         "postgres://u:p@localhost:5432/postgres",
+	}
 }
 
 func (f *fakeProvisioner) Provision(_ context.Context, id string, progress provision.ProgressFunc) error {
@@ -79,6 +84,10 @@ func (f *fakeProvisioner) Provision(_ context.Context, id string, progress provi
 		progress("ready", "ok")
 	}
 	f.provisioned <- id
+	return nil
+}
+func (f *fakeProvisioner) Clone(_ context.Context, cloneID string, _ instance.Instance, _ provision.ProgressFunc) error {
+	f.provisioned <- cloneID
 	return nil
 }
 func (f *fakeProvisioner) Start(_ context.Context, id string) error {
@@ -90,6 +99,10 @@ func (f *fakeProvisioner) Stop(_ context.Context, id string) error {
 	return nil
 }
 func (f *fakeProvisioner) Restart(_ context.Context, _ string) error { return nil }
+func (f *fakeProvisioner) SetVisibility(_ context.Context, id string, _ bool) error {
+	f.visibility <- id
+	return nil
+}
 func (f *fakeProvisioner) Destroy(_ context.Context, id string, _ bool) error {
 	f.destroyed = append(f.destroyed, id)
 	return nil
@@ -106,6 +119,7 @@ func mountInstances(store InstanceStore, prov InstanceProvisioner) http.Handler 
 	r.Post("/api/v1/instances/{id}/stop", h.Stop)
 	r.Delete("/api/v1/instances/{id}", h.Destroy)
 	r.Get("/api/v1/instances/{id}/connection", h.Connection)
+	r.Post("/api/v1/instances/{id}/visibility", h.Visibility)
 	return h2(r)
 }
 
@@ -200,6 +214,43 @@ func TestStartStopDestroyInstance(t *testing.T) {
 	}
 	if len(prov.started) != 1 || len(prov.stopped) != 1 || len(prov.destroyed) != 1 {
 		t.Errorf("lifecycle calls: start=%v stop=%v destroy=%v", prov.started, prov.stopped, prov.destroyed)
+	}
+}
+
+// REG-5: the visibility handler must Get the instance first and 404 on a
+// missing id, rather than blindly returning 202 and kicking off a flip on a
+// nonexistent instance.
+func TestVisibilityMissingInstanceIs404(t *testing.T) {
+	prov := newFakeProvisioner()
+	h := mountInstances(newFakeInstanceStore(), prov)
+
+	rr := postJSON(t, h, "/api/v1/instances/ghost/visibility", `{"public":true}`)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 for a missing instance", rr.Code)
+	}
+	select {
+	case id := <-prov.visibility:
+		t.Fatalf("SetVisibility was invoked (%q) for a missing instance", id)
+	case <-time.After(200 * time.Millisecond):
+		// good: no flip triggered
+	}
+}
+
+// A valid instance still gets a 202 and triggers the flip.
+func TestVisibilityValidInstanceReturns202(t *testing.T) {
+	store := newFakeInstanceStore()
+	inst, _ := store.Create(context.Background(), instance.NewInstance{Name: "a-db", RepoType: instance.RepoS3, Password: "a-good-password"})
+	prov := newFakeProvisioner()
+	h := mountInstances(store, prov)
+
+	rr := postJSON(t, h, "/api/v1/instances/"+inst.ID+"/visibility", `{"public":true}`)
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", rr.Code)
+	}
+	select {
+	case <-prov.visibility:
+	case <-time.After(2 * time.Second):
+		t.Fatal("SetVisibility was not triggered")
 	}
 }
 

@@ -9,11 +9,19 @@ import (
 	"io"
 )
 
-// Label keys applied to every PgFleet-managed Docker resource.
+// Label keys applied to every PgFleet-managed Docker resource. The recovery
+// labels (name/stanza/repo/version/cluster) carry non-secret metadata so an
+// instance is identifiable and reconstructible from Docker alone if the meta
+// DB is lost.
 const (
-	LabelManaged  = "pgfleet.managed"  // always "true"
-	LabelInstance = "pgfleet.instance" // owning instance id
-	LabelRole     = "pgfleet.role"     // e.g. "postgres"
+	LabelManaged   = "pgfleet.managed"  // always "true"
+	LabelInstance  = "pgfleet.instance" // owning instance id
+	LabelRole      = "pgfleet.role"     // e.g. "postgres", "replica", "router"
+	LabelName      = "pgfleet.name"     // instance name
+	LabelStanza    = "pgfleet.stanza"   // pgBackRest stanza (== name)
+	LabelRepoType  = "pgfleet.repo"     // "s3" | "local"
+	LabelPGVersion = "pgfleet.pgversion"
+	LabelCluster   = "pgfleet.cluster" // owning cluster id, if any
 )
 
 // PortMapping maps a container port to a host port.
@@ -21,12 +29,19 @@ type PortMapping struct {
 	ContainerPort int
 	HostPort      int
 	Protocol      string // "tcp" (default) or "udp"
+	// HostIP is the host interface the published port binds to. Empty defaults
+	// to 0.0.0.0 (all interfaces); set to 127.0.0.1 or a private IP to limit
+	// exposure of the managed database.
+	HostIP string
 }
 
 // Mount binds a named volume to a path inside the container.
 type Mount struct {
 	Volume string
 	Path   string
+	// ReadOnly mounts the volume read-only. Used so a clone's restore container
+	// cannot write into the SOURCE instance's live backup repo.
+	ReadOnly bool
 }
 
 // ContainerSpec describes a container to create.

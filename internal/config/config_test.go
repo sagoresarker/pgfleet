@@ -167,6 +167,150 @@ func TestLoadObjectStoreOverrides(t *testing.T) {
 	}
 }
 
+// TestLoadValidatesInstanceNetworkingDefaults covers REG-7: the new env vars
+// (bind address, restart policy, webhook URL) have secure/sane defaults applied.
+func TestLoadValidatesInstanceNetworkingDefaults(t *testing.T) {
+	cfg, err := Load(envMap(validEnv()))
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+	// Secure-by-default: bind to loopback, not 0.0.0.0.
+	if cfg.InstanceBindAddress != "127.0.0.1" {
+		t.Errorf("InstanceBindAddress default = %q, want 127.0.0.1", cfg.InstanceBindAddress)
+	}
+	if cfg.InstanceRestartPolicy != "unless-stopped" {
+		t.Errorf("InstanceRestartPolicy default = %q, want unless-stopped", cfg.InstanceRestartPolicy)
+	}
+	if cfg.AlertWebhookURL != "" {
+		t.Errorf("AlertWebhookURL default = %q, want empty", cfg.AlertWebhookURL)
+	}
+}
+
+func TestLoadValidatesInstanceBindAddress(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		wantErr bool
+		want    string
+	}{
+		{name: "default loopback when unset", value: "", want: "127.0.0.1"},
+		{name: "explicit loopback", value: "127.0.0.1", want: "127.0.0.1"},
+		{name: "private IPv4", value: "10.0.0.5", want: "10.0.0.5"},
+		{name: "explicit wildcard allowed", value: "0.0.0.0", want: "0.0.0.0"},
+		{name: "IPv6 loopback", value: "::1", want: "::1"},
+		{name: "not an IP", value: "not-an-ip", wantErr: true},
+		{name: "hostname rejected", value: "localhost", wantErr: true},
+		{name: "host:port rejected", value: "127.0.0.1:5432", wantErr: true},
+		{name: "whitespace rejected", value: "   ", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := validEnv()
+			if tt.value != "" {
+				env["PGFLEET_INSTANCE_BIND_ADDRESS"] = tt.value
+			}
+			cfg, err := Load(envMap(env))
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error for bind address %q", tt.value)
+				}
+				if !strings.Contains(err.Error(), "PGFLEET_INSTANCE_BIND_ADDRESS") {
+					t.Errorf("error %q should name the variable", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error for %q: %v", tt.value, err)
+			}
+			if cfg.InstanceBindAddress != tt.want {
+				t.Errorf("InstanceBindAddress = %q, want %q", cfg.InstanceBindAddress, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadValidatesInstanceRestartPolicy(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		wantErr bool
+	}{
+		{name: "no", value: "no"},
+		{name: "always", value: "always"},
+		{name: "unless-stopped", value: "unless-stopped"},
+		{name: "on-failure", value: "on-failure"},
+		{name: "on-failure with count", value: "on-failure:5"},
+		{name: "on-failure with zero count", value: "on-failure:0"},
+		{name: "unknown policy", value: "sometimes", wantErr: true},
+		{name: "on-failure bad count", value: "on-failure:abc", wantErr: true},
+		{name: "on-failure negative count", value: "on-failure:-1", wantErr: true},
+		{name: "on-failure empty count", value: "on-failure:", wantErr: true},
+		{name: "uppercase rejected", value: "Always", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := validEnv()
+			env["PGFLEET_INSTANCE_RESTART_POLICY"] = tt.value
+			cfg, err := Load(envMap(env))
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error for restart policy %q", tt.value)
+				}
+				if !strings.Contains(err.Error(), "PGFLEET_INSTANCE_RESTART_POLICY") {
+					t.Errorf("error %q should name the variable", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error for %q: %v", tt.value, err)
+			}
+			if cfg.InstanceRestartPolicy != tt.value {
+				t.Errorf("InstanceRestartPolicy = %q, want %q", cfg.InstanceRestartPolicy, tt.value)
+			}
+		})
+	}
+}
+
+func TestLoadValidatesAlertWebhookURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		wantErr bool
+	}{
+		{name: "unset is fine", value: ""},
+		{name: "https URL", value: "https://hooks.example.com/abc"},
+		{name: "http URL", value: "http://localhost:9000/hook"},
+		{name: "missing scheme", value: "hooks.example.com/abc", wantErr: true},
+		{name: "non-http scheme", value: "ftp://example.com/x", wantErr: true},
+		{name: "no host", value: "https://", wantErr: true},
+		{name: "garbage", value: "://??", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := validEnv()
+			if tt.value != "" {
+				env["PGFLEET_ALERT_WEBHOOK_URL"] = tt.value
+			}
+			cfg, err := Load(envMap(env))
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error for webhook URL %q", tt.value)
+				}
+				if !strings.Contains(err.Error(), "PGFLEET_ALERT_WEBHOOK_URL") {
+					t.Errorf("error %q should name the variable", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error for %q: %v", tt.value, err)
+			}
+			if cfg.AlertWebhookURL != tt.value {
+				t.Errorf("AlertWebhookURL = %q, want %q", cfg.AlertWebhookURL, tt.value)
+			}
+		})
+	}
+}
+
 func TestLoadOverridesDefaults(t *testing.T) {
 	env := validEnv()
 	env["PGFLEET_HTTP_ADDR"] = ":9999"

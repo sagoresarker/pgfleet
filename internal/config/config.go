@@ -5,6 +5,9 @@ package config
 import (
 	"encoding/base64"
 	"fmt"
+	"net"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -33,13 +36,20 @@ type Config struct {
 	// InstanceRestartPolicy is the Docker restart policy applied to managed
 	// instance + router containers so they survive a daemon/host restart.
 	InstanceRestartPolicy string
+	// InstanceBindAddress is the host interface published instance/router ports
+	// bind to. Defaults to 127.0.0.1 (secure-by-default); set to a private IP
+	// or 0.0.0.0 to expose more broadly.
+	InstanceBindAddress string
 	// AlertWebhookURL, if set, receives a JSON POST on every alert transition.
 	AlertWebhookURL string
-	S3Endpoint      string
-	S3Bucket        string
-	S3Region        string
-	S3AccessKey     string
-	S3SecretKey     string
+	// AutoFailover enables the in-house cluster failover controller (default
+	// true). Set PGFLEET_AUTO_FAILOVER=false to disable automatic promotion.
+	AutoFailover bool
+	S3Endpoint   string
+	S3Bucket     string
+	S3Region     string
+	S3AccessKey  string
+	S3SecretKey  string
 
 	// Scheduled backups.
 	BackupInterval time.Duration
@@ -59,7 +69,9 @@ func Load(getenv func(string) string) (*Config, error) {
 		DockerNetwork:          orDefault(getenv("PGFLEET_DOCKER_NETWORK"), "pgfleet"),
 		InstanceHost:           orDefault(getenv("PGFLEET_INSTANCE_HOST"), "localhost"),
 		InstanceRestartPolicy:  orDefault(getenv("PGFLEET_INSTANCE_RESTART_POLICY"), "unless-stopped"),
+		InstanceBindAddress:    orDefault(getenv("PGFLEET_INSTANCE_BIND_ADDRESS"), "127.0.0.1"),
 		AlertWebhookURL:        getenv("PGFLEET_ALERT_WEBHOOK_URL"),
+		AutoFailover:           getenv("PGFLEET_AUTO_FAILOVER") != "false",
 		S3Endpoint:             getenv("PGFLEET_S3_ENDPOINT"),
 		S3Bucket:               getenv("PGFLEET_S3_BUCKET"),
 		S3Region:               orDefault(getenv("PGFLEET_S3_REGION"), "us-east-1"),
@@ -98,7 +110,68 @@ func Load(getenv func(string) string) (*Config, error) {
 	}
 	cfg.MasterKey = key
 
+	// REG-7: validate the instance networking / alerting env vars at load time
+	// so a misconfiguration fails fast with a clear message instead of surfacing
+	// later as a malformed Docker port binding, an invalid restart policy, or a
+	// silently-dropped webhook delivery.
+	if err := validateBindAddress(cfg.InstanceBindAddress); err != nil {
+		return nil, err
+	}
+	if err := validateRestartPolicy(cfg.InstanceRestartPolicy); err != nil {
+		return nil, err
+	}
+	if err := validateWebhookURL(cfg.AlertWebhookURL); err != nil {
+		return nil, err
+	}
+
 	return cfg, nil
+}
+
+// validateBindAddress requires a bare IP literal (IPv4 or IPv6). Hostnames and
+// host:port forms are rejected so the value can be used directly as a Docker
+// port-binding host IP. 0.0.0.0 / :: are allowed only because they must be set
+// explicitly (the default is the loopback 127.0.0.1, secure-by-default).
+func validateBindAddress(v string) error {
+	if net.ParseIP(strings.TrimSpace(v)) == nil || v != strings.TrimSpace(v) {
+		return fmt.Errorf("PGFLEET_INSTANCE_BIND_ADDRESS: %q is not a valid IP address", v)
+	}
+	return nil
+}
+
+// validateRestartPolicy enforces Docker's allowed restart-policy names. The
+// on-failure form may carry an optional non-negative retry count
+// (on-failure[:N]).
+func validateRestartPolicy(v string) error {
+	switch v {
+	case "no", "always", "unless-stopped":
+		return nil
+	}
+	if name, count, found := strings.Cut(v, ":"); found && name == "on-failure" {
+		if n, err := strconv.Atoi(count); err == nil && n >= 0 {
+			return nil
+		}
+		return fmt.Errorf("PGFLEET_INSTANCE_RESTART_POLICY: %q has an invalid on-failure retry count", v)
+	}
+	if v == "on-failure" {
+		return nil
+	}
+	return fmt.Errorf("PGFLEET_INSTANCE_RESTART_POLICY: %q is not one of no, always, unless-stopped, on-failure[:N]", v)
+}
+
+// validateWebhookURL accepts an empty value (webhooks disabled) or an absolute
+// http/https URL with a host.
+func validateWebhookURL(v string) error {
+	if v == "" {
+		return nil
+	}
+	u, err := url.Parse(v)
+	if err != nil {
+		return fmt.Errorf("PGFLEET_ALERT_WEBHOOK_URL: %q is not a valid URL: %w", v, err)
+	}
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("PGFLEET_ALERT_WEBHOOK_URL: %q must be an absolute http or https URL with a host", v)
+	}
+	return nil
 }
 
 func required(getenv func(string) string, key string) (string, error) {

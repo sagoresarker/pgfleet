@@ -20,10 +20,12 @@ type InstanceStore interface {
 // InstanceProvisioner orchestrates instance containers.
 type InstanceProvisioner interface {
 	Provision(ctx context.Context, id string, progress provision.ProgressFunc) error
+	Clone(ctx context.Context, cloneID string, source instance.Instance, progress provision.ProgressFunc) error
 	Start(ctx context.Context, id string) error
 	Stop(ctx context.Context, id string) error
 	Restart(ctx context.Context, id string) error
 	Destroy(ctx context.Context, id string, retainBackups bool) error
+	SetVisibility(ctx context.Context, id string, public bool) error
 	DSN(ctx context.Context, id string) (string, error)
 }
 
@@ -80,6 +82,7 @@ type instancePayload struct {
 	LastError  string            `json:"last_error,omitempty"`
 	Parameters map[string]string `json:"parameters,omitempty"`
 	Extensions []string          `json:"extensions,omitempty"`
+	Public     bool              `json:"public"`
 }
 
 func toInstancePayload(i instance.Instance) instancePayload {
@@ -87,7 +90,7 @@ func toInstancePayload(i instance.Instance) instancePayload {
 		ID: i.ID, Name: i.Name, Status: string(i.Status), RepoType: string(i.RepoType),
 		PGVersion: i.PGVersion, HostPort: i.HostPort, Stanza: i.Stanza,
 		Role: string(i.Role), ClusterID: i.ClusterID, LastError: i.LastError,
-		Parameters: i.Parameters, Extensions: i.Extensions,
+		Parameters: i.Parameters, Extensions: i.Extensions, Public: i.Public,
 	}
 }
 
@@ -123,6 +126,76 @@ func (h *InstancesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	})
 
 	writeJSON(w, http.StatusAccepted, map[string]any{"instance": toInstancePayload(inst)})
+}
+
+type visibilityRequest struct {
+	Public bool `json:"public"`
+}
+
+// Visibility toggles whether the instance's port is publicly reachable; the
+// container is recreated with the new binding asynchronously (202).
+func (h *InstancesHandler) Visibility(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	// REG-5: verify the instance exists before accepting the flip, so a bad/
+	// nonexistent id 404s instead of returning a 202 for a no-op background task.
+	if _, err := h.store.Get(r.Context(), id); err != nil {
+		respondError(w, err)
+		return
+	}
+	var req visibilityRequest
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, err)
+		return
+	}
+	recordAudit(h.audit, r, "instance.visibility", id)
+	h.async.Go(func(ctx context.Context) { _ = h.prov.SetVisibility(ctx, id, req.Public) })
+	w.WriteHeader(http.StatusAccepted)
+}
+
+type cloneRequest struct {
+	Name     string `json:"name"`
+	Password string `json:"password"`
+}
+
+// Clone provisions a new instance whose data is a full copy of the source
+// (restored from the source's backup repo), returning 202.
+func (h *InstancesHandler) Clone(w http.ResponseWriter, r *http.Request) {
+	source, err := h.store.Get(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	var req cloneRequest
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, err)
+		return
+	}
+	// The clone inherits the source's repo type, version, params, and
+	// extensions; it gets its own name + password.
+	clone, err := h.store.Create(r.Context(), instance.NewInstance{
+		Name:       req.Name,
+		PGVersion:  source.PGVersion,
+		RepoType:   source.RepoType,
+		Password:   req.Password,
+		Parameters: source.Parameters,
+		Extensions: source.Extensions,
+	})
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+
+	recordAudit(h.audit, r, "instance.clone", clone.Name+" from "+source.Name)
+	cloneID := clone.ID
+	h.async.Go(func(ctx context.Context) {
+		progress := provision.ProgressFunc(nil)
+		if h.progress != nil {
+			progress = func(step, detail string) { h.progress.Publish(cloneID, step, detail) }
+		}
+		_ = h.prov.Clone(ctx, cloneID, source, progress)
+	})
+
+	writeJSON(w, http.StatusAccepted, map[string]any{"instance": toInstancePayload(clone)})
 }
 
 // List returns all instances.

@@ -49,6 +49,10 @@ func (m *memStore) SetStatus(_ context.Context, _ string, s instance.Status, e s
 	return nil
 }
 func (m *memStore) Delete(context.Context, string) error { m.deleted = true; return nil }
+func (m *memStore) SetPublic(_ context.Context, _ string, public bool) error {
+	m.inst.Public = public
+	return nil
+}
 
 func newStore() *memStore {
 	return &memStore{

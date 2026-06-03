@@ -56,6 +56,12 @@ type Deps struct {
 	// mounted unauthenticated at /metrics by Prometheus convention; restrict it
 	// at the network layer.
 	Prometheus *PrometheusHandler
+	// SQL runs ad-hoc queries from the dashboard (optional).
+	SQL *SQLHandler
+	// Exec runs one-shot container commands (optional).
+	Exec *ExecHandler
+	// Dump streams a logical pg_dump download (optional).
+	Dump *DumpHandler
 }
 
 // NewRouter builds the control-plane HTTP handler.
@@ -135,8 +141,41 @@ func NewRouter(deps Deps) http.Handler {
 						lr.Get("/instances/{id}/logs", deps.Logs.Get)
 					})
 				}
+				if deps.Dump != nil {
+					// A logical dump exposes all data, like the DSN — gate at the
+					// connection level.
+					pr.Group(func(dr chi.Router) {
+						dr.Use(auth.RequireAction(auth.ActionInstanceConnect))
+						dr.Get("/instances/{id}/dump", deps.Dump.Get)
+					})
+				}
 				if deps.Timescale != nil {
 					mountTimescaleRoutes(pr, deps.Timescale)
+				}
+				if deps.SQL != nil {
+					// Ad-hoc SQL runs as the superuser, so it is gated at the
+					// connection level (operator/admin), like revealing the DSN.
+					pr.Group(func(sr chi.Router) {
+						sr.Use(auth.RequireAction(auth.ActionInstanceConnect))
+						sr.Post("/instances/{id}/sql", deps.SQL.Run)
+					})
+				}
+				if deps.Exec != nil {
+					// SEC-1: gating across the three privileged data-plane
+					// endpoints is deliberately set so that NONE are reachable by
+					// read-only viewers. SQL and Dump are gated at the connect
+					// level (they are DSN-equivalent: full data access as the
+					// superuser). Exec is gated STRICTER, at the write level,
+					// because it runs ARBITRARY commands as root inside the
+					// container — strictly more dangerous than a DB query or a
+					// logical dump (it can touch the filesystem, processes, and
+					// anything else in the container, not just the database).
+					// Keeping exec stricter is the safe, intentional choice, not
+					// an accident.
+					pr.Group(func(xr chi.Router) {
+						xr.Use(auth.RequireAction(auth.ActionInstanceWrite))
+						xr.Post("/instances/{id}/exec", deps.Exec.Run)
+					})
 				}
 			})
 		}
@@ -169,6 +208,8 @@ func mountInstanceRoutes(pr chi.Router, h *InstancesHandler) {
 	pr.Group(func(wr chi.Router) {
 		wr.Use(auth.RequireAction(auth.ActionInstanceWrite))
 		wr.Post("/instances", h.Create)
+		wr.Post("/instances/{id}/clone", h.Clone)
+		wr.Post("/instances/{id}/visibility", h.Visibility)
 		wr.Post("/instances/{id}/start", h.Start)
 		wr.Post("/instances/{id}/stop", h.Stop)
 		wr.Post("/instances/{id}/restart", h.Restart)

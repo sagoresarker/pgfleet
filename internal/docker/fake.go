@@ -39,6 +39,24 @@ type Fake struct {
 	// lock). Tests use it to model one-shot containers that exit on their own,
 	// e.g. by calling MarkExited from inside the hook.
 	OnStart func(f *Fake, id string)
+	// OnCreate, if set, is invoked with each spec at CreateContainer time (under
+	// the fake's lock). Tests use it to capture how throwaway containers were
+	// created before they are removed.
+	OnCreate func(spec ContainerSpec)
+}
+
+// SpecByRole returns the spec of the (first) container carrying the given
+// pgfleet.role label, for tests that need to assert on how a container was
+// created (mounts, ports, ...). ok is false if no such container exists.
+func (f *Fake) SpecByRole(role string) (ContainerSpec, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, c := range f.containers {
+		if c.spec.Labels[LabelRole] == role {
+			return c.spec, true
+		}
+	}
+	return ContainerSpec{}, false
 }
 
 // MarkExited transitions a container to the exited state with the given exit
@@ -84,6 +102,9 @@ func (f *Fake) CreateContainer(_ context.Context, spec ContainerSpec) (string, e
 		ports[fmt.Sprintf("%d/%s", p.ContainerPort, proto)] = fmt.Sprintf("%d", host)
 	}
 	f.containers[id] = &fakeContainer{spec: spec, status: "created", ports: ports}
+	if f.OnCreate != nil {
+		f.OnCreate(spec)
+	}
 	return id, nil
 }
 

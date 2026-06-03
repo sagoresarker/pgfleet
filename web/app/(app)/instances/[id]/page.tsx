@@ -9,11 +9,12 @@ import { can, useAuth } from "@/lib/auth";
 import { formatBytes } from "@/lib/utils";
 import * as Tabs from "@radix-ui/react-tabs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Eye, EyeOff, Play, Plus, Power, RefreshCw, Trash2 } from "lucide-react";
+import { Copy, Download, Eye, EyeOff, Globe, Lock, Play, Plus, Power, RefreshCw, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { AnalyticsTab } from "./analytics";
+import { ConsoleTab } from "./console";
 import { LogsTab } from "./logs";
 import { TimescaleTab } from "./timescale";
 
@@ -85,6 +86,9 @@ export default function InstanceDetailPage() {
           <Button size="sm" variant="outline" onClick={() => lifecycle.mutate("restart")} disabled={lifecycle.isPending}>
             <RefreshCw className="h-4 w-4" /> Restart
           </Button>
+          <CloneButton id={id} sourceName={inst.name} />
+          <VisibilityToggle id={id} isPublic={!!inst.public} />
+          <DownloadButton id={id} name={inst.name} />
           <DestroyButton id={id} />
         </div>
       )}
@@ -95,6 +99,7 @@ export default function InstanceDetailPage() {
             { value: "overview", label: "Overview" },
             { value: "backups", label: "Backups" },
             { value: "analytics", label: "Analytics" },
+            { value: "console", label: "Console" },
             { value: "logs", label: "Logs" },
             ...(inst.extensions?.includes("timescaledb") ? [{ value: "timescaledb", label: "TimescaleDB" }] : []),
           ].map((t) => (
@@ -161,6 +166,10 @@ export default function InstanceDetailPage() {
 
         <Tabs.Content value="analytics">
           <AnalyticsTab id={id} running={inst.status === "running"} />
+        </Tabs.Content>
+
+        <Tabs.Content value="console">
+          <ConsoleTab id={id} running={inst.status === "running"} writable={writable} />
         </Tabs.Content>
 
         <Tabs.Content value="logs">
@@ -269,6 +278,95 @@ function ConnectionCard({ id }: { id: string }) {
         </code>
       </CardBody>
     </Card>
+  );
+}
+
+function VisibilityToggle({ id, isPublic }: { id: string; isPublic: boolean }) {
+  const qc = useQueryClient();
+  const toggle = useMutation({
+    mutationFn: () => api.setVisibility(id, !isPublic),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["instance", id] }),
+  });
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={() => toggle.mutate()}
+      disabled={toggle.isPending}
+      title={isPublic ? "Reachable on all interfaces — click to make private" : "Bound to localhost — click to expose publicly"}
+    >
+      {isPublic ? <Globe className="h-4 w-4 text-signal" /> : <Lock className="h-4 w-4 text-healthy" />}
+      {toggle.isPending ? "Applying…" : isPublic ? "Public" : "Private"}
+    </Button>
+  );
+}
+
+function DownloadButton({ id, name }: { id: string; name: string }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        try {
+          await api.downloadDump(id, name);
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <Download className="h-4 w-4" /> {busy ? "Dumping…" : "Download"}
+    </Button>
+  );
+}
+
+function CloneButton({ id, sourceName }: { id: string; sourceName: string }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(`${sourceName}-clone`);
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const clone = useMutation({
+    mutationFn: () => api.cloneInstance(id, { name, password }),
+    onSuccess: () => {
+      window.location.href = "/instances";
+    },
+    onError: (e) => setError(e instanceof Error ? e.message : "Clone failed"),
+  });
+
+  const valid = /^[a-z][a-z0-9-]{1,38}$/.test(name) && password.length >= 8;
+
+  if (!open) {
+    return (
+      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+        <Copy className="h-4 w-4" /> Clone
+      </Button>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-ink-850 px-2 py-1.5">
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value.toLowerCase())}
+        placeholder="clone name"
+        className="w-40 rounded border border-line bg-ink-800 px-2 py-1 font-mono text-xs text-fg"
+      />
+      <input
+        type="password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        placeholder="new password (8+)"
+        className="w-44 rounded border border-line bg-ink-800 px-2 py-1 font-mono text-xs text-fg"
+      />
+      <Button size="sm" onClick={() => clone.mutate()} disabled={!valid || clone.isPending}>
+        {clone.isPending ? "Cloning…" : "Clone"}
+      </Button>
+      <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
+        Cancel
+      </Button>
+      {error && <span className="font-mono text-[11px] text-danger">{error}</span>}
+    </div>
   );
 }
 

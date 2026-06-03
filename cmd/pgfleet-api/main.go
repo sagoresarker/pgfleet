@@ -20,9 +20,11 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/config"
 	"github.com/sagoresarker/pgfleet/internal/docker"
 	"github.com/sagoresarker/pgfleet/internal/events"
+	"github.com/sagoresarker/pgfleet/internal/failover"
 	"github.com/sagoresarker/pgfleet/internal/health"
 	"github.com/sagoresarker/pgfleet/internal/instance"
 	"github.com/sagoresarker/pgfleet/internal/logging"
+	"github.com/sagoresarker/pgfleet/internal/metabackup"
 	"github.com/sagoresarker/pgfleet/internal/metrics"
 	"github.com/sagoresarker/pgfleet/internal/objectstore"
 	"github.com/sagoresarker/pgfleet/internal/provision"
@@ -55,6 +57,17 @@ const healthInterval = 5 * time.Minute
 const drillInterval = 24 * time.Hour
 
 const alertsInterval = 1 * time.Minute
+
+// metaBackupInterval is how often the control plane dumps its own meta DB to the
+// object store; metaBackupRetain is how many dumps it keeps.
+const metaBackupInterval = 6 * time.Hour
+const metaBackupRetain = 28 // ~1 week at 6h cadence
+
+// failoverInterval is how often clusters are checked; failoverThreshold is the
+// number of consecutive failed primary checks before promoting (conservative to
+// avoid reacting to transient blips: ~90s here).
+const failoverInterval = 30 * time.Second
+const failoverThreshold = 3
 
 // asyncDrainTimeout bounds how long shutdown waits for in-flight provisioning.
 const asyncDrainTimeout = 60 * time.Second
@@ -141,6 +154,7 @@ func run() error {
 		InstanceHost:  cfg.InstanceHost,
 		S3:            s3,
 		RestartPolicy: cfg.InstanceRestartPolicy,
+		BindAddress:   cfg.InstanceBindAddress,
 	})
 	clusters := cluster.NewRepository(pool)
 	clusterSvc := clusterctl.New(clusters, instances, provisioner, rt, instance.RepoType(cfg.DefaultRepoType))
@@ -185,6 +199,25 @@ func run() error {
 	sched.Register("restore-drills", drillInterval, func(ctx context.Context) error {
 		return runRestoreDrills(ctx, instances, provisioner, healthStore)
 	})
+	// Meta-DB self-backup: dump the control plane's own state to the external
+	// object store so it can be reconstructed after a meta-DB loss. Only when an
+	// object store is configured (a local-only meta backup would defeat the
+	// purpose).
+	if cfg.S3Endpoint != "" && cfg.S3Bucket != "" {
+		metaBak := metabackup.New(s3)
+		sched.Register("meta-db-backup", metaBackupInterval, func(ctx context.Context) error {
+			if _, err := metaBak.Backup(ctx, cfg.MetaDBDSN); err != nil {
+				return err
+			}
+			return metaBak.Prune(ctx, metaBackupRetain)
+		})
+	}
+	// Automatic cluster failover: detect a dead primary, fence it, promote the
+	// most-caught-up replica, reattach the others, and repoint the router.
+	if cfg.AutoFailover {
+		foController := failover.New(clusters, instances, provisioner, rt, eventStore, failoverThreshold, log)
+		sched.Register("auto-failover", failoverInterval, foController.Run)
+	}
 	sched.Start(ctx)
 	defer sched.Stop()
 
@@ -218,6 +251,9 @@ func run() error {
 		EventsHistory: api.NewEventsHistoryHandler(eventStore),
 		Logs:          api.NewLogsHandler(instances, rt),
 		Prometheus:    api.NewPrometheusHandler(instances, metricStore),
+		SQL:           api.NewSQLHandler(provisioner.DSN).WithAudit(recorder),
+		Exec:          api.NewExecHandler(instances, rt).WithAudit(recorder),
+		Dump:          api.NewDumpHandler(instances, provisioner.DSN).WithLogger(log).WithAudit(recorder),
 	})
 
 	serveErr := api.Serve(ctx, ln, router, log)

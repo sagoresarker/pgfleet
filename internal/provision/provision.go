@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sagoresarker/pgfleet/internal/apperr"
@@ -64,6 +65,9 @@ type Options struct {
 	// they survive a daemon/host restart without the control plane. Empty
 	// leaves the daemon default.
 	RestartPolicy string
+	// BindAddress is the host interface published instance/router ports bind to
+	// (e.g. 127.0.0.1). Empty binds to all interfaces (0.0.0.0).
+	BindAddress string
 }
 
 // store is the subset of *instance.Repository the provisioner needs.
@@ -73,6 +77,7 @@ type store interface {
 	SetRuntime(ctx context.Context, id, containerID string, hostPort int) error
 	SetDataVolume(ctx context.Context, id, volume string) error
 	SetStatus(ctx context.Context, id string, status instance.Status, lastErr string) error
+	SetPublic(ctx context.Context, id string, public bool) error
 	Delete(ctx context.Context, id string) error
 }
 
@@ -81,11 +86,33 @@ type Provisioner struct {
 	rt   docker.ContainerRuntime
 	repo store
 	opts Options
+
+	// visMuMap serializes visibility flips per instance id, so two concurrent
+	// flips (or a flip racing itself) can never both tear down/recreate the
+	// container and leave a half-built or duplicate container.
+	visMuMap  map[string]*sync.Mutex
+	visMuLock sync.Mutex
 }
 
 // New builds a Provisioner.
 func New(rt docker.ContainerRuntime, repo store, opts Options) *Provisioner {
 	return &Provisioner{rt: rt, repo: repo, opts: opts}
+}
+
+// instanceVisMutex returns the per-instance visibility mutex, creating it on
+// first use.
+func (p *Provisioner) instanceVisMutex(id string) *sync.Mutex {
+	p.visMuLock.Lock()
+	defer p.visMuLock.Unlock()
+	if p.visMuMap == nil {
+		p.visMuMap = map[string]*sync.Mutex{}
+	}
+	m, ok := p.visMuMap[id]
+	if !ok {
+		m = &sync.Mutex{}
+		p.visMuMap[id] = m
+	}
+	return m
 }
 
 // Provision brings an instance from "provisioning" to a healthy "running"
@@ -241,8 +268,8 @@ func (p *Provisioner) containerSpec(inst instance.Instance, password string, mou
 			"POSTGRES_PASSWORD": password,
 			"POSTGRES_DB":       "postgres",
 		},
-		Labels:        instanceLabels(inst.ID),
-		Ports:         []docker.PortMapping{{ContainerPort: pgPort, HostPort: 0}},
+		Labels:        recoveryLabels(inst),
+		Ports:         []docker.PortMapping{{ContainerPort: pgPort, HostPort: 0, HostIP: p.bindAddrFor(inst)}},
 		Mounts:        mounts,
 		RestartPolicy: p.opts.RestartPolicy,
 	}
@@ -390,6 +417,41 @@ func instanceLabels(id string) map[string]string {
 		docker.LabelInstance: id,
 		docker.LabelRole:     "postgres",
 	}
+}
+
+// bindAddrFor returns the host interface the instance's published port binds to:
+// 0.0.0.0 (all interfaces) for a public instance, else the secure default.
+func (p *Provisioner) bindAddrFor(inst instance.Instance) string {
+	if inst.Public {
+		return "0.0.0.0"
+	}
+	if p.opts.BindAddress != "" {
+		return p.opts.BindAddress
+	}
+	return "127.0.0.1"
+}
+
+// recoveryLabels stamps an instance container with non-secret identifying
+// metadata, so the instance can be recognised + reconstructed from Docker alone
+// (with its backup repo) if the meta DB is lost.
+func recoveryLabels(inst instance.Instance) map[string]string {
+	role := string(inst.Role)
+	if role == "" || role == string(instance.RoleStandalone) {
+		role = "postgres"
+	}
+	l := map[string]string{
+		docker.LabelManaged:   "true",
+		docker.LabelInstance:  inst.ID,
+		docker.LabelRole:      role,
+		docker.LabelName:      inst.Name,
+		docker.LabelStanza:    inst.Stanza,
+		docker.LabelRepoType:  string(inst.RepoType),
+		docker.LabelPGVersion: inst.PGVersion,
+	}
+	if inst.ClusterID != "" {
+		l[docker.LabelCluster] = inst.ClusterID
+	}
+	return l
 }
 
 func volumeName(kind, id string) string { return "pgfleet-" + kind + "-" + id }

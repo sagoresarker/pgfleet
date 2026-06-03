@@ -93,8 +93,11 @@ type Instance struct {
 	// rejected). Extensions are CREATE EXTENSIONed at provision time.
 	Parameters map[string]string
 	Extensions []string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	// Public binds the published port to all interfaces (0.0.0.0) instead of
+	// the secure default (127.0.0.1).
+	Public    bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // NewInstance is the input for provisioning an instance.

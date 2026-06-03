@@ -1,7 +1,6 @@
 package docker
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -139,7 +138,11 @@ func (m *Moby) Exec(ctx context.Context, id string, cmd []string) (ExecResult, e
 	}
 	defer att.Close()
 
-	var outBuf, errBuf bytes.Buffer
+	// Bound the captured output so a command emitting gigabytes (or /dev/zero)
+	// cannot OOM the control plane. cappedBuffer drops the overflow but still
+	// reports each write as fully consumed, so StdCopy drains the stream cleanly.
+	outBuf := cappedBuffer{limit: maxExecCaptureBytes}
+	errBuf := cappedBuffer{limit: maxExecCaptureBytes}
 	if _, err := stdcopy.StdCopy(&outBuf, &errBuf, att.Reader); err != nil {
 		return ExecResult{}, fmt.Errorf("docker: read exec output: %w", err)
 	}
@@ -301,7 +304,11 @@ func portConfig(ports []PortMapping) (nat.PortSet, nat.PortMap) {
 		if p.HostPort != 0 {
 			hostPort = strconv.Itoa(p.HostPort)
 		}
-		binds[port] = []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: hostPort}}
+		hostIP := p.HostIP
+		if hostIP == "" {
+			hostIP = "0.0.0.0"
+		}
+		binds[port] = []nat.PortBinding{{HostIP: hostIP, HostPort: hostPort}}
 	}
 	return set, binds
 }
@@ -312,7 +319,7 @@ func mountConfig(mounts []Mount) []mount.Mount {
 	}
 	out := make([]mount.Mount, 0, len(mounts))
 	for _, mt := range mounts {
-		out = append(out, mount.Mount{Type: mount.TypeVolume, Source: mt.Volume, Target: mt.Path})
+		out = append(out, mount.Mount{Type: mount.TypeVolume, Source: mt.Volume, Target: mt.Path, ReadOnly: mt.ReadOnly})
 	}
 	return out
 }
