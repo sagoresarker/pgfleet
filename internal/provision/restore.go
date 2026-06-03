@@ -43,6 +43,16 @@ func (p *Provisioner) restore(ctx context.Context, id string, opts RestoreOption
 	if err != nil {
 		return err
 	}
+	// A replica is rebuilt from its primary, not restored. And restoring a
+	// clustered PRIMARY in place would promote it onto a new timeline that its
+	// replicas can't follow, silently diverging the read pool — refuse it until
+	// a replica-reclone restore path exists.
+	if inst.Role == instance.RoleReplica {
+		return apperr.New(apperr.KindInvalid, "restore: a replica cannot be restored; rebuild it from the primary")
+	}
+	if inst.Role == instance.RolePrimary && inst.ClusterID != "" {
+		return apperr.New(apperr.KindInvalid, "restore: restoring a clustered primary would diverge its replicas; not yet supported")
+	}
 	oldVol := inst.DataVolume
 	if oldVol == "" {
 		oldVol = volumeName("data", inst.ID)

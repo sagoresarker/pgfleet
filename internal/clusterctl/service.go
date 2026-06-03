@@ -4,6 +4,8 @@ package clusterctl
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net/url"
 
@@ -13,12 +15,22 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/provision"
 )
 
+// randomSecret returns a 32-hex-char random secret (for the router admin user).
+func randomSecret() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", apperr.Wrap(apperr.KindInternal, "cluster: generate secret", err)
+	}
+	return hex.EncodeToString(b), nil
+}
+
 // Provisioner is the subset of the provisioner the orchestrator needs.
 type Provisioner interface {
 	Provision(ctx context.Context, id string, progress provision.ProgressFunc) error
 	ProvisionReplica(ctx context.Context, replicaID string, primary instance.Instance, progress provision.ProgressFunc) error
 	StartRouter(ctx context.Context, spec provision.RouterSpec, progress provision.ProgressFunc) (string, int, error)
 	Destroy(ctx context.Context, id string, retainBackups bool) error
+	DropReplicationSlot(ctx context.Context, primary instance.Instance, slot string) error
 }
 
 // instanceStore is the subset of the instance repo the orchestrator needs.
@@ -155,13 +167,19 @@ func (s *Service) provision(ctx context.Context, clusterID string, progress prov
 	if err != nil {
 		return err
 	}
+	adminPassword, err := randomSecret()
+	if err != nil {
+		return err
+	}
 	routerID, port, err := s.prov.StartRouter(ctx, provision.RouterSpec{
-		ClusterID:     c.ID,
-		ClusterName:   c.Name,
-		Database:      "postgres",
-		User:          primary.Superuser,
-		Password:      password,
-		AdminPassword: password, // admin interface is network-internal only
+		ClusterID:   c.ID,
+		ClusterName: c.Name,
+		Database:    "postgres",
+		User:        primary.Superuser,
+		Password:    password,
+		// Independent random admin password so a router-admin leak is not a
+		// database-superuser leak (and vice versa).
+		AdminPassword: adminPassword,
 		Members:       provision.RouterMembersFromInstances(primary.Name, replicaNames),
 	}, progress)
 	if err != nil {
@@ -224,7 +242,18 @@ func (s *Service) Destroy(ctx context.Context, clusterID string, retainBackups b
 	if err != nil {
 		return err
 	}
-	for _, m := range members {
+	// ListByCluster returns the primary first. Destroy replicas FIRST (dropping
+	// each one's slot on the still-alive primary so no WAL stays pinned), and
+	// the primary LAST.
+	var primary instance.Instance
+	if len(members) > 0 && members[0].Role == instance.RolePrimary {
+		primary = members[0]
+	}
+	for i := len(members) - 1; i >= 0; i-- {
+		m := members[i]
+		if m.Role == instance.RoleReplica && primary.ContainerID != "" {
+			_ = s.prov.DropReplicationSlot(ctx, primary, provision.SlotName(m.Name))
+		}
 		if err := s.prov.Destroy(ctx, m.ID, retainBackups); err != nil {
 			_ = s.clusters.SetStatus(ctx, clusterID, cluster.StatusError, "destroy failed: "+err.Error())
 			return err

@@ -52,6 +52,9 @@ const healthInterval = 5 * time.Minute
 // drillInterval is how often a restore drill is performed per instance.
 const drillInterval = 24 * time.Hour
 
+// asyncDrainTimeout bounds how long shutdown waits for in-flight provisioning.
+const asyncDrainTimeout = 60 * time.Second
+
 func main() {
 	if err := run(); err != nil {
 		os.Stderr.WriteString("fatal: " + err.Error() + "\n")
@@ -178,20 +181,28 @@ func run() error {
 		return collector.TopQueries(ctx, dsn, limit)
 	}
 
+	// Track async provisioning/restore work so a graceful shutdown drains it
+	// before the pool/runtime close (otherwise instances/clusters can wedge in
+	// "provisioning").
+	async := api.NewAsync(context.Background())
+
 	router := api.NewRouter(api.Deps{
 		Ready:     store.Ready(pool),
 		Issuer:    issuer,
 		Auth:      api.NewAuthHandler(users, issuer, recorder),
 		Users:     api.NewUsersHandler(users, recorder),
-		Instances: api.NewInstancesHandler(instances, provisioner, hub).WithAudit(recorder),
-		Clusters:  api.NewClustersHandler(clusterSvc, clusters, instances, cfg.InstanceHost, recorder),
-		Backups:   api.NewBackupsHandler(backups, provisioner, recorder),
+		Instances: api.NewInstancesHandler(instances, provisioner, hub).WithAudit(recorder).WithAsync(async),
+		Clusters:  api.NewClustersHandler(clusterSvc, clusters, instances, cfg.InstanceHost, recorder).WithAsync(async),
+		Backups:   api.NewBackupsHandler(backups, provisioner, recorder).WithAsync(async),
 		Metrics:   api.NewMetricsHandler(metricStore, insights),
 		Health:    api.NewHealthHandler(healthStore),
 		Events:    hub,
 	})
 
-	return api.Serve(ctx, ln, router, log)
+	serveErr := api.Serve(ctx, ln, router, log)
+	log.Info("draining in-flight provisioning work")
+	async.Wait(asyncDrainTimeout)
+	return serveErr
 }
 
 // runHealthChecks assesses every instance and stores the reports.

@@ -27,11 +27,18 @@ type BackupsHandler struct {
 	runner   BackupRunner
 	restorer Restorer
 	audit    AuditRecorder
+	async    *Async
 }
 
 // NewBackupsHandler builds a BackupsHandler. audit may be nil.
 func NewBackupsHandler(runner BackupRunner, restorer Restorer, rec AuditRecorder) *BackupsHandler {
 	return &BackupsHandler{runner: runner, restorer: restorer, audit: rec}
+}
+
+// WithAsync attaches the background-task tracker.
+func (h *BackupsHandler) WithAsync(a *Async) *BackupsHandler {
+	h.async = a
+	return h
 }
 
 var validBackupTypes = map[string]bool{"full": true, "incr": true, "diff": true}
@@ -67,7 +74,7 @@ func (h *BackupsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	id := chi.URLParam(r, "id")
 	recordAudit(h.audit, r, "backup.create", id)
-	go func() { _ = h.runner.Run(context.Background(), id, req.Type) }()
+	h.async.Go(func(ctx context.Context) { _ = h.runner.Run(ctx, id, req.Type) })
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -112,6 +119,6 @@ func (h *BackupsHandler) Restore(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	opts := provision.RestoreOptions{Type: req.Type, Target: req.Target, Set: req.Set}
 	recordAudit(h.audit, r, "backup.restore", id)
-	go func() { _ = h.restorer.Restore(context.Background(), id, opts, nil) }()
+	h.async.Go(func(ctx context.Context) { _ = h.restorer.Restore(ctx, id, opts, nil) })
 	w.WriteHeader(http.StatusAccepted)
 }

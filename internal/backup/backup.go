@@ -71,6 +71,10 @@ func (s *Service) Run(ctx context.Context, instanceID, backupType string) error 
 	if err != nil {
 		return err
 	}
+	// Replicas have no backup stanza; backups run on the cluster primary.
+	if inst.Role == instance.RoleReplica {
+		return apperr.New(apperr.KindInvalid, "backup: replicas are not backed up directly; back up the cluster primary")
+	}
 
 	lock := s.lockFor(instanceID)
 	lock.Lock()

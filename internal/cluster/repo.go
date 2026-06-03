@@ -66,10 +66,15 @@ func (r *Repository) List(ctx context.Context) ([]Cluster, error) {
 	return out, rows.Err()
 }
 
-// SetPrimary records the cluster's current primary instance.
+// SetPrimary records the cluster's current primary instance. An empty id
+// clears it (stored as SQL NULL).
 func (r *Repository) SetPrimary(ctx context.Context, id, primaryInstanceID string) error {
+	var primary any
+	if primaryInstanceID != "" {
+		primary = primaryInstanceID
+	}
 	return r.exec(ctx, `UPDATE clusters SET primary_instance_id = $2, updated_at = now() WHERE id = $1`,
-		id, primaryInstanceID)
+		id, primary)
 }
 
 // SetRouter records the router container and host port.
