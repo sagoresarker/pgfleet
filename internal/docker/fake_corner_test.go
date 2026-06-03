@@ -35,7 +35,7 @@ func TestFakeHostPortAssignedDeterministically(t *testing.T) {
 
 // TestFakeConcurrentOpsRaceFree — the fake must be safe under concurrent use
 // (run with -race).
-func TestFakeConcurrentOpsRaceFree(t *testing.T) {
+func TestFakeConcurrentOpsRaceFree(_ *testing.T) {
 	f := NewFake()
 	var wg sync.WaitGroup
 	for range 30 {

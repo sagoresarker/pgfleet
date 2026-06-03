@@ -65,7 +65,7 @@ func TestParseDuBytes(t *testing.T) {
 		{"12345\t/path", 12345},
 		{"abc\t/path", 0},
 		{"99999999999999999999\t/p", math.MaxInt64}, // overflow must saturate, not become 0
-		{"-5\t/path", 0},                             // negative is nonsensical for du; clamp to 0
+		{"-5\t/path", 0}, // negative is nonsensical for du; clamp to 0
 	}
 	for _, tc := range cases {
 		if got := parseDuBytes(tc.in); got != tc.want {

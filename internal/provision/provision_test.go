@@ -11,14 +11,14 @@ import (
 
 // memStore is an in-memory store for unit-testing orchestration.
 type memStore struct {
-	inst       instance.Instance
-	password   string
-	status     instance.Status
-	lastErr    string
-	container  string
-	hostPort   int
-	dataVolume string
-	deleted    bool
+	inst        instance.Instance
+	password    string
+	status      instance.Status
+	lastErr     string
+	container   string
+	hostPort    int
+	dataVolume  string
+	deleted     bool
 	passwordErr error // if set, Password returns this error
 }
 

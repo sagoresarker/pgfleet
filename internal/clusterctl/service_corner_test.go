@@ -22,7 +22,7 @@ func TestCreateRejectsLongClusterNameWithoutOrphan(t *testing.T) {
 	// 38-char name is valid for a cluster ([a-z][a-z0-9-]{1,38} => up to 39),
 	// but "<name>-p" is 40 chars, over the instance-name limit.
 	name := "a" + strings.Repeat("b", 37) // 38 chars
-	if !(len(name) == 38) {
+	if len(name) != 38 {
 		t.Fatalf("test setup: name len = %d", len(name))
 	}
 

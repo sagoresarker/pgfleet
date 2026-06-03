@@ -42,7 +42,7 @@ func TestAsyncNilReceiverRunsAndWaitIsSafe(t *testing.T) {
 	a.Wait(time.Second) // must not panic
 }
 
-func TestAsyncGoRecoversPanic(t *testing.T) {
+func TestAsyncGoRecoversPanic(_ *testing.T) {
 	a := NewAsync(context.Background())
 	a.Go(func(context.Context) { panic("boom") })
 	a.Wait(time.Second) // must return; panic recovered, no crash
@@ -66,7 +66,7 @@ func TestAsyncGoAfterWaitIsDropped(t *testing.T) {
 
 // TestAsyncConcurrentGoAndWaitNoRace — concurrent Go and Wait must be race-free
 // (run under -race).
-func TestAsyncConcurrentGoAndWaitNoRace(t *testing.T) {
+func TestAsyncConcurrentGoAndWaitNoRace(_ *testing.T) {
 	a := NewAsync(context.Background())
 	var wg sync.WaitGroup
 	for range 50 {
