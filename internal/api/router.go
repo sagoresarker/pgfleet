@@ -60,6 +60,8 @@ type Deps struct {
 	SQL *SQLHandler
 	// Exec runs one-shot container commands (optional).
 	Exec *ExecHandler
+	// Dump streams a logical pg_dump download (optional).
+	Dump *DumpHandler
 }
 
 // NewRouter builds the control-plane HTTP handler.
@@ -139,6 +141,14 @@ func NewRouter(deps Deps) http.Handler {
 						lr.Get("/instances/{id}/logs", deps.Logs.Get)
 					})
 				}
+				if deps.Dump != nil {
+					// A logical dump exposes all data, like the DSN — gate at the
+					// connection level.
+					pr.Group(func(dr chi.Router) {
+						dr.Use(auth.RequireAction(auth.ActionInstanceConnect))
+						dr.Get("/instances/{id}/dump", deps.Dump.Get)
+					})
+				}
 				if deps.Timescale != nil {
 					mountTimescaleRoutes(pr, deps.Timescale)
 				}
@@ -190,6 +200,7 @@ func mountInstanceRoutes(pr chi.Router, h *InstancesHandler) {
 		wr.Use(auth.RequireAction(auth.ActionInstanceWrite))
 		wr.Post("/instances", h.Create)
 		wr.Post("/instances/{id}/clone", h.Clone)
+		wr.Post("/instances/{id}/visibility", h.Visibility)
 		wr.Post("/instances/{id}/start", h.Start)
 		wr.Post("/instances/{id}/stop", h.Stop)
 		wr.Post("/instances/{id}/restart", h.Restart)

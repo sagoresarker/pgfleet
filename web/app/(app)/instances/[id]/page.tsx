@@ -9,7 +9,7 @@ import { can, useAuth } from "@/lib/auth";
 import { formatBytes } from "@/lib/utils";
 import * as Tabs from "@radix-ui/react-tabs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Eye, EyeOff, Play, Plus, Power, RefreshCw, Trash2 } from "lucide-react";
+import { Copy, Download, Eye, EyeOff, Globe, Lock, Play, Plus, Power, RefreshCw, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
@@ -87,6 +87,8 @@ export default function InstanceDetailPage() {
             <RefreshCw className="h-4 w-4" /> Restart
           </Button>
           <CloneButton id={id} sourceName={inst.name} />
+          <VisibilityToggle id={id} isPublic={!!inst.public} />
+          <DownloadButton id={id} name={inst.name} />
           <DestroyButton id={id} />
         </div>
       )}
@@ -276,6 +278,47 @@ function ConnectionCard({ id }: { id: string }) {
         </code>
       </CardBody>
     </Card>
+  );
+}
+
+function VisibilityToggle({ id, isPublic }: { id: string; isPublic: boolean }) {
+  const qc = useQueryClient();
+  const toggle = useMutation({
+    mutationFn: () => api.setVisibility(id, !isPublic),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["instance", id] }),
+  });
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={() => toggle.mutate()}
+      disabled={toggle.isPending}
+      title={isPublic ? "Reachable on all interfaces — click to make private" : "Bound to localhost — click to expose publicly"}
+    >
+      {isPublic ? <Globe className="h-4 w-4 text-signal" /> : <Lock className="h-4 w-4 text-healthy" />}
+      {toggle.isPending ? "Applying…" : isPublic ? "Public" : "Private"}
+    </Button>
+  );
+}
+
+function DownloadButton({ id, name }: { id: string; name: string }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        try {
+          await api.downloadDump(id, name);
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <Download className="h-4 w-4" /> {busy ? "Dumping…" : "Download"}
+    </Button>
   );
 }
 

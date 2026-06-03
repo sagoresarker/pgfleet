@@ -21,6 +21,7 @@ export interface Instance {
   last_error?: string;
   parameters?: Record<string, string>;
   extensions?: string[];
+  public?: boolean;
 }
 
 export interface Backup {
@@ -177,6 +178,22 @@ export const api = {
     request<void>("POST", "/api/v1/instances", input),
   cloneInstance: (id: string, input: { name: string; password: string }) =>
     request<void>("POST", `/api/v1/instances/${id}/clone`, input),
+  setVisibility: (id: string, isPublic: boolean) =>
+    request<void>("POST", `/api/v1/instances/${id}/visibility`, { public: isPublic }),
+  downloadDump: async (id: string, name: string) => {
+    const token = getToken();
+    const res = await fetch(`/api/v1/instances/${id}/dump`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error((await res.text()) || "download failed");
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${name}.sql`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
   startInstance: (id: string) => request<void>("POST", `/api/v1/instances/${id}/start`),
   stopInstance: (id: string) => request<void>("POST", `/api/v1/instances/${id}/stop`),
   restartInstance: (id: string) => request<void>("POST", `/api/v1/instances/${id}/restart`),

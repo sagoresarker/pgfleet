@@ -253,6 +253,7 @@ func run() error {
 		Prometheus:    api.NewPrometheusHandler(instances, metricStore),
 		SQL:           api.NewSQLHandler(provisioner.DSN),
 		Exec:          api.NewExecHandler(instances, rt),
+		Dump:          api.NewDumpHandler(instances, provisioner.DSN),
 	})
 
 	serveErr := api.Serve(ctx, ln, router, log)

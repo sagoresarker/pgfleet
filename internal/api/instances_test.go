@@ -93,7 +93,8 @@ func (f *fakeProvisioner) Stop(_ context.Context, id string) error {
 	f.stopped = append(f.stopped, id)
 	return nil
 }
-func (f *fakeProvisioner) Restart(_ context.Context, _ string) error { return nil }
+func (f *fakeProvisioner) Restart(_ context.Context, _ string) error               { return nil }
+func (f *fakeProvisioner) SetVisibility(_ context.Context, _ string, _ bool) error { return nil }
 func (f *fakeProvisioner) Destroy(_ context.Context, id string, _ bool) error {
 	f.destroyed = append(f.destroyed, id)
 	return nil

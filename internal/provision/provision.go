@@ -76,6 +76,7 @@ type store interface {
 	SetRuntime(ctx context.Context, id, containerID string, hostPort int) error
 	SetDataVolume(ctx context.Context, id, volume string) error
 	SetStatus(ctx context.Context, id string, status instance.Status, lastErr string) error
+	SetPublic(ctx context.Context, id string, public bool) error
 	Delete(ctx context.Context, id string) error
 }
 
@@ -245,7 +246,7 @@ func (p *Provisioner) containerSpec(inst instance.Instance, password string, mou
 			"POSTGRES_DB":       "postgres",
 		},
 		Labels:        recoveryLabels(inst),
-		Ports:         []docker.PortMapping{{ContainerPort: pgPort, HostPort: 0, HostIP: p.opts.BindAddress}},
+		Ports:         []docker.PortMapping{{ContainerPort: pgPort, HostPort: 0, HostIP: p.bindAddrFor(inst)}},
 		Mounts:        mounts,
 		RestartPolicy: p.opts.RestartPolicy,
 	}
@@ -393,6 +394,18 @@ func instanceLabels(id string) map[string]string {
 		docker.LabelInstance: id,
 		docker.LabelRole:     "postgres",
 	}
+}
+
+// bindAddrFor returns the host interface the instance's published port binds to:
+// 0.0.0.0 (all interfaces) for a public instance, else the secure default.
+func (p *Provisioner) bindAddrFor(inst instance.Instance) string {
+	if inst.Public {
+		return "0.0.0.0"
+	}
+	if p.opts.BindAddress != "" {
+		return p.opts.BindAddress
+	}
+	return "127.0.0.1"
 }
 
 // recoveryLabels stamps an instance container with non-secret identifying

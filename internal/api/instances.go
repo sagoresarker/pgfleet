@@ -25,6 +25,7 @@ type InstanceProvisioner interface {
 	Stop(ctx context.Context, id string) error
 	Restart(ctx context.Context, id string) error
 	Destroy(ctx context.Context, id string, retainBackups bool) error
+	SetVisibility(ctx context.Context, id string, public bool) error
 	DSN(ctx context.Context, id string) (string, error)
 }
 
@@ -81,6 +82,7 @@ type instancePayload struct {
 	LastError  string            `json:"last_error,omitempty"`
 	Parameters map[string]string `json:"parameters,omitempty"`
 	Extensions []string          `json:"extensions,omitempty"`
+	Public     bool              `json:"public"`
 }
 
 func toInstancePayload(i instance.Instance) instancePayload {
@@ -88,7 +90,7 @@ func toInstancePayload(i instance.Instance) instancePayload {
 		ID: i.ID, Name: i.Name, Status: string(i.Status), RepoType: string(i.RepoType),
 		PGVersion: i.PGVersion, HostPort: i.HostPort, Stanza: i.Stanza,
 		Role: string(i.Role), ClusterID: i.ClusterID, LastError: i.LastError,
-		Parameters: i.Parameters, Extensions: i.Extensions,
+		Parameters: i.Parameters, Extensions: i.Extensions, Public: i.Public,
 	}
 }
 
@@ -124,6 +126,24 @@ func (h *InstancesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	})
 
 	writeJSON(w, http.StatusAccepted, map[string]any{"instance": toInstancePayload(inst)})
+}
+
+type visibilityRequest struct {
+	Public bool `json:"public"`
+}
+
+// Visibility toggles whether the instance's port is publicly reachable; the
+// container is recreated with the new binding asynchronously (202).
+func (h *InstancesHandler) Visibility(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req visibilityRequest
+	if err := decodeJSON(r, &req); err != nil {
+		respondError(w, err)
+		return
+	}
+	recordAudit(h.audit, r, "instance.visibility", id)
+	h.async.Go(func(ctx context.Context) { _ = h.prov.SetVisibility(ctx, id, req.Public) })
+	w.WriteHeader(http.StatusAccepted)
 }
 
 type cloneRequest struct {
