@@ -20,6 +20,15 @@ const (
 	StatusRestoring    Status = "restoring"
 )
 
+// Role is an instance's role within a cluster.
+type Role string
+
+const (
+	RoleStandalone Role = "standalone"
+	RolePrimary    Role = "primary"
+	RoleReplica    Role = "replica"
+)
+
 // RepoType selects where pgBackRest stores backups.
 type RepoType string
 
@@ -53,6 +62,8 @@ type Instance struct {
 	Stanza      string
 	Superuser   string
 	LastError   string
+	ClusterID   string // "" for standalone instances
+	Role        Role
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
@@ -62,6 +73,8 @@ type NewInstance struct {
 	Name      string
 	Image     string
 	PGVersion string
+	ClusterID string // optional; "" for standalone
+	Role      Role   // defaults to standalone
 	RepoType  RepoType
 	Superuser string
 	Password  string

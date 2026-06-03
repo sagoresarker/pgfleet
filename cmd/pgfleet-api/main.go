@@ -14,6 +14,8 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/auth"
 	"github.com/sagoresarker/pgfleet/internal/backup"
 	"github.com/sagoresarker/pgfleet/internal/bootstrap"
+	"github.com/sagoresarker/pgfleet/internal/cluster"
+	"github.com/sagoresarker/pgfleet/internal/clusterctl"
 	"github.com/sagoresarker/pgfleet/internal/config"
 	"github.com/sagoresarker/pgfleet/internal/docker"
 	"github.com/sagoresarker/pgfleet/internal/health"
@@ -129,6 +131,8 @@ func run() error {
 		InstanceHost: cfg.InstanceHost,
 		S3:           s3,
 	})
+	clusters := cluster.NewRepository(pool)
+	clusterSvc := clusterctl.New(clusters, instances, provisioner, rt, instance.RepoType(cfg.DefaultRepoType))
 	hub := ws.NewHub()
 
 	// Reconcile on boot and on a loop so the control plane is not amnesiac
@@ -180,6 +184,7 @@ func run() error {
 		Auth:      api.NewAuthHandler(users, issuer, recorder),
 		Users:     api.NewUsersHandler(users, recorder),
 		Instances: api.NewInstancesHandler(instances, provisioner, hub).WithAudit(recorder),
+		Clusters:  api.NewClustersHandler(clusterSvc, clusters, instances, cfg.InstanceHost, recorder),
 		Backups:   api.NewBackupsHandler(backups, provisioner, recorder),
 		Metrics:   api.NewMetricsHandler(metricStore, insights),
 		Health:    api.NewHealthHandler(healthStore),

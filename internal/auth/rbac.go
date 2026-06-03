@@ -5,15 +5,15 @@ type Action string
 
 const (
 	ActionInstanceRead    Action = "instance.read"
-	ActionInstanceWrite   Action = "instance.write"   // create / update / start / stop
+	ActionInstanceWrite   Action = "instance.write" // create / update / start / stop
 	ActionInstanceDelete  Action = "instance.delete"
 	ActionInstanceConnect Action = "instance.connect" // reveal the superuser DSN
-	ActionBackupRead     Action = "backup.read"
-	ActionBackupWrite    Action = "backup.write" // take / schedule backups
-	ActionBackupRestore  Action = "backup.restore"
-	ActionMetricsRead    Action = "metrics.read"
-	ActionAuditRead      Action = "audit.read"
-	ActionUserManage     Action = "user.manage"
+	ActionBackupRead      Action = "backup.read"
+	ActionBackupWrite     Action = "backup.write" // take / schedule backups
+	ActionBackupRestore   Action = "backup.restore"
+	ActionMetricsRead     Action = "metrics.read"
+	ActionAuditRead       Action = "audit.read"
+	ActionUserManage      Action = "user.manage"
 )
 
 // AllActions returns every defined action (useful for tests and tooling).

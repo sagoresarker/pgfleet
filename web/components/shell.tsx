@@ -2,7 +2,7 @@
 
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
-import { Activity, Boxes, Database, LogOut, ShieldCheck, Users } from "lucide-react";
+import { Activity, Boxes, Database, LogOut, Network, ShieldCheck, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
@@ -12,6 +12,7 @@ import { Badge, Spinner } from "./ui";
 const nav = [
   { href: "/dashboard", label: "Fleet", icon: Boxes },
   { href: "/instances", label: "Instances", icon: Database },
+  { href: "/clusters", label: "Clusters", icon: Network },
   { href: "/health", label: "Reliability", icon: ShieldCheck },
   { href: "/users", label: "Access", icon: Users },
 ];

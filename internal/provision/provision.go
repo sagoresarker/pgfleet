@@ -188,11 +188,11 @@ func (p *Provisioner) containerSpec(inst instance.Instance, password string, mou
 		"-c", "archive_command=" + archiveCmd,
 		"-c", "archive_timeout=60",
 		"-c", "wal_level=replica",
-		"-c", "max_wal_senders=3",
+		"-c", "max_wal_senders=10", // headroom for replicas + concurrent base backups
 		"-c", "shared_preload_libraries=pg_stat_statements",
 	}
 	spec := docker.ContainerSpec{
-		Name:  "pgfleet-pg-" + inst.Name,
+		Name:  InstanceContainerName(inst.Name),
 		Image: inst.Image,
 		Cmd:   cmd,
 		Env: map[string]string{
@@ -313,7 +313,12 @@ func redactSecrets(s string) string {
 }
 
 func assignedPort(state docker.ContainerState) (int, error) {
-	hp, ok := state.Ports[fmt.Sprintf("%d/tcp", pgPort)]
+	return portFor(state, pgPort)
+}
+
+// portFor returns the host port mapped to the given container port.
+func portFor(state docker.ContainerState, containerPort int) (int, error) {
+	hp, ok := state.Ports[fmt.Sprintf("%d/tcp", containerPort)]
 	if !ok || hp == "" {
 		return 0, apperr.New(apperr.KindInternal, "provision: no host port assigned")
 	}
@@ -333,6 +338,10 @@ func instanceLabels(id string) map[string]string {
 }
 
 func volumeName(kind, id string) string { return "pgfleet-" + kind + "-" + id }
+
+// InstanceContainerName is the deterministic Docker container name for an
+// instance; on the shared network, peers reach it by this name.
+func InstanceContainerName(name string) string { return "pgfleet-pg-" + name }
 
 // asPostgres wraps a command so it runs as the postgres OS user. pgBackRest
 // must run as postgres so it connects to the cluster as the postgres role and

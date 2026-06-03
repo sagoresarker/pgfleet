@@ -96,9 +96,9 @@ func (m *Moby) Inspect(ctx context.Context, id string) (ContainerState, error) {
 		return ContainerState{}, mapErr("inspect container", err)
 	}
 	st := ContainerState{
-		ID:     j.ID,
-		Name:   j.Name,
-		Ports:  map[string]string{},
+		ID:    j.ID,
+		Name:  j.Name,
+		Ports: map[string]string{},
 	}
 	if j.State != nil {
 		st.Status = j.State.Status

@@ -16,7 +16,10 @@ func TestHandlerStreamsEvents(t *testing.T) {
 	defer srv.Close()
 
 	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "?token=valid"
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	conn, resp, err := websocket.DefaultDialer.Dial(url, nil)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -48,5 +51,8 @@ func TestHandlerRejectsBadToken(t *testing.T) {
 	}
 	if resp == nil || resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("status = %v, want 401", resp)
+	}
+	if resp != nil {
+		_ = resp.Body.Close()
 	}
 }

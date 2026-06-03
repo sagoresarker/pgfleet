@@ -34,6 +34,8 @@ type Deps struct {
 	Users *UsersHandler
 	// Instances serves managed-instance endpoints.
 	Instances *InstancesHandler
+	// Clusters serves HA cluster endpoints.
+	Clusters *ClustersHandler
 	// Backups serves backup/restore endpoints.
 	Backups *BackupsHandler
 	// Metrics serves analytics endpoints.
@@ -77,6 +79,9 @@ func NewRouter(deps Deps) http.Handler {
 				}
 				if deps.Instances != nil {
 					mountInstanceRoutes(pr, deps.Instances)
+				}
+				if deps.Clusters != nil {
+					mountClusterRoutes(pr, deps.Clusters)
 				}
 				if deps.Backups != nil {
 					mountBackupRoutes(pr, deps.Backups)
@@ -133,6 +138,26 @@ func mountInstanceRoutes(pr chi.Router, h *InstancesHandler) {
 	pr.Group(func(dr chi.Router) {
 		dr.Use(auth.RequireAction(auth.ActionInstanceDelete))
 		dr.Delete("/instances/{id}", h.Destroy)
+	})
+}
+
+func mountClusterRoutes(pr chi.Router, h *ClustersHandler) {
+	pr.Group(func(rr chi.Router) {
+		rr.Use(auth.RequireAction(auth.ActionInstanceRead))
+		rr.Get("/clusters", h.List)
+		rr.Get("/clusters/{id}", h.Get)
+	})
+	pr.Group(func(cr chi.Router) {
+		cr.Use(auth.RequireAction(auth.ActionInstanceConnect))
+		cr.Get("/clusters/{id}/connection", h.Connection)
+	})
+	pr.Group(func(wr chi.Router) {
+		wr.Use(auth.RequireAction(auth.ActionInstanceWrite))
+		wr.Post("/clusters", h.Create)
+	})
+	pr.Group(func(dr chi.Router) {
+		dr.Use(auth.RequireAction(auth.ActionInstanceDelete))
+		dr.Delete("/clusters/{id}", h.Destroy)
 	})
 }
 

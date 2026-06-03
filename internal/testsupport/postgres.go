@@ -37,8 +37,16 @@ func StartPostgresImage(t *testing.T, image string) string {
 		postgres.WithDatabase("pgfleet"),
 		postgres.WithUsername("pgfleet"),
 		postgres.WithPassword("pgfleet"),
+		// Wait for the readiness log TWICE: Postgres opens the port during the
+		// initdb temporary server and then restarts, so a port-only wait can
+		// connect mid-restart and get "connection reset by peer". Requiring two
+		// "ready" log lines (temp server + real server) plus a port check makes
+		// the container genuinely ready before tests connect.
 		testcontainers.WithWaitStrategy(
-			wait.ForListeningPort("5432/tcp").WithStartupTimeout(90*time.Second),
+			wait.ForAll(
+				wait.ForLog("database system is ready to accept connections").WithOccurrence(2),
+				wait.ForListeningPort("5432/tcp"),
+			).WithDeadline(120*time.Second),
 		),
 	)
 	if err != nil {

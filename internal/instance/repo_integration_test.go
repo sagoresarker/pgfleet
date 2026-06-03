@@ -142,4 +142,3 @@ func TestDelete(t *testing.T) {
 		t.Errorf("delete missing kind = %v, want NotFound", apperr.Kind(err))
 	}
 }
-

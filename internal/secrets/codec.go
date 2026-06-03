@@ -17,13 +17,7 @@ type sealedJSON struct {
 
 // Marshal serializes a Sealed secret for storage.
 func Marshal(s Sealed) ([]byte, error) {
-	return json.Marshal(sealedJSON{
-		Ciphertext:   s.Ciphertext,
-		Nonce:        s.Nonce,
-		EncryptedDEK: s.EncryptedDEK,
-		DEKNonce:     s.DEKNonce,
-		KeyVersion:   s.KeyVersion,
-	})
+	return json.Marshal(sealedJSON(s))
 }
 
 // Unmarshal parses a stored Sealed secret.
@@ -32,11 +26,5 @@ func Unmarshal(data []byte) (Sealed, error) {
 	if err := json.Unmarshal(data, &j); err != nil {
 		return Sealed{}, fmt.Errorf("secrets: unmarshal sealed: %w", err)
 	}
-	return Sealed{
-		Ciphertext:   j.Ciphertext,
-		Nonce:        j.Nonce,
-		EncryptedDEK: j.EncryptedDEK,
-		DEKNonce:     j.DEKNonce,
-		KeyVersion:   j.KeyVersion,
-	}, nil
+	return Sealed(j), nil
 }

@@ -138,9 +138,9 @@ func TestMobyListByLabel(t *testing.T) {
 	ctx := context.Background()
 	instanceID := "inst-" + uniq()
 	createTestContainer(t, m, ContainerSpec{
-		Name:  "pgfleet-test-label-" + uniq(),
-		Image: testImage,
-		Cmd:   []string{"sleep", "300"},
+		Name:   "pgfleet-test-label-" + uniq(),
+		Image:  testImage,
+		Cmd:    []string{"sleep", "300"},
 		Labels: map[string]string{LabelInstance: instanceID},
 	})
 

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"testing"
 	"time"
 
@@ -16,7 +15,6 @@ import (
 )
 
 type fakeBackupRunner struct {
-	mu   sync.Mutex
 	runs chan [2]string
 	list []backup.Backup
 }
