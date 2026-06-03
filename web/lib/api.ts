@@ -304,10 +304,23 @@ async function downloadFile(path: string, filename: string): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
+// fetchText fetches an authenticated text endpoint and returns the raw body
+// (used to preview docker-compose YAML inline).
+async function fetchText(path: string): Promise<string> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(path, { headers });
+  if (!res.ok) throw new ApiError(res.status, res.statusText);
+  return res.text();
+}
+
 export const api = {
   listAudit: (limit = 100) => request<{ entries: AuditEntry[] }>("GET", `/api/v1/audit?limit=${limit}`),
   exportInstanceCompose: (id: string, name: string) => downloadFile(`/api/v1/instances/${id}/compose`, `${name}-compose.yml`),
   exportClusterCompose: (id: string, name: string) => downloadFile(`/api/v1/clusters/${id}/compose`, `${name}-compose.yml`),
+  previewInstanceCompose: (id: string) => fetchText(`/api/v1/instances/${id}/compose`),
+  previewClusterCompose: (id: string) => fetchText(`/api/v1/clusters/${id}/compose`),
   login: (email: string, password: string) =>
     request<{ token: string; user: User }>("POST", "/api/v1/auth/login", { email, password }),
   // ssoLogin exchanges the proxy-verified identity (Authelia/OIDC forward-auth

@@ -1,6 +1,7 @@
 "use client";
 
 import { BackupLineage } from "@/components/backup-lineage";
+import { ComposePreview } from "@/components/compose-preview";
 import { RestoreDialog } from "@/components/restore-dialog";
 import { PageHeader } from "@/components/shell";
 import { InstanceStatus } from "@/components/status";
@@ -226,6 +227,7 @@ function InstanceToolbar({
   const toast = useToast();
   const [cloneOpen, setCloneOpen] = useState(false);
   const [destroyOpen, setDestroyOpen] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
 
   const lifecycle = useMutation({
@@ -259,14 +261,6 @@ function InstanceToolbar({
     }
   }
 
-  async function exportCompose() {
-    try {
-      await api.exportInstanceCompose(id, inst.name);
-      toast.push("docker-compose.yml downloaded", "healthy");
-    } catch (e) {
-      toast.push(e instanceof Error ? e.message : "Export failed", "danger");
-    }
-  }
 
   const running = inst.status === "running";
   return (
@@ -319,8 +313,8 @@ function InstanceToolbar({
         <ActionMenuItem icon={<Download className="h-4 w-4" />} onSelect={downloadDump} disabled={downloading || !running}>
           Download logical dump
         </ActionMenuItem>
-        <ActionMenuItem icon={<FileDown className="h-4 w-4" />} onSelect={exportCompose}>
-          Export docker-compose
+        <ActionMenuItem icon={<FileDown className="h-4 w-4" />} onSelect={() => setComposeOpen(true)}>
+          View docker-compose
         </ActionMenuItem>
         <ActionMenuSeparator />
         <ActionMenuItem icon={<Trash2 className="h-4 w-4" />} danger onSelect={() => setDestroyOpen(true)}>
@@ -329,6 +323,7 @@ function InstanceToolbar({
       </ActionMenu>
 
       <CloneModal id={id} sourceName={inst.name} backupCount={backupCount} open={cloneOpen} onOpenChange={setCloneOpen} />
+      <ComposePreview kind="instance" id={id} name={inst.name} open={composeOpen} onOpenChange={setComposeOpen} />
       <DestroyModal
         id={id}
         name={inst.name}

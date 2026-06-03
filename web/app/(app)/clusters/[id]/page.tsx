@@ -1,5 +1,6 @@
 "use client";
 
+import { ComposePreview } from "@/components/compose-preview";
 import { PageHeader } from "@/components/shell";
 import { RouterObservability } from "@/components/routing";
 import { ClusterStatus } from "@/components/status";
@@ -247,16 +248,7 @@ function PoolStatsPanel({ id, ready }: { id: string; ready: boolean }) {
 /* ---- Toolbar: secondary + destructive actions in a tidy Actions menu ---- */
 function ClusterToolbar({ id, name }: { id: string; name: string }) {
   const [destroyOpen, setDestroyOpen] = useState(false);
-  const toast = useToast();
-
-  async function exportCompose() {
-    try {
-      await api.exportClusterCompose(id, name);
-      toast.push("docker-compose.yml downloaded", "healthy");
-    } catch (e) {
-      toast.push(e instanceof Error ? e.message : "Export failed", "danger");
-    }
-  }
+  const [composeOpen, setComposeOpen] = useState(false);
 
   return (
     <div className="flex items-center gap-2">
@@ -267,8 +259,8 @@ function ClusterToolbar({ id, name }: { id: string; name: string }) {
           </Button>
         }
       >
-        <ActionMenuItem icon={<FileDown className="h-4 w-4" />} onSelect={exportCompose}>
-          Export docker-compose
+        <ActionMenuItem icon={<FileDown className="h-4 w-4" />} onSelect={() => setComposeOpen(true)}>
+          View docker-compose
         </ActionMenuItem>
         <ActionMenuItem icon={<Database className="h-4 w-4" />} disabled>
           Backups managed per member
@@ -279,6 +271,7 @@ function ClusterToolbar({ id, name }: { id: string; name: string }) {
         </ActionMenuItem>
       </ActionMenu>
 
+      <ComposePreview kind="cluster" id={id} name={name} open={composeOpen} onOpenChange={setComposeOpen} />
       <DestroyModal id={id} name={name} open={destroyOpen} onOpenChange={setDestroyOpen} />
     </div>
   );
