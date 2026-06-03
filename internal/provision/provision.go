@@ -39,6 +39,10 @@ type Options struct {
 	Network      string
 	InstanceHost string
 	S3           objectstore.Config
+	// RestartPolicy is applied to managed instance and router containers so
+	// they survive a daemon/host restart without the control plane. Empty
+	// leaves the daemon default.
+	RestartPolicy string
 }
 
 // store is the subset of *instance.Repository the provisioner needs.
@@ -204,9 +208,10 @@ func (p *Provisioner) containerSpec(inst instance.Instance, password string, mou
 			"POSTGRES_PASSWORD": password,
 			"POSTGRES_DB":       "postgres",
 		},
-		Labels: instanceLabels(inst.ID),
-		Ports:  []docker.PortMapping{{ContainerPort: pgPort, HostPort: 0}},
-		Mounts: mounts,
+		Labels:        instanceLabels(inst.ID),
+		Ports:         []docker.PortMapping{{ContainerPort: pgPort, HostPort: 0}},
+		Mounts:        mounts,
+		RestartPolicy: p.opts.RestartPolicy,
 	}
 	if p.opts.Network != "" {
 		spec.Networks = []string{p.opts.Network}

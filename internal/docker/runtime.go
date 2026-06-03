@@ -40,6 +40,9 @@ type ContainerSpec struct {
 	Mounts   []Mount
 	Networks []string
 	User     string
+	// RestartPolicy is the Docker restart policy (e.g. "unless-stopped",
+	// "always", "no"). Empty means the daemon default ("no").
+	RestartPolicy string
 }
 
 // ExecResult is the outcome of an exec inside a container.
@@ -51,13 +54,14 @@ type ExecResult struct {
 
 // ContainerState is a snapshot of a container's runtime state.
 type ContainerState struct {
-	ID       string
-	Name     string
-	Status   string // created, running, exited, ...
-	Running  bool
-	ExitCode int               // valid once Status is "exited"
-	Health   string            // "", healthy, unhealthy, starting
-	Ports    map[string]string // "5432/tcp" -> host port
+	ID            string
+	Name          string
+	Status        string // created, running, exited, ...
+	Running       bool
+	ExitCode      int               // valid once Status is "exited"
+	Health        string            // "", healthy, unhealthy, starting
+	Ports         map[string]string // "5432/tcp" -> host port
+	RestartPolicy string            // configured restart policy, if any
 }
 
 // ContainerInfo is a lightweight container listing entry.
