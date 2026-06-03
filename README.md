@@ -4,32 +4,46 @@ A self-hosted **managed-Postgres control plane** — a focused, open-source alte
 
 From one professional web UI an operator can:
 
-- **Provision** single-node Postgres instances, each in its own Docker container.
+- **Provision** Postgres instances, each in its own Docker container.
 - Get automatic **WAL archiving + scheduled backups** to object storage (MinIO/S3) or a local volume, powered by [pgBackRest](https://pgbackrest.org/).
-- **Restore & PITR** (point-in-time recovery) through a guided wizard.
-- Watch **live + historical analytics** (connections, throughput, query insights from `pg_stat_*`).
-- Trust the reliability story: verified backups (automated restore drills), archiving-health alerts, and a crash-safe control plane.
+- **Restore & PITR** (point-in-time recovery) through a guided timeline wizard — restores into a fresh volume and swaps, so live data is never at risk.
+- Run **high-availability clusters**: a primary with streaming read replicas behind a [PgCat](https://github.com/postgresml/pgcat) query router that splits reads and writes.
+- Watch **live + historical analytics** (connections, throughput, query insights from `pg_stat_statements`).
+- Trust the reliability story: verified backups (automated restore drills), archiving-health + `pg_wal` alerts, and a crash-safe control plane that reconciles on restart.
+
+**[→ Quickstart](docs/QUICKSTART.md)** · **[Testing & coverage](docs/TESTING.md)**
 
 ## Architecture
 
 | Layer | Tech |
 |-------|------|
-| Backend (control plane) | Go — chi, pgx, Docker Engine API |
+| Backend (control plane) | Go — chi, pgx, Docker Engine API, JWT + RBAC |
 | Managed instances | `postgres:16` + pgBackRest, one stanza per instance |
+| Replication / routing | streaming replicas + PgCat (read/write split) |
 | Backup repo | MinIO (S3-compatible) by default; local volume supported |
-| Meta DB | A dedicated Postgres storing users, instances, backup catalog, metrics, audit |
-| Frontend | Next.js (App Router) + React + Tailwind + shadcn/ui + React Query |
+| Meta DB | A dedicated Postgres storing users, instances, clusters, backup catalog, metrics, health, audit |
+| Frontend | Next.js (App Router) + Tailwind v4 + Radix + React Query |
 
-See [`docs`](docs/) and the implementation plan for details.
+## Quickstart
+
+```bash
+make dev-up                       # meta-DB + MinIO
+make image                        # build the postgres+pgBackRest image
+cp .env.example .env && make run  # run the control plane on :8080
+cd web && npm install && npm run dev   # console on :3000
+```
+
+Full walkthrough in [docs/QUICKSTART.md](docs/QUICKSTART.md).
 
 ## Development
 
 ```bash
-make dev-up           # start meta-DB + MinIO
 make test             # fast unit tests (no Docker)
-make test-integration # integration tests (Docker required)
+make test-integration # integration tests (real Postgres + MinIO + pgBackRest)
 make build            # build the API server
-make lint             # golangci-lint
+make image            # build the managed-instance image
+make lint             # golangci-lint v2
 ```
 
-Built strictly test-first (TDD), commit by commit.
+Built strictly test-first (TDD), commit by commit. Combined unit + integration
+coverage is **78.3%**; see [docs/TESTING.md](docs/TESTING.md).

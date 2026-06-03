@@ -94,9 +94,23 @@ func TestClusterLifecycleEndToEnd(t *testing.T) {
 	if _, err := conn.Exec(ctx, "CREATE TABLE c (id int); INSERT INTO c VALUES (1),(2),(3)"); err != nil {
 		t.Fatalf("write through cluster: %v", err)
 	}
+	// Reads are split to the replica, which trails the primary by some
+	// streaming-replication lag, so the freshly written table is not
+	// guaranteed visible there immediately. Poll until the replica catches up
+	// (or a read load-balances onto the primary) rather than asserting
+	// read-your-writes consistency, which a read/write-splitting router does
+	// not provide. Mirrors the connect-retry loop above.
 	var n int
-	if err := conn.QueryRow(ctx, "SELECT count(*) FROM c").Scan(&n); err != nil || n != 3 {
-		t.Fatalf("read through cluster = %d (err %v), want 3", n, err)
+	readDeadline := time.Now().Add(30 * time.Second)
+	for {
+		err := conn.QueryRow(ctx, "SELECT count(*) FROM c").Scan(&n)
+		if err == nil && n == 3 {
+			break
+		}
+		if time.Now().After(readDeadline) {
+			t.Fatalf("read through cluster = %d (err %v), want 3", n, err)
+		}
+		time.Sleep(time.Second)
 	}
 
 	// Membership: 1 primary + 1 replica.

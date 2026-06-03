@@ -18,6 +18,10 @@ tidy: ## Sync go.mod/go.sum
 build: ## Build the API server
 	$(GO) build -o $(API_BIN) ./cmd/pgfleet-api
 
+.PHONY: run
+run: build ## Run the API server, loading .env (copy .env.example first)
+	@set -a; [ -f .env ] && . ./.env; set +a; $(API_BIN)
+
 .PHONY: test
 test: ## Run fast unit tests (no Docker)
 	$(GO) test -race $(PKG)
