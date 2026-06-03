@@ -32,3 +32,5 @@ web/playwright-report/
 /loadgen
 bin/
 /pgfleet
+web/tsconfig.tsbuildinfo
+web/.next/

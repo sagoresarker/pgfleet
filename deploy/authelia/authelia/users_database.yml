@@ -1,0 +1,21 @@
+# Authelia file-based users. Generate the password hash with:
+#   docker run --rm authelia/authelia:4.38 authelia crypto hash generate argon2 --password 'YourStrongPassword'
+#
+# The `groups` here drive PgFleet's role mapping via the trusted-header SSO
+# exchange: members of `pgfleet-admins` become PgFleet admins, `pgfleet-operators`
+# become operators, anyone else becomes a viewer (see PGFLEET_SSO_*_GROUP).
+users:
+  admin:
+    displayname: "PgFleet Admin"
+    # Replace with a real argon2id hash (the value below is a placeholder).
+    password: "$argon2id$v=19$m=65536,t=3,p=4$REPLACE_ME_WITH_A_REAL_HASH"
+    email: admin@example.com
+    groups:
+      - pgfleet-admins
+
+  operator:
+    displayname: "PgFleet Operator"
+    password: "$argon2id$v=19$m=65536,t=3,p=4$REPLACE_ME_WITH_A_REAL_HASH"
+    email: operator@example.com
+    groups:
+      - pgfleet-operators

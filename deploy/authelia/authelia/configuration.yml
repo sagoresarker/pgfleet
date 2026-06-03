@@ -1,0 +1,66 @@
+# Authelia configuration for fronting PgFleet. Tested shape for Authelia 4.38.
+# Secrets (session, storage encryption, jwt) come from the environment in the
+# compose file — do NOT hard-code them here in production.
+
+server:
+  address: "tcp://0.0.0.0:9091/authelia"
+
+log:
+  level: info
+
+# TOTP multi-factor (authenticator apps). This is the second factor that makes
+# credential cracking alone insufficient to reach the dashboard.
+totp:
+  issuer: pgfleet.example.com
+
+authentication_backend:
+  # File-based users for a small self-hosted deployment. Swap for the LDAP
+  # backend to integrate an existing directory.
+  file:
+    path: /config/users_database.yml
+    password:
+      algorithm: argon2
+      argon2:
+        variant: argon2id
+        iterations: 3
+        memory: 65536
+        parallelism: 4
+
+# Brute-force / credential-stuffing protection: after max_retries failed logins
+# within find_time, the account is banned for ban_time. This is the primary
+# defense the dashboard gains over PgFleet's password login alone.
+regulation:
+  max_retries: 4
+  find_time: 2m
+  ban_time: 10m
+
+# Default deny. Require two factors to reach PgFleet; bypass only the login
+# portal and health/metrics probes.
+access_control:
+  default_policy: deny
+  rules:
+    - domain: pgfleet.example.com
+      policy: bypass
+      resources:
+        - "^/healthz$"
+        - "^/readyz$"
+    - domain: pgfleet.example.com
+      policy: two_factor
+
+session:
+  name: authelia_session
+  cookies:
+    - domain: pgfleet.example.com
+      authelia_url: https://pgfleet.example.com/authelia
+      expiration: 1h
+      inactivity: 15m
+
+storage:
+  local:
+    path: /config/db.sqlite3
+
+# Dev notifier writes the email (e.g. for password reset / 2FA enrollment) to a
+# file. Use the SMTP notifier in production.
+notifier:
+  filesystem:
+    filename: /config/notification.txt

@@ -1,19 +1,40 @@
 "use client";
 
 import { Logo } from "@/components/logo";
-import { Button, Field, Input } from "@/components/ui";
+import { Button, Field, Input, PasswordInput } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, KeyRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+// When the operator has wired an external IdP (Authelia / any OIDC provider),
+// NEXT_PUBLIC_OIDC_ENABLED=1 surfaces an SSO button that hands off to the
+// backend's OIDC start endpoint. Password login remains as a fallback.
+const oidcEnabled = process.env.NEXT_PUBLIC_OIDC_ENABLED === "1";
+const oidcLabel = process.env.NEXT_PUBLIC_OIDC_LABEL || "Single sign-on";
+
 export default function LoginPage() {
-  const { user, loading, login } = useAuth();
+  const { user, loading, login, ssoLogin } = useAuth();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [ssoBusy, setSsoBusy] = useState(false);
+
+  async function onSso() {
+    setError(null);
+    setSsoBusy(true);
+    try {
+      await ssoLogin();
+      router.replace("/dashboard");
+    } catch {
+      // 401 here just means the request did not come through the IdP proxy.
+      setError("Single sign-on is unavailable — sign in with your email instead.");
+    } finally {
+      setSsoBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!loading && user) router.replace("/dashboard");
@@ -48,26 +69,47 @@ export default function LoginPage() {
           <h1 className="font-display text-lg font-semibold tracking-tight">Sign in</h1>
           <p className="mt-1 text-sm text-fg-muted">Access the Postgres control plane.</p>
 
-          <form onSubmit={onSubmit} className="mt-6 space-y-4">
+          {oidcEnabled && (
+            <div className="mt-6">
+              <Button variant="outline" className="w-full" onClick={onSso} loading={ssoBusy} type="button">
+                {!ssoBusy && <KeyRound className="h-4 w-4" />}
+                {oidcLabel}
+              </Button>
+              <div className="my-5 flex items-center gap-3 text-fg-faint">
+                <span className="h-px flex-1 bg-line" />
+                <span className="font-mono text-[10px] uppercase tracking-wider">or</span>
+                <span className="h-px flex-1 bg-line" />
+              </div>
+            </div>
+          )}
+
+          <form onSubmit={onSubmit} className={oidcEnabled ? "space-y-4" : "mt-6 space-y-4"}>
             <Field label="Email">
               <Input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
+                autoComplete="username"
                 autoFocus
                 required
               />
             </Field>
             <Field label="Password">
-              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+              <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} required />
             </Field>
 
             {error && (
-              <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{error}</div>
+              <div
+                role="alert"
+                aria-live="assertive"
+                className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger"
+              >
+                {error}
+              </div>
             )}
 
-            <Button type="submit" className="w-full" disabled={submitting}>
+            <Button type="submit" className="w-full" loading={submitting}>
               {submitting ? "Authenticating…" : "Enter control plane"}
               {!submitting && <ArrowRight className="h-4 w-4" />}
             </Button>

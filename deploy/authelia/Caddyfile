@@ -1,0 +1,39 @@
+# Caddy: TLS termination + reverse proxy + Authelia forward-auth for PgFleet.
+# Replace pgfleet.example.com with your domain (or use a local CA for testing).
+
+pgfleet.example.com {
+	# The Authelia login portal, served under /authelia.
+	handle /authelia/* {
+		reverse_proxy authelia:9091
+	}
+
+	# Forward-auth: every request below is first checked by Authelia. If the
+	# session is missing/expired, Caddy redirects to the login portal; once
+	# authenticated, Authelia returns the verified identity, which Caddy copies
+	# onto the upstream request as Remote-* headers.
+	#
+	# SECURITY: strip any client-supplied Remote-* headers BEFORE forward_auth so
+	# they can only ever be set from Authelia's verified response. PgFleet trusts
+	# Remote-Email unconditionally, so this strip is what makes that safe.
+	@protected not path /authelia/*
+	handle @protected {
+		header_up -Remote-Email
+		header_up -Remote-User
+		header_up -Remote-Groups
+		header_up -Remote-Name
+
+		forward_auth authelia:9091 {
+			uri /api/authz/forward-auth
+			copy_headers Remote-User Remote-Groups Remote-Name Remote-Email
+		}
+
+		# API and WebSocket traffic → PgFleet API; everything else → the UI.
+		@api path /api/* /healthz /readyz /metrics
+		handle @api {
+			reverse_proxy pgfleet-api:8080
+		}
+		handle {
+			reverse_proxy pgfleet-ui:3000
+		}
+	}
+}

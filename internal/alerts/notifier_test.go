@@ -103,3 +103,40 @@ func TestWebhookNotifierErrorsOnNon2xx(t *testing.T) {
 		t.Error("expected an error on a non-2xx webhook response")
 	}
 }
+
+// TestWebhookNotifierBlocksMetadataEndpoint proves the SSRF guard refuses to
+// POST to the cloud-metadata / link-local range (the classic SSRF escalation),
+// failing fast at dial time rather than connecting.
+func TestWebhookNotifierBlocksMetadataEndpoint(t *testing.T) {
+	for _, target := range []string{
+		"http://169.254.169.254/latest/meta-data/",
+		"http://169.254.169.254:80/",
+	} {
+		n := NewWebhookNotifier(target, time.Second)
+		err := n.Notify(context.Background(), []Transition{{Kind: KindDiskFull, Message: "x"}})
+		if err == nil {
+			t.Fatalf("%s: expected the metadata endpoint to be blocked, got nil", target)
+		}
+	}
+}
+
+// TestWebhookNotifierAllowsLoopback confirms the guard does NOT break the
+// legitimate self-hosted case of an internal/loopback webhook receiver.
+func TestWebhookNotifierAllowsLoopback(t *testing.T) {
+	got := make(chan int, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var p notifyPayload
+		_ = json.NewDecoder(r.Body).Decode(&p)
+		got <- len(p.Transitions)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	n := NewWebhookNotifier(srv.URL, time.Second) // httptest binds 127.0.0.1 (loopback)
+	if err := n.Notify(context.Background(), []Transition{{Kind: KindDiskFull, Message: "x"}}); err != nil {
+		t.Fatalf("loopback webhook should be allowed, got %v", err)
+	}
+	if n := <-got; n != 1 {
+		t.Fatalf("server saw %d transitions, want 1", n)
+	}
+}

@@ -173,3 +173,56 @@ func TestDisableMissingUserIs404(t *testing.T) {
 		t.Errorf("status = %d, want 404", rr.Code)
 	}
 }
+
+// TestDisableLastAdminRejected — disabling the only active admin would lock
+// everyone out (Login rejects disabled accounts), so it must be refused.
+func TestDisableLastAdminRejected(t *testing.T) {
+	store := newFakeAdminStore()
+	store.users["admin1"] = user.User{ID: "admin1", Email: "admin@x.com", Role: auth.RoleAdmin}
+	h := mountUsers(NewUsersHandler(store, nil))
+
+	rr := postJSON(t, h, "/api/v1/users/admin1/disable", ``)
+	if rr.Code == http.StatusNoContent {
+		t.Fatalf("disabling the last admin must be rejected, got 204")
+	}
+	if store.disabled["admin1"] {
+		t.Error("last admin must not have been disabled")
+	}
+}
+
+// TestDisableAdminWithAnotherActiveAdminAllowed — with a second active admin,
+// disabling one is fine (no lockout).
+func TestDisableAdminWithAnotherActiveAdminAllowed(t *testing.T) {
+	store := newFakeAdminStore()
+	store.users["admin1"] = user.User{ID: "admin1", Email: "a1@x.com", Role: auth.RoleAdmin}
+	store.users["admin2"] = user.User{ID: "admin2", Email: "a2@x.com", Role: auth.RoleAdmin}
+	h := mountUsers(NewUsersHandler(store, nil))
+
+	rr := postJSON(t, h, "/api/v1/users/admin1/disable", ``)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("disable status = %d, want 204", rr.Code)
+	}
+	if !store.disabled["admin1"] {
+		t.Error("admin1 should have been disabled")
+	}
+}
+
+// TestDisableSelfRejected — an admin cannot disable their own account even if
+// other admins exist (avoids the foot-gun and a confusing session).
+func TestDisableSelfRejected(t *testing.T) {
+	store := newFakeAdminStore()
+	store.users["admin1"] = user.User{ID: "admin1", Email: "a1@x.com", Role: auth.RoleAdmin}
+	store.users["admin2"] = user.User{ID: "admin2", Email: "a2@x.com", Role: auth.RoleAdmin}
+	handler := mountUsers(NewUsersHandler(store, nil))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users/admin1/disable", nil)
+	req = req.WithContext(auth.ContextWithClaims(req.Context(), &auth.Claims{UserID: "admin1", Role: auth.RoleAdmin}))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code == http.StatusNoContent {
+		t.Fatalf("self-disable must be rejected, got 204")
+	}
+	if store.disabled["admin1"] {
+		t.Error("self-disable must not have taken effect")
+	}
+}

@@ -2,7 +2,7 @@
 
 import { PageHeader } from "@/components/shell";
 import { ClusterStatus } from "@/components/status";
-import { Button, Card, CardBody, Spinner } from "@/components/ui";
+import { Button, Card, CardBody, EmptyState, SkeletonRows } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { Network, Plus } from "lucide-react";
@@ -35,24 +35,30 @@ export default function ClustersPage() {
         </div>
         <CardBody className="p-0">
           {isLoading ? (
-            <div className="grid place-items-center py-16">
-              <Spinner className="h-6 w-6" />
+            <div className="p-5">
+              <SkeletonRows rows={3} />
             </div>
           ) : items.length === 0 ? (
-            <div className="grid place-items-center py-16 text-center">
-              <Network className="mb-3 h-8 w-8 text-fg-faint" />
-              <p className="text-sm text-fg-muted">No clusters yet.</p>
-              <p className="mt-1 max-w-sm text-xs text-fg-faint">
-                A cluster gives you read replicas, automatic read/write routing, and a foundation for failover.
-              </p>
-            </div>
+            <EmptyState
+              icon={<Network className="h-5 w-5" />}
+              title="No clusters yet"
+              description="A cluster gives you read replicas, automatic read/write routing, and a foundation for failover."
+              action={
+                <Button asChild size="sm">
+                  <Link href="/clusters/new">
+                    <Plus className="h-4 w-4" />
+                    New cluster
+                  </Link>
+                </Button>
+              }
+            />
           ) : (
             <ul className="divide-y divide-line">
               {items.map((c) => (
                 <li key={c.id}>
                   <Link
                     href={`/clusters/${c.id}`}
-                    className="grid grid-cols-[1fr_auto_auto] items-center gap-4 px-5 py-4 transition-colors hover:bg-ink-800/50"
+                    className="grid grid-cols-[1fr_auto_auto] items-center gap-4 px-5 py-4 transition-colors hover:bg-ink-800/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-azure/50"
                   >
                     <div className="flex items-center gap-3">
                       <Network className="h-4 w-4 text-fg-faint" />

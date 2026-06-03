@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FAQ — PgFleet</title>
+  <meta name="description" content="Frequently asked questions about PgFleet: production readiness, how it compares to RDS and Crunchy Bridge, where backups live, point-in-time recovery, port behavior on restart, safe internet exposure, SSO with Authelia, automatic failover, and more.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232563eb' stroke-width='2'%3E%3Cellipse cx='12' cy='5' rx='8' ry='3'/%3E%3Cpath d='M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5'/%3E%3Cpath d='M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="assets/styles.css">
+  <meta name="theme-color" content="#e9eef4">
+</head>
+<body>
+  <a href="#main" class="skip-link">Skip to content</a>
+
+  <!-- ===================== NAV ===================== -->
+  <header class="nav">
+    <nav class="nav-inner" aria-label="Primary">
+      <a href="index.html" class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
+        </span>
+        PgFleet
+        <span class="brand-tag">self-hosted</span>
+      </a>
+      <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="nav-links">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+      <ul class="nav-links" id="nav-links">
+        <li><a href="features.html">Features</a></li>
+        <li><a href="faq.html" aria-current="page">FAQ</a></li>
+        <li><a href="https://github.com/sagoresarker/pgfleet" rel="noopener">GitHub</a></li>
+        <li class="nav-cta"><a class="btn btn-primary" href="https://github.com/sagoresarker/pgfleet" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          Get started
+        </a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main id="main">
+
+    <section class="section" style="padding-bottom:2.5rem">
+      <div class="container">
+        <div class="section-head reveal" style="max-width:760px">
+          <span class="eyebrow"><span class="led led-azure led-pulse"></span>FAQ</span>
+          <h2>Questions, answered plainly.</h2>
+          <p>Honest, technical answers about what PgFleet does, how it behaves in operation, and how to run it safely.</p>
+        </div>
+        <div class="faq-cats reveal d1" aria-hidden="true">
+          <span class="faq-cat">Fit &amp; comparison</span>
+          <span class="faq-cat">Backups &amp; recovery</span>
+          <span class="faq-cat">Networking &amp; ports</span>
+          <span class="faq-cat">Security &amp; SSO</span>
+          <span class="faq-cat">High availability</span>
+          <span class="faq-cat">Operations</span>
+        </div>
+
+        <div class="faq-list reveal d1">
+
+          <!-- 1 -->
+          <details class="faq">
+            <summary>Is PgFleet production-ready, and who is it for?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+            <div class="faq-body">
+              <p>PgFleet is aimed at small teams, solo operators, and infrastructure-minded developers who want managed-Postgres ergonomics on hardware they control. It bundles the operational essentials — provisioning, WAL archiving, scheduled backups, point-in-time recovery, replication, and failover — into one control plane.</p>
+              <p>As with any self-hosted database platform, "production-ready" depends on <strong>you</strong>: validate your backups with restore drills, configure replicas and alerting, and rehearse failover before you depend on it. PgFleet gives you the tooling to do all of that; the discipline of running it is yours.</p>
+            </div>
+          </details>
+
+          <!-- 2 -->
+          <details class="faq">
+            <summary>How is it different from AWS RDS or Crunchy Bridge?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+            <div class="faq-body">
+              <p>RDS and Crunchy Bridge are fully managed cloud services: the vendor owns the hardware, the control plane, and ultimately your data location, and you pay a recurring per-instance premium for that convenience.</p>
+              <p>PgFleet is the <strong>opposite trade-off</strong>. You run the control plane yourself with Docker, your Postgres instances live on your hosts, and your backups go to <strong>your</strong> S3 or MinIO bucket. You get a comparable operational experience — one-click provisioning, automatic backups, PITR, failover, observability — with no vendor lock-in and no per-instance bill. The cost is that you operate the host and object storage.</p>
+            </div>
+          </details>
+
+          <!-- 3 -->
+          <details class="faq">
+            <summary>Where are backups stored, and are they actually restorable?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+            <div class="faq-body">
+              <p>Backups go to an object store you control — any <strong>S3-compatible</strong> service, including <strong>MinIO</strong> for fully on-prem setups. PgFleet uses <strong>pgBackRest</strong> for full and differential backups together with continuous WAL archiving.</p>
+              <p>The only backup you can trust is one you have restored. PgFleet lets you restore a backup into a <strong>fresh instance</strong> as a drill, so you can confirm it is genuinely restorable rather than assuming it is. Make those drills routine.</p>
+            </div>
+          </details>
+
+          <!-- 4 -->
+          <details class="faq">
+            <summary>How does point-in-time recovery (PITR) work?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+            <div class="faq-body">
+              <p>PITR combines a base backup with the continuous stream of archived WAL. To recover, PgFleet starts from the most recent base backup taken before your target time, then <strong>replays archived write-ahead logs</strong> up to the exact second you choose.</p>
+              <p>A guided wizard walks you through picking the target timestamp and target instance, so you can rewind to the moment just before a bad deploy or an accidental <code>DELETE</code> — anywhere inside your retention window — without hand-writing recovery configuration.</p>
+            </div>
+          </details>
+
+          <!-- 5 -->
+          <details class="faq">
+            <summary>Does the host port or IP change when I stop and start an instance?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+            <div class="faq-body">
+              <p>It can. Managed instances publish on <strong>ephemeral host ports</strong> assigned by Docker, so the host-side port may differ after a stop/start. This is expected behavior, not a bug.</p>
+              <p>PgFleet handles it for you: on every start it <strong>re-reads the published port from Docker and persists it</strong>, and after a control-plane restart the reconciler <strong>re-adopts running containers</strong> and refreshes the recorded port. The dashboard therefore always shows the port the instance is currently reachable on.</p>
+              <p>For an address that never moves, front the instance with a reverse proxy or a <strong>Cloudflare Tunnel</strong> and connect your app to that stable hostname — see the next question. There is more detail on <a href="features.html#restart">the features page</a>.</p>
+            </div>
+          </details>
+
+          <!-- 6 -->
+          <details class="faq">
+            <summary>How do I expose an instance to the internet safely?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+            <div class="faq-body">
+              <p>Instances are <strong>private by default</strong>, bound to <code>127.0.0.1</code> so nothing is reachable from outside the host until you decide otherwise. Keep it that way unless you have a concrete reason to publish.</p>
+              <p>When you do need remote access, do not expose the raw Postgres port to the world. Put a <strong>reverse proxy</strong> or a <strong>Cloudflare Tunnel</strong> in front of it — the tunnel also gives you a stable hostname even as the origin port changes — and place an identity provider such as <strong>Authelia</strong> (or any OIDC IdP) in front of human-facing surfaces so only authenticated users get through. The public/private toggle makes the intent explicit per instance.</p>
+            </div>
+          </details>
+
+          <!-- 7 -->
+          <details class="faq">
+            <summary>Is the admin dashboard protected, and can I use SSO?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+            <div class="faq-body">
+              <p>Yes. The dashboard is a control plane for your whole fleet, so it should never sit open on the internet. The recommended pattern is to place it behind a reverse proxy or Cloudflare Tunnel with an identity provider — <strong>Authelia</strong> or any <strong>OIDC</strong> provider — enforcing authentication (and ideally MFA) before any request reaches PgFleet.</p>
+              <p>This gives you <strong>single sign-on</strong> with your existing accounts and centralizes access policy, rather than relying on the application to be your only gate.</p>
+            </div>
+          </details>
+
+          <!-- 8 -->
+          <details class="faq">
+            <summary>Can I back up and restore a remote database I don't manage?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+            <div class="faq-body">
+              <p>Yes — that is the <strong>remote backup/restore</strong> feature. Enter the host, port, and credentials of an external Postgres database and PgFleet can back it up to your object store, even though it does not run that database.</p>
+              <p>You can also <strong>restore a remote backup into a managed instance</strong>, which makes PgFleet a practical migration path: adopt the external database, verify the restore against a clone, then cut over when you are confident. See <a href="features.html#remote">Remote backup &amp; restore</a>.</p>
+            </div>
+          </details>
+
+          <!-- 9 -->
+          <details class="faq">
+            <summary>How does automatic failover work — can it cause split-brain?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+            <div class="faq-body">
+              <p>PgFleet ships <strong>in-house automatic failover</strong> — no external orchestrator required. When it detects the primary has failed, it <strong>fences and removes the old primary first</strong>, and only then promotes a healthy replica to take over.</p>
+              <p>Because the failed primary is fenced out before any promotion happens, you do not end up with two nodes accepting writes — <strong>no split-brain</strong>. The PgCat router then directs traffic to the newly promoted primary so applications follow the failover transparently.</p>
+            </div>
+          </details>
+
+          <!-- 10 -->
+          <details class="faq">
+            <summary>What Postgres versions and extensions are supported?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+            <div class="faq-body">
+              <p>PgFleet provisions Postgres from standard Docker images, so it tracks the <strong>current, actively-supported major versions</strong> of Postgres; you pick the version when you create an instance. For time-series workloads it offers first-class <strong>TimescaleDB</strong> support so you can run hypertables out of the box.</p>
+              <p>Because instances are real Postgres containers, you keep the flexibility of the wider Postgres extension ecosystem rather than a locked-down managed subset.</p>
+            </div>
+          </details>
+
+          <!-- 11 -->
+          <details class="faq">
+            <summary>How do I run recovery drills to know my backups are good?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+            <div class="faq-body">
+              <p>Restore into a <strong>fresh, throwaway instance</strong> and check the data — that is the drill. Because provisioning and restore are one-click operations, you can rehearse recovery on a schedule without risking the original instance.</p>
+              <p>Combine this with PITR to practice rewinding to a specific timestamp, and with <strong>one-click clone</strong> to test changes against a real copy. A backup you have never restored is a hope, not a backup.</p>
+            </div>
+          </details>
+
+          <!-- 12 -->
+          <details class="faq">
+            <summary>How is my data secured and encrypted at rest?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+            <div class="faq-body">
+              <p>Because PgFleet is self-hosted, encryption at rest is something you own end to end and can satisfy at the layers that matter: enable <strong>encryption at rest on the host volumes</strong> backing your instances, and turn on <strong>server-side encryption on your S3 or MinIO bucket</strong> so archived WAL and backups are encrypted in object storage.</p>
+              <p>For data in transit, terminate <strong>TLS</strong> at your reverse proxy or Cloudflare Tunnel, and keep instances private by default so nothing is exposed unencrypted. Credentials for remote databases and object storage stay within your own environment.</p>
+            </div>
+          </details>
+
+          <!-- 13 -->
+          <details class="faq">
+            <summary>How do I monitor PgFleet and my instances?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+            <div class="faq-body">
+              <p>The dashboard gives you <strong>live and historical analytics</strong> — throughput, connections, replication lag — plus <strong>query insights</strong> for slow statements and streamed logs, so you can see what every instance is doing without leaving the browser.</p>
+              <p>On top of that, configure <strong>alerts</strong> on health, replication lag, disk, and backup status so issues reach you proactively. The metrics are well-suited to wiring into your existing <strong>Prometheus</strong>-based monitoring and dashboards alongside the built-in views.</p>
+            </div>
+          </details>
+
+          <!-- 14 -->
+          <details class="faq">
+            <summary>What does the PgCat router actually do for me?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+            <div class="faq-body">
+              <p>PgCat is a connection pooler and router that sits in front of an instance and its replicas. It gives your application a <strong>single endpoint</strong> while splitting <strong>reads to replicas and writes to the primary</strong>, and it pools connections so a burst of clients does not overwhelm Postgres.</p>
+              <p>Crucially, it also <strong>follows failovers</strong>: after PgFleet promotes a new primary, the router points writes at it, so applications keep working without reconfiguration.</p>
+            </div>
+          </details>
+
+          <!-- 15 -->
+          <details class="faq">
+            <summary>What are the licensing and self-hosting terms?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+            <div class="faq-body">
+              <p>PgFleet is <strong>open-source and self-hosted</strong>. You run the entire stack on your own infrastructure — control plane, Postgres instances, and object storage — with no usage-based fees and no vendor lock-in.</p>
+              <p>For the authoritative license terms, check the <code>LICENSE</code> file in the <a href="https://github.com/sagoresarker/pgfleet" rel="noopener">GitHub repository</a>, which always reflects the current licensing for the version you are running.</p>
+            </div>
+          </details>
+
+          <!-- 16 -->
+          <details class="faq">
+            <summary>What do I need to run it, and how do I get started?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+            <div class="faq-body">
+              <p>You need a host with <strong>Docker</strong> and an <strong>S3-compatible object store</strong> (managed S3 or a self-hosted MinIO). The control plane itself is a Go backend with a Next.js dashboard, packaged to run with Docker.</p>
+              <p>Clone the repository, start the control plane, point it at your bucket, and provision your first instance from the dashboard. From there, enable scheduled backups, add a replica, and run a restore drill to confirm everything is wired up. Start from the <a href="https://github.com/sagoresarker/pgfleet" rel="noopener">GitHub repo</a>.</p>
+            </div>
+          </details>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== CTA ===================== -->
+    <section class="section" style="padding-top:0">
+      <div class="container">
+        <div class="cta reveal">
+          <span class="eyebrow" style="justify-content:center"><span class="led led-azure led-pulse"></span>Still curious?</span>
+          <h2>The fastest answer is to run it.</h2>
+          <p>Stand up the control plane with Docker, connect a bucket, and provision a recoverable Postgres instance in minutes.</p>
+          <div class="cta-actions">
+            <a class="btn btn-primary btn-lg" href="https://github.com/sagoresarker/pgfleet" rel="noopener">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.36 1.09 2.93.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.5 9.5 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.69-4.57 4.94.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></svg>
+              Get started on GitHub
+            </a>
+            <a class="btn btn-secondary btn-lg" href="features.html">Explore features</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ===================== FOOTER ===================== -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div>
+          <a href="index.html" class="brand">
+            <span class="brand-mark" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
+            </span>
+            PgFleet
+          </a>
+          <p class="footer-about">A self-hosted, open-source control plane for managed Postgres. Provision, back up, recover, and observe your fleet on your own infrastructure.</p>
+        </div>
+        <div class="footer-col">
+          <h4>Product</h4>
+          <ul>
+            <li><a href="features.html">Features</a></li>
+            <li><a href="features.html#backups">Backups &amp; PITR</a></li>
+            <li><a href="features.html#ha">High availability</a></li>
+            <li><a href="features.html#remote">Remote backup</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Resources</h4>
+          <ul>
+            <li><a href="faq.html">FAQ</a></li>
+            <li><a href="features.html#restart">Restart &amp; ports</a></li>
+            <li><a href="https://github.com/sagoresarker/pgfleet" rel="noopener">GitHub</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Status</h4>
+          <ul>
+            <li><span class="pill pill-healthy"><span class="led led-healthy"></span>open source</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bar">
+        <span>© 2026 PgFleet · Self-hosted managed Postgres</span>
+        <span>Built with Go + Next.js · pgBackRest · PgCat</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/main.js" defer></script>
+</body>
+</html>

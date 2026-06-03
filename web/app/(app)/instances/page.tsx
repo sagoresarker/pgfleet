@@ -2,7 +2,7 @@
 
 import { PageHeader } from "@/components/shell";
 import { InstanceStatus } from "@/components/status";
-import { Button, Card, CardBody, Spinner } from "@/components/ui";
+import { Button, Card, CardBody, EmptyState, SkeletonRows, Spinner } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { Database, Plus } from "lucide-react";
@@ -40,21 +40,30 @@ export default function InstancesPage() {
         </div>
         <CardBody className="p-0">
           {isLoading ? (
-            <div className="grid place-items-center py-16">
-              <Spinner className="h-6 w-6" />
+            <div className="p-5">
+              <SkeletonRows rows={4} />
             </div>
           ) : items.length === 0 ? (
-            <div className="grid place-items-center py-16 text-center">
-              <Database className="mb-3 h-8 w-8 text-fg-faint" />
-              <p className="text-sm text-fg-muted">No instances provisioned.</p>
-            </div>
+            <EmptyState
+              icon={<Database className="h-5 w-5" />}
+              title="No instances provisioned"
+              description="Provision your first managed Postgres instance to begin."
+              action={
+                <Button asChild size="sm">
+                  <Link href="/instances/new">
+                    <Plus className="h-4 w-4" />
+                    New instance
+                  </Link>
+                </Button>
+              }
+            />
           ) : (
             <ul className="divide-y divide-line">
               {items.map((i) => (
                 <li key={i.id}>
                   <Link
                     href={`/instances/${i.id}`}
-                    className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-4 px-5 py-4 transition-colors hover:bg-ink-800/50"
+                    className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-4 px-5 py-4 transition-colors hover:bg-ink-800/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-azure/50"
                   >
                     <div className="flex items-center gap-3">
                       <Database className="h-4 w-4 text-fg-faint" />

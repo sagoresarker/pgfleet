@@ -93,7 +93,9 @@ func (s *Scheduler) Start(ctx context.Context) {
 	}
 }
 
-// Stop cancels all jobs and waits for their goroutines to exit.
+// Stop cancels all jobs and waits for their goroutines to exit. It clears the
+// stored cancel func AFTER the goroutines drain so a subsequent Start() relaunches
+// the jobs instead of hitting the idempotent-Start guard and silently no-opping.
 func (s *Scheduler) Stop() {
 	s.mu.Lock()
 	cancel := s.cancel
@@ -102,6 +104,9 @@ func (s *Scheduler) Stop() {
 		cancel()
 	}
 	s.wg.Wait()
+	s.mu.Lock()
+	s.cancel = nil
+	s.mu.Unlock()
 }
 
 func (s *Scheduler) loop(ctx context.Context, j job) {

@@ -98,12 +98,51 @@ func (h *UsersHandler) Enable(w http.ResponseWriter, r *http.Request) {
 
 func (h *UsersHandler) setDisabled(w http.ResponseWriter, r *http.Request, disabled bool, action string) {
 	id := chi.URLParam(r, "id")
+	if disabled {
+		if err := h.guardDisable(r, id); err != nil {
+			respondError(w, err)
+			return
+		}
+	}
 	if err := h.store.SetDisabled(r.Context(), id, disabled); err != nil {
 		respondError(w, err)
 		return
 	}
 	recordAudit(h.audit, r, action, id)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// guardDisable refuses disable actions that would lock everyone out of the
+// control plane. Login rejects disabled accounts, and there is no in-app
+// recovery, so both of these would be unrecoverable:
+//   - an admin disabling their OWN account, and
+//   - disabling the LAST remaining active admin.
+func (h *UsersHandler) guardDisable(r *http.Request, id string) error {
+	if claims, ok := auth.ClaimsFromContext(r.Context()); ok && claims.UserID == id {
+		return apperr.New(apperr.KindInvalid, "you cannot disable your own account")
+	}
+	users, err := h.store.List(r.Context())
+	if err != nil {
+		return err
+	}
+	var target *user.User
+	activeAdmins := 0
+	for i := range users {
+		if users[i].ID == id {
+			target = &users[i]
+		}
+		if users[i].Role == auth.RoleAdmin && !users[i].Disabled {
+			activeAdmins++
+		}
+	}
+	// Unknown id: let SetDisabled produce the NotFound so behaviour is unchanged.
+	if target == nil {
+		return nil
+	}
+	if target.Role == auth.RoleAdmin && !target.Disabled && activeAdmins <= 1 {
+		return apperr.New(apperr.KindInvalid, "cannot disable the last active admin")
+	}
+	return nil
 }
 
 func toPayload(u user.User) userPayload {

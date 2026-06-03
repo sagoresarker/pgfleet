@@ -2,7 +2,7 @@
 
 import { PageHeader } from "@/components/shell";
 import { InstanceStatus } from "@/components/status";
-import { Badge, Button, Card, CardBody, CardHeader, CardTitle, Spinner, Stat } from "@/components/ui";
+import { Badge, Button, Card, CardBody, CardHeader, CardTitle, EmptyState, SkeletonRows, Spinner, Stat } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Database, Plus, ShieldCheck } from "lucide-react";
@@ -62,15 +62,31 @@ export default function DashboardPage() {
               {instances.isFetching && <Spinner />}
             </CardHeader>
             <CardBody className="p-0">
-              {items.length === 0 ? (
-                <EmptyFleet loading={instances.isLoading} />
+              {instances.isLoading ? (
+                <div className="p-5">
+                  <SkeletonRows rows={4} />
+                </div>
+              ) : items.length === 0 ? (
+                <EmptyState
+                  icon={<Database className="h-5 w-5" />}
+                  title="No instances yet"
+                  description="Provision your first managed Postgres instance to begin."
+                  action={
+                    <Button asChild size="sm">
+                      <Link href="/instances/new">
+                        <Plus className="h-4 w-4" />
+                        New instance
+                      </Link>
+                    </Button>
+                  }
+                />
               ) : (
                 <ul className="divide-y divide-line">
                   {items.map((i) => (
                     <li key={i.id}>
                       <Link
                         href={`/instances/${i.id}`}
-                        className="flex items-center gap-4 px-5 py-4 transition-colors hover:bg-ink-800/50"
+                        className="flex items-center gap-4 px-5 py-4 transition-colors hover:bg-ink-800/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-azure/50"
                       >
                         <Database className="h-4 w-4 text-fg-faint" />
                         <div className="min-w-0 flex-1">
@@ -120,30 +136,6 @@ export default function DashboardPage() {
           </CardBody>
         </Card>
       </div>
-    </div>
-  );
-}
-
-function EmptyFleet({ loading }: { loading: boolean }) {
-  return (
-    <div className="grid place-items-center px-6 py-16 text-center">
-      {loading ? (
-        <Spinner className="h-6 w-6" />
-      ) : (
-        <>
-          <Database className="mb-3 h-8 w-8 text-fg-faint" />
-          <p className="font-display text-sm text-fg">No instances yet</p>
-          <p className="mt-1 max-w-xs text-sm text-fg-muted">
-            Provision your first managed Postgres instance to begin.
-          </p>
-          <Button asChild className="mt-4" size="sm">
-            <Link href="/instances/new">
-              <Plus className="h-4 w-4" />
-              New instance
-            </Link>
-          </Button>
-        </>
-      )}
     </div>
   );
 }

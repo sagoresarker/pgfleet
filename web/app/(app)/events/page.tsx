@@ -1,7 +1,8 @@
 "use client";
 
 import { PageHeader } from "@/components/shell";
-import { Badge, Card, Spinner } from "@/components/ui";
+import { Badge, Card, EmptyState, SkeletonRows } from "@/components/ui";
+import { Activity } from "lucide-react";
 import { api, type EventItem } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
@@ -90,7 +91,8 @@ export default function EventsPage() {
               key={f.value}
               type="button"
               onClick={() => setTypeFilter(f.value === "all" ? "" : f.value)}
-              className={`rounded-md border px-3 py-1.5 font-mono text-xs transition-colors ${
+              aria-pressed={active}
+              className={`cursor-pointer rounded-md border px-3 py-1.5 font-mono text-xs transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-azure/50 ${
                 active
                   ? "border-azure/50 bg-azure/10 text-azure"
                   : "border-line text-fg-muted hover:border-line-bright"
@@ -103,14 +105,18 @@ export default function EventsPage() {
       </div>
 
       {isLoading ? (
-        <div className="grid place-items-center py-16">
-          <Spinner className="h-6 w-6" />
-        </div>
+        <Card>
+          <div className="p-5">
+            <SkeletonRows rows={5} />
+          </div>
+        </Card>
       ) : events.length === 0 ? (
         <Card>
-          <div className="grid place-items-center py-16 text-center">
-            <p className="text-sm text-fg-muted">No events recorded yet.</p>
-          </div>
+          <EmptyState
+            icon={<Activity className="h-5 w-5" />}
+            title="No events recorded yet"
+            description="Lifecycle, health, and alert activity will appear here as it happens — and it survives restarts."
+          />
         </Card>
       ) : (
         <ol className="ml-2 border-l border-line">

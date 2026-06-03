@@ -1,6 +1,20 @@
+"use client";
+
 import { cn } from "@/lib/utils";
 import { Slot } from "@radix-ui/react-slot";
-import { forwardRef, type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes } from "react";
+import { Eye, EyeOff } from "lucide-react";
+import {
+  createContext,
+  forwardRef,
+  useCallback,
+  useContext,
+  useRef,
+  useState,
+  type ButtonHTMLAttributes,
+  type HTMLAttributes,
+  type InputHTMLAttributes,
+  type ReactNode,
+} from "react";
 
 /* ---- Button ---- */
 type ButtonVariant = "primary" | "ghost" | "outline" | "danger";
@@ -16,20 +30,33 @@ const buttonVariants: Record<ButtonVariant, string> = {
 
 export const Button = forwardRef<
   HTMLButtonElement,
-  ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; size?: ButtonSize; asChild?: boolean }
->(({ className, variant = "primary", size = "md", asChild, ...props }, ref) => {
+  ButtonHTMLAttributes<HTMLButtonElement> & {
+    variant?: ButtonVariant;
+    size?: ButtonSize;
+    asChild?: boolean;
+    loading?: boolean;
+  }
+>(({ className, variant = "primary", size = "md", asChild, loading, disabled, children, ...props }, ref) => {
   const Comp = asChild ? Slot : "button";
+  const isDisabled = disabled || loading;
   return (
     <Comp
       ref={ref}
+      // active:scale gives tactile press feedback (scale-feedback rule) without
+      // shifting layout; cursor-pointer + visible focus ring for accessibility.
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-md font-display tracking-tight transition-all duration-150 disabled:opacity-40 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-azure/50",
+        "inline-flex cursor-pointer items-center justify-center gap-2 rounded-md font-display tracking-tight transition-all duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-azure/50 focus-visible:ring-offset-1 focus-visible:ring-offset-ink-950",
         size === "sm" ? "h-8 px-3 text-xs" : "h-10 px-4 text-sm",
         buttonVariants[variant],
         className
       )}
+      aria-busy={loading || undefined}
+      {...(asChild ? {} : { disabled: isDisabled })}
       {...props}
-    />
+    >
+      {loading && <Spinner className="h-3.5 w-3.5 border-current/30 border-t-current" />}
+      {children}
+    </Comp>
   );
 });
 Button.displayName = "Button";
@@ -144,6 +171,164 @@ export function Stat({ label, value, sub, tone }: { label: string; value: string
         {value}
       </div>
       {sub && <div className="text-xs text-fg-muted">{sub}</div>}
+    </div>
+  );
+}
+
+/* ---- Skeleton ---- *
+ * Shimmer placeholders. The UX guidance prefers skeletons over blocking
+ * spinners for anything that can take >300ms (a fleet/list/metrics fetch), so
+ * the layout is reserved and there is no content jump when data arrives. */
+export function Skeleton({ className }: { className?: string }) {
+  return <div className={cn("animate-pulse rounded-md bg-ink-700/70", className)} aria-hidden="true" />;
+}
+
+export function SkeletonRows({ rows = 4, className }: { rows?: number; className?: string }) {
+  return (
+    <div className={cn("space-y-2", className)} role="status" aria-label="Loading">
+      {Array.from({ length: rows }).map((_, i) => (
+        <Skeleton key={i} className="h-12 w-full" />
+      ))}
+    </div>
+  );
+}
+
+/* ---- EmptyState ---- *
+ * A helpful zero-data state: icon + what's missing + the action to fix it,
+ * instead of a blank panel that reads as "broken" to an operator. */
+export function EmptyState({
+  icon,
+  title,
+  description,
+  action,
+  className,
+}: {
+  icon?: ReactNode;
+  title: string;
+  description?: string;
+  action?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("flex flex-col items-center justify-center px-6 py-12 text-center", className)}>
+      {icon && (
+        <div className="mb-4 grid h-12 w-12 place-items-center rounded-full border border-line bg-ink-800 text-fg-faint">
+          {icon}
+        </div>
+      )}
+      <h3 className="font-display text-sm font-medium tracking-tight text-fg">{title}</h3>
+      {description && <p className="mt-1 max-w-sm text-sm text-fg-muted">{description}</p>}
+      {action && <div className="mt-5">{action}</div>}
+    </div>
+  );
+}
+
+/* ---- Tooltip ---- *
+ * Lightweight CSS tooltip for icon-only controls (keyboard-reachable via the
+ * wrapping element's focus). Not a replacement for an aria-label, which icon
+ * buttons must still carry. */
+export function Tooltip({ label, children, side = "top" }: { label: string; children: ReactNode; side?: "top" | "bottom" }) {
+  return (
+    <span className="group/tt relative inline-flex">
+      {children}
+      <span
+        role="tooltip"
+        className={cn(
+          "pointer-events-none absolute left-1/2 z-50 -translate-x-1/2 whitespace-nowrap rounded-md border border-line-bright bg-ink-900 px-2 py-1 text-[11px] text-fg opacity-0 shadow-lg transition-opacity duration-150 group-hover/tt:opacity-100 group-focus-within/tt:opacity-100",
+          side === "top" ? "bottom-full mb-1.5" : "top-full mt-1.5"
+        )}
+      >
+        {label}
+      </span>
+    </span>
+  );
+}
+
+/* ---- Toast ---- *
+ * Non-blocking, auto-dismissing feedback for async actions (backup started,
+ * clone failed, …). aria-live=polite so screen readers announce without
+ * stealing focus (toast-accessibility rule). */
+type ToastTone = "healthy" | "danger" | "azure";
+type ToastItem = { id: number; tone: ToastTone; message: string };
+type ToastCtx = { push: (message: string, tone?: ToastTone) => void };
+
+const ToastContext = createContext<ToastCtx | null>(null);
+
+export function ToastProvider({ children }: { children: ReactNode }) {
+  const [items, setItems] = useState<ToastItem[]>([]);
+  const seq = useRef(0);
+
+  const push = useCallback((message: string, tone: ToastTone = "azure") => {
+    const id = ++seq.current;
+    setItems((cur) => [...cur, { id, tone, message }]);
+    setTimeout(() => setItems((cur) => cur.filter((t) => t.id !== id)), 4000);
+  }, []);
+
+  return (
+    <ToastContext.Provider value={{ push }}>
+      {children}
+      <div
+        className="pointer-events-none fixed bottom-4 right-4 z-[1000] flex w-full max-w-sm flex-col gap-2"
+        aria-live="polite"
+        aria-atomic="false"
+      >
+        {items.map((t) => (
+          <div
+            key={t.id}
+            className={cn(
+              "pointer-events-auto flex items-start gap-2.5 rounded-lg border bg-ink-900 px-4 py-3 text-sm shadow-[0_12px_32px_-12px_rgba(15,31,51,0.3)] rise",
+              t.tone === "healthy" && "border-healthy/30",
+              t.tone === "danger" && "border-danger/30",
+              t.tone === "azure" && "border-azure/30"
+            )}
+          >
+            <span
+              className={cn(
+                "led mt-1.5",
+                t.tone === "healthy" && "led-healthy",
+                t.tone === "danger" && "led-danger",
+                t.tone === "azure" && "led-signal"
+              )}
+            />
+            <span className="text-fg-muted">{t.message}</span>
+          </div>
+        ))}
+      </div>
+    </ToastContext.Provider>
+  );
+}
+
+export function useToast(): ToastCtx {
+  const ctx = useContext(ToastContext);
+  // Fall back to a no-op so a component can call useToast() even if it is ever
+  // rendered outside the provider (e.g. in a unit test) without crashing.
+  return ctx ?? { push: () => {} };
+}
+
+/* ---- PasswordInput ---- *
+ * Text input with a show/hide toggle (password-toggle rule) + autocomplete. */
+export function PasswordInput({
+  className,
+  autoComplete = "current-password",
+  ...props
+}: InputHTMLAttributes<HTMLInputElement>) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="relative">
+      <Input
+        type={show ? "text" : "password"}
+        autoComplete={autoComplete}
+        className={cn("pr-10", className)}
+        {...props}
+      />
+      <button
+        type="button"
+        onClick={() => setShow((s) => !s)}
+        aria-label={show ? "Hide password" : "Show password"}
+        className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer rounded p-1 text-fg-faint transition-colors hover:text-fg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-azure/50"
+      >
+        {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </button>
     </div>
   );
 }

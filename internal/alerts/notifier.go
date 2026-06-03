@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"syscall"
 	"time"
 
 	"github.com/sagoresarker/pgfleet/internal/apperr"
@@ -13,6 +15,43 @@ import (
 
 // defaultNotifyTimeout bounds a webhook POST when none is configured.
 const defaultNotifyTimeout = 5 * time.Second
+
+// blockedDialControl rejects connections to link-local / cloud-metadata
+// addresses (169.254.0.0/16, fe80::/10, and the IPv6 metadata fd00:ec2::254).
+// It runs AFTER DNS resolution on the actual IP about to be dialed — including
+// every redirect hop — so it defeats DNS-rebinding and redirect-to-metadata SSRF
+// without breaking the legitimate self-hosted case of an internal/private
+// webhook receiver (RFC1918 / loopback are intentionally still allowed).
+func blockedDialControl(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return err
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return fmt.Errorf("alerts: webhook host %q did not resolve to an IP", host)
+	}
+	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || isMetadataIP(ip) {
+		return fmt.Errorf("alerts: webhook target %s is a blocked link-local/metadata address", ip)
+	}
+	return nil
+}
+
+func isMetadataIP(ip net.IP) bool {
+	// AWS/GCP/Azure IMDS and the IPv6 equivalent. Link-local already covers
+	// 169.254.169.254, but the IPv6 metadata address is unique-local, so name it.
+	return ip.Equal(net.ParseIP("169.254.169.254")) || ip.Equal(net.ParseIP("fd00:ec2::254"))
+}
+
+// guardedHTTPClient returns an http.Client whose dialer refuses link-local /
+// metadata targets on every hop.
+func guardedHTTPClient(timeout time.Duration) *http.Client {
+	dialer := &net.Dialer{Timeout: timeout, Control: blockedDialControl}
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: &http.Transport{DialContext: dialer.DialContext},
+	}
+}
 
 // WebhookNotifier POSTs alert transitions to a configured URL as JSON. An empty
 // URL makes Notify a no-op so notifications can be disabled by configuration.
@@ -26,7 +65,7 @@ func NewWebhookNotifier(url string, timeout time.Duration) *WebhookNotifier {
 	if timeout <= 0 {
 		timeout = defaultNotifyTimeout
 	}
-	return &WebhookNotifier{url: url, client: &http.Client{Timeout: timeout}}
+	return &WebhookNotifier{url: url, client: guardedHTTPClient(timeout)}
 }
 
 // notifyTransition is the wire shape of a single transition in the payload.

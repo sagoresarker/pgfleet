@@ -110,3 +110,37 @@ func TestStopHaltsJobs(t *testing.T) {
 		t.Fatalf("calls after stop = %d, want 1", got)
 	}
 }
+
+// TestSchedulerRestartsAfterStop proves Stop() fully resets state so a later
+// Start() actually relaunches the jobs (regression: Stop left s.cancel set, so
+// the idempotent-Start guard turned every restart into a silent no-op, wedging
+// backups/health/metrics/failover after any in-process Stop).
+func TestSchedulerRestartsAfterStop(t *testing.T) {
+	ticks := make(chan time.Time)
+	ran := make(chan int, 4)
+
+	s := New(WithTicker(manualTicker(ticks)))
+	s.Register("count", time.Minute, func(context.Context) error {
+		ran <- 1
+		return nil
+	})
+
+	s.Start(context.Background())
+	ticks <- time.Now()
+	if <-ran != 1 {
+		t.Fatal("job did not run before stop")
+	}
+	s.Stop()
+
+	// Restart: the job must fire again. Before the fix this Start() was a no-op
+	// and the tick below would block forever.
+	s.Start(context.Background())
+	defer s.Stop()
+	ticks <- time.Now()
+	select {
+	case <-ran:
+		// success
+	case <-time.After(2 * time.Second):
+		t.Fatal("job did not run after restart: Start() was a no-op")
+	}
+}

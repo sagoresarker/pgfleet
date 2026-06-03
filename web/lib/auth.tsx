@@ -7,6 +7,7 @@ interface AuthState {
   user: User | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  ssoLogin: () => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -43,6 +44,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(user);
   };
 
+  const ssoLogin = async () => {
+    const { token, user } = await api.ssoLogin();
+    setToken(token);
+    setUser(user);
+  };
+
   const logout = async () => {
     try {
       await api.logout();
@@ -53,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
-  return <AuthContext.Provider value={{ user, loading, login, logout }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user, loading, login, ssoLogin, logout }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

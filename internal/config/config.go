@@ -45,11 +45,23 @@ type Config struct {
 	// AutoFailover enables the in-house cluster failover controller (default
 	// true). Set PGFLEET_AUTO_FAILOVER=false to disable automatic promotion.
 	AutoFailover bool
-	S3Endpoint   string
-	S3Bucket     string
-	S3Region     string
-	S3AccessKey  string
-	S3SecretKey  string
+
+	// Trusted-header single sign-on (Authelia / any forward-auth IdP proxy).
+	// SSOEmailHeader, when set, enables POST /api/v1/auth/sso to exchange the
+	// proxy-verified identity for a PgFleet token. Only set this when the API is
+	// reachable ONLY through a proxy that strips client-supplied copies of these
+	// headers — the header is trusted unconditionally.
+	SSOEmailHeader   string
+	SSOGroupsHeader  string
+	SSOAutoProvision bool
+	SSOAdminGroup    string
+	SSOOperatorGroup string
+
+	S3Endpoint  string
+	S3Bucket    string
+	S3Region    string
+	S3AccessKey string
+	S3SecretKey string
 
 	// Scheduled backups.
 	BackupInterval time.Duration
@@ -72,6 +84,11 @@ func Load(getenv func(string) string) (*Config, error) {
 		InstanceBindAddress:    orDefault(getenv("PGFLEET_INSTANCE_BIND_ADDRESS"), "127.0.0.1"),
 		AlertWebhookURL:        getenv("PGFLEET_ALERT_WEBHOOK_URL"),
 		AutoFailover:           getenv("PGFLEET_AUTO_FAILOVER") != "false",
+		SSOEmailHeader:         getenv("PGFLEET_SSO_EMAIL_HEADER"),
+		SSOGroupsHeader:        orDefault(getenv("PGFLEET_SSO_GROUPS_HEADER"), "Remote-Groups"),
+		SSOAutoProvision:       getenv("PGFLEET_SSO_AUTO_PROVISION") == "true",
+		SSOAdminGroup:          orDefault(getenv("PGFLEET_SSO_ADMIN_GROUP"), "pgfleet-admins"),
+		SSOOperatorGroup:       orDefault(getenv("PGFLEET_SSO_OPERATOR_GROUP"), "pgfleet-operators"),
 		S3Endpoint:             getenv("PGFLEET_S3_ENDPOINT"),
 		S3Bucket:               getenv("PGFLEET_S3_BUCKET"),
 		S3Region:               orDefault(getenv("PGFLEET_S3_REGION"), "us-east-1"),

@@ -4,6 +4,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"time"
@@ -30,6 +31,9 @@ type Deps struct {
 	Issuer *auth.Issuer
 	// Auth serves login/logout.
 	Auth *AuthHandler
+	// SSO exchanges a trusted-header (Authelia/OIDC proxy) identity for a token
+	// (optional; mounted only when configured).
+	SSO *SSOHandler
 	// Users serves admin user management.
 	Users *UsersHandler
 	// Instances serves managed-instance endpoints.
@@ -62,6 +66,8 @@ type Deps struct {
 	Exec *ExecHandler
 	// Dump streams a logical pg_dump download (optional).
 	Dump *DumpHandler
+	// Remote serves the migrate-in (remote backup & restore) endpoints (optional).
+	Remote *RemoteHandler
 }
 
 // NewRouter builds the control-plane HTTP handler.
@@ -83,6 +89,12 @@ func NewRouter(deps Deps) http.Handler {
 	r.Route("/api/v1", func(api chi.Router) {
 		if deps.Auth != nil {
 			api.Post("/auth/login", deps.Auth.Login)
+		}
+		// SSO exchange is the entry point for forward-auth: it is authenticated by
+		// the trusted upstream header (set by the IdP proxy), not a bearer token,
+		// so it sits outside the bearer-auth group.
+		if deps.SSO != nil {
+			api.Post("/auth/sso", deps.SSO.Exchange)
 		}
 		if deps.Issuer != nil {
 			api.Group(func(pr chi.Router) {
@@ -177,15 +189,28 @@ func NewRouter(deps Deps) http.Handler {
 						xr.Post("/instances/{id}/exec", deps.Exec.Run)
 					})
 				}
+				if deps.Remote != nil {
+					mountRemoteRoutes(pr, deps.Remote)
+				}
 			})
 		}
 
 		// WebSocket events authenticate via a query-param token (browsers
 		// cannot set headers on WS), so they sit outside the header-auth group.
+		// Beyond verifying the token signature, authorize the ROLE: the live
+		// progress stream is the same fleet data as the persisted events timeline,
+		// so it requires the same read permission (defense-in-depth — a validly
+		// signed token with an unprivileged role must not subscribe).
 		if deps.Events != nil && deps.Issuer != nil {
 			api.Get("/events", ws.Handler(deps.Events, func(token string) error {
-				_, err := deps.Issuer.Verify(token)
-				return err
+				claims, err := deps.Issuer.Verify(token)
+				if err != nil {
+					return err
+				}
+				if !auth.Can(claims.Role, auth.ActionMetricsRead) {
+					return errInsufficientPermissions
+				}
+				return nil
 			}))
 		}
 	})
@@ -257,6 +282,26 @@ func mountTimescaleRoutes(pr chi.Router, h *TimescaleHandler) {
 		wr.Post(base+"/compression", h.EnableCompression)
 		wr.Delete(base+"/compression", h.RemoveCompression)
 		wr.Post(base+"/continuous-aggregates", h.CreateContinuousAggregate)
+	})
+}
+
+// errInsufficientPermissions rejects a WebSocket handshake whose token is valid
+// but whose role lacks the required permission.
+var errInsufficientPermissions = errors.New("insufficient permissions")
+
+// mountRemoteRoutes wires the migrate-in (remote backup & restore) endpoints.
+// Capturing a remote dump and restoring it into a freshly provisioned target
+// both create/own managed resources, so they require the same write privilege as
+// creating an instance/cluster; the list is a read.
+func mountRemoteRoutes(pr chi.Router, h *RemoteHandler) {
+	pr.Group(func(rr chi.Router) {
+		rr.Use(auth.RequireAction(auth.ActionInstanceRead))
+		rr.Get("/remote/backups", h.List)
+	})
+	pr.Group(func(wr chi.Router) {
+		wr.Use(auth.RequireAction(auth.ActionInstanceWrite))
+		wr.Post("/remote/backups", h.Capture)
+		wr.Post("/remote/backups/{id}/restore", h.Restore)
 	})
 }
 

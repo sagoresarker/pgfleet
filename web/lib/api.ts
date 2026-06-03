@@ -112,6 +112,21 @@ export interface EventItem {
   created_at: string;
 }
 
+// A cataloged remote (migrate-in) dump. Field names mirror the password-free
+// remoteDumpPayload returned by internal/api/remote.go. The source password is
+// write-only and is NEVER present here.
+export interface RemoteDump {
+  id: string;
+  object_key: string;
+  source_host: string;
+  source_db: string;
+  server_major: number;
+  size_bytes: number;
+  created_at: string;
+}
+
+export type RemoteRestoreTarget = "instance" | "cluster";
+
 const TOKEN_KEY = "pgfleet.token";
 
 export function getToken(): string | null {
@@ -170,6 +185,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 export const api = {
   login: (email: string, password: string) =>
     request<{ token: string; user: User }>("POST", "/api/v1/auth/login", { email, password }),
+  // ssoLogin exchanges the proxy-verified identity (Authelia/OIDC forward-auth
+  // header) for a PgFleet token. It only succeeds when the request arrives
+  // through the IdP proxy; otherwise the server returns 401.
+  ssoLogin: () => request<{ token: string; user: User }>("POST", "/api/v1/auth/sso"),
   logout: () => request<void>("POST", "/api/v1/auth/logout"),
 
   listInstances: () => request<{ instances: Instance[] }>("GET", "/api/v1/instances"),
@@ -262,6 +281,29 @@ export const api = {
     request<void>("POST", `/api/v1/instances/${id}/timescale/compression`, input),
   removeCompression: (id: string, hypertable: string) =>
     request<void>("DELETE", `/api/v1/instances/${id}/timescale/compression?hypertable=${encodeURIComponent(hypertable)}`),
+
+  // Remote backup & restore (migrate-in). The capture password is write-only:
+  // it is sent once and never returned or stored client-side.
+  captureRemoteBackup: (body: {
+    host: string;
+    port: number;
+    user: string;
+    password: string;
+    dbname: string;
+    sslmode: string;
+  }) => request<{ backup: RemoteDump }>("POST", "/api/v1/remote/backups", body),
+  listRemoteBackups: () => request<{ backups: RemoteDump[] }>("GET", "/api/v1/remote/backups"),
+  restoreRemoteBackup: (
+    id: string,
+    body: {
+      target: RemoteRestoreTarget;
+      name: string;
+      password: string;
+      repo_type: string;
+      pg_version: string;
+      replicas?: number;
+    },
+  ) => request<{ target: RemoteRestoreTarget; id: string }>("POST", `/api/v1/remote/backups/${id}/restore`, body),
 
   listUsers: () => request<{ users: User[] }>("GET", "/api/v1/users"),
   createUser: (input: { email: string; password: string; role: string }) =>

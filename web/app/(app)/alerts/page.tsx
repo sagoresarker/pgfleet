@@ -1,7 +1,7 @@
 "use client";
 
 import { PageHeader } from "@/components/shell";
-import { Badge, Card, CardBody, Spinner, StatusLed } from "@/components/ui";
+import { Badge, Card, CardBody, SkeletonRows, StatusLed } from "@/components/ui";
 import { api, type ActiveAlert } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { Database, ShieldCheck } from "lucide-react";
@@ -52,9 +52,7 @@ export default function AlertsPage() {
       <PageHeader title="Alerts" subtitle="Active reliability alerts across the fleet" />
 
       {isLoading ? (
-        <div className="grid place-items-center py-16">
-          <Spinner className="h-6 w-6" />
-        </div>
+        <SkeletonRows rows={3} />
       ) : firing.length === 0 ? (
         <Card className="border-healthy/30">
           <CardBody className="grid place-items-center gap-3 py-16 text-center">

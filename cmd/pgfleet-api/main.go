@@ -29,6 +29,7 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/objectstore"
 	"github.com/sagoresarker/pgfleet/internal/provision"
 	"github.com/sagoresarker/pgfleet/internal/reconcile"
+	"github.com/sagoresarker/pgfleet/internal/remotebackup"
 	"github.com/sagoresarker/pgfleet/internal/scheduler"
 	"github.com/sagoresarker/pgfleet/internal/secrets"
 	"github.com/sagoresarker/pgfleet/internal/store"
@@ -234,10 +235,35 @@ func run() error {
 	// "provisioning").
 	async := api.NewAsync(context.Background())
 
+	// Remote backup & restore ("migrate-in"): capture a logical dump of an
+	// external Postgres the operator supplies credentials for, stream it to the
+	// same object store as the rest of the fleet, and restore it into a freshly
+	// provisioned instance or cluster. Sealed source secrets live in the meta DB.
+	remoteSvc := remotebackup.New(remotebackup.NewObjectStore(s3), remotebackup.NewRepository(pool, cipher))
+	remoteProv := newRemoteTargetProvisioner(instances, provisioner, clusterSvc, clusters)
+	remoteHandler := api.NewRemoteHandler(remoteSvc, remoteProv).WithAudit(recorder).WithAsync(async)
+
+	// Trusted-header single sign-on: when an Authelia/OIDC forward-auth proxy is
+	// configured (PGFLEET_SSO_EMAIL_HEADER set), exchange the proxy-verified
+	// identity for a PgFleet token. Mounted only when configured.
+	ssoCfg := api.SSOConfig{
+		EmailHeader:   cfg.SSOEmailHeader,
+		GroupsHeader:  cfg.SSOGroupsHeader,
+		AutoProvision: cfg.SSOAutoProvision,
+		AdminGroup:    cfg.SSOAdminGroup,
+		OperatorGroup: cfg.SSOOperatorGroup,
+	}
+	var ssoHandler *api.SSOHandler
+	if ssoCfg.Enabled() {
+		ssoHandler = api.NewSSOHandler(users, issuer, ssoCfg).WithAudit(recorder)
+		log.Info("trusted-header SSO enabled", "email_header", cfg.SSOEmailHeader, "auto_provision", cfg.SSOAutoProvision)
+	}
+
 	router := api.NewRouter(api.Deps{
 		Ready:     store.Ready(pool),
 		Issuer:    issuer,
 		Auth:      api.NewAuthHandler(users, issuer, recorder),
+		SSO:       ssoHandler,
 		Users:     api.NewUsersHandler(users, recorder),
 		Instances: api.NewInstancesHandler(instances, provisioner, hub).WithAudit(recorder).WithAsync(async),
 		Clusters:  api.NewClustersHandler(clusterSvc, clusters, instances, cfg.InstanceHost, recorder).WithAsync(async),
@@ -254,6 +280,7 @@ func run() error {
 		SQL:           api.NewSQLHandler(provisioner.DSN).WithAudit(recorder),
 		Exec:          api.NewExecHandler(instances, rt).WithAudit(recorder),
 		Dump:          api.NewDumpHandler(instances, provisioner.DSN).WithLogger(log).WithAudit(recorder),
+		Remote:        remoteHandler,
 	})
 
 	serveErr := api.Serve(ctx, ln, router, log)

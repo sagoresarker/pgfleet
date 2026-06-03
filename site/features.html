@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Features — PgFleet</title>
+  <meta name="description" content="PgFleet features: provisioning and lifecycle, backups, PITR and disaster recovery, high availability with in-house failover and PgCat, observability, operations tooling, remote backup/restore, and TimescaleDB support.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232563eb' stroke-width='2'%3E%3Cellipse cx='12' cy='5' rx='8' ry='3'/%3E%3Cpath d='M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5'/%3E%3Cpath d='M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="assets/styles.css">
+  <meta name="theme-color" content="#e9eef4">
+</head>
+<body>
+  <a href="#main" class="skip-link">Skip to content</a>
+
+  <!-- ===================== NAV ===================== -->
+  <header class="nav">
+    <nav class="nav-inner" aria-label="Primary">
+      <a href="index.html" class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
+        </span>
+        PgFleet
+        <span class="brand-tag">self-hosted</span>
+      </a>
+      <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="nav-links">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+      <ul class="nav-links" id="nav-links">
+        <li><a href="features.html" aria-current="page">Features</a></li>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="https://github.com/sagoresarker/pgfleet" rel="noopener">GitHub</a></li>
+        <li class="nav-cta"><a class="btn btn-primary" href="https://github.com/sagoresarker/pgfleet" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          Get started
+        </a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main id="main">
+
+    <!-- ===================== PAGE HEAD ===================== -->
+    <section class="section" style="padding-bottom:2.5rem">
+      <div class="container">
+        <div class="section-head reveal" style="max-width:760px">
+          <span class="eyebrow"><span class="led led-azure led-pulse"></span>Features</span>
+          <h2>A complete, self-hosted Postgres platform.</h2>
+          <p>PgFleet bundles the operational machinery you would otherwise stitch together by hand — provisioning, durable backups, recovery, high availability, observability, and day-two operations — behind a single control plane you run yourself.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" style="padding-top:0">
+      <div class="container">
+
+        <!-- ===== Provisioning ===== -->
+        <div class="fgroup reveal" id="provisioning">
+          <div class="fgroup-head">
+            <span class="gn">01</span>
+            <h2>Provisioning &amp; lifecycle</h2>
+            <p>Create and manage Postgres instances as easily as any cloud database service.</p>
+          </div>
+          <div class="feature-grid">
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 8v8M8 12h8"/></svg></span>
+              <h3>One-click provisioning</h3>
+              <p>Launch a Postgres instance in Docker — pick the version, extensions, and resources — without touching a compose file.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12a7 7 0 0 1 12-5l3 3"/><path d="M20 4v6h-6"/><path d="M19 12a7 7 0 0 1-12 5l-3-3"/><path d="M4 20v-6h6"/></svg></span>
+              <h3>Full lifecycle control</h3>
+              <p>Start, stop, restart, and decommission instances from the dashboard, with the control plane reconciling actual container state.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span>
+              <h3>One-click clone</h3>
+              <p>Fork a fresh, independent copy of any instance for staging, testing, or a safe migration rehearsal — without disturbing production.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== Backups & PITR ===== -->
+        <div class="fgroup reveal" id="backups">
+          <div class="fgroup-head">
+            <span class="gn">02</span>
+            <h2>Backups, PITR &amp; disaster recovery</h2>
+            <p>Durable off-host backups and recovery you can actually rehearse.</p>
+          </div>
+          <div class="feature-grid">
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg></span>
+              <h3>Automatic WAL archiving</h3>
+              <p>Write-ahead logs stream continuously to S3 or MinIO, so every committed transaction is durable off the host within seconds.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M8 4v16"/></svg></span>
+              <h3>Scheduled backups</h3>
+              <p>Full and differential backups on a schedule via pgBackRest, with configurable retention — all written to your own object store.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9 9 0 0 0-6.4 2.6L3 8"/><path d="M3 3v5h5"/><path d="M12 8v4l3 2"/></svg></span>
+              <h3>Point-in-time recovery</h3>
+              <p>A guided wizard restores to any second in your retention window by replaying archived WAL on top of the nearest base backup.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 4 6v6c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V6l-8-4Z"/><path d="m9 12 2 2 4-4"/></svg></span>
+              <h3>Recovery drills</h3>
+              <p>Restore into a fresh instance to verify a backup is genuinely restorable — turning disaster recovery into a routine you can practice.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== HA ===== -->
+        <div class="fgroup reveal" id="ha">
+          <div class="fgroup-head">
+            <span class="gn">03</span>
+            <h2>High availability</h2>
+            <p>Streaming replication, automatic failover, and connection routing — in house.</p>
+          </div>
+          <div class="feature-grid">
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 6a9 9 0 0 1-9 9"/><path d="M9 6h9M9 6 6 9"/></svg></span>
+              <h3>Streaming replication</h3>
+              <p>Attach hot-standby replicas that stream WAL from the primary, ready to serve reads or take over.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8Z"/></svg></span>
+              <h3>In-house automatic failover</h3>
+              <p>PgFleet detects a failed primary, fences and removes it, then promotes a healthy replica — no external orchestrator required.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h6l2-5 4 10 2-5h4"/></svg></span>
+              <h3>PgCat read/write router</h3>
+              <p>A built-in PgCat layer gives a single connection endpoint that splits reads and writes and follows failovers transparently.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== Observability ===== -->
+        <div class="fgroup reveal" id="observability">
+          <div class="fgroup-head">
+            <span class="gn">04</span>
+            <h2>Observability</h2>
+            <p>Know exactly what every instance is doing, right now and over time.</p>
+          </div>
+          <div class="feature-grid">
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></span>
+              <h3>Live &amp; historical analytics</h3>
+              <p>Real-time throughput, connections, and replication lag, plus historical trends to spot regressions before they bite.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></span>
+              <h3>Query insights</h3>
+              <p>Surface slow and frequent queries so you can find the statement that is dragging down a workload.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v12H8l-4 4V4Z"/><path d="M8 9h8M8 13h5"/></svg></span>
+              <h3>Logs</h3>
+              <p>Stream Postgres and container logs straight from the dashboard, without shelling into the host.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span>
+              <h3>Alerting</h3>
+              <p>Raise alerts on health, replication lag, disk, and backup status so problems reach you before users do.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== Operate ===== -->
+        <div class="fgroup reveal" id="operate">
+          <div class="fgroup-head">
+            <span class="gn">05</span>
+            <h2>Operate</h2>
+            <p>Day-two tooling that keeps you out of SSH sessions and ad-hoc scripts.</p>
+          </div>
+          <div class="feature-grid">
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg></span>
+              <h3>SQL console</h3>
+              <p>Run queries against any instance directly from the browser, with results rendered inline.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></svg></span>
+              <h3>Container exec</h3>
+              <p>Open an interactive shell inside an instance container for the rare moment you need to get your hands dirty.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 4 6v6c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V6l-8-4Z"/><circle cx="12" cy="11" r="2"/><path d="M12 13v3"/></svg></span>
+              <h3>Public / private toggle</h3>
+              <p>Each instance is private by default on <code>127.0.0.1</code>; flip a switch to publish it deliberately when you mean to.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg></span>
+              <h3>Logical dump download</h3>
+              <p>Grab a portable <code>pg_dump</code> logical backup from the dashboard whenever you need an offline, restorable copy.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== Remote ===== -->
+        <div class="fgroup reveal" id="remote">
+          <div class="fgroup-head">
+            <span class="gn">06</span>
+            <h2>Remote backup &amp; restore</h2>
+            <p>Bring an external database under PgFleet's protection without re-platforming first.</p>
+          </div>
+          <div class="feature-grid">
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M21 3v6h-6"/><path d="M21 3 13 11"/></svg></span>
+              <h3>Adopt an external DB</h3>
+              <p>Enter the host, port, and credentials of a database you do not manage and have PgFleet back it up to your object store.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2"/><path d="M2 7h20v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7Z"/><path d="M12 11v6m-3-3 3 3 3-3"/></svg></span>
+              <h3>Restore into PgFleet</h3>
+              <p>Restore a remote backup into a managed instance to complete a migration, with the control plane taking over from there.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 4 6v6c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V6l-8-4Z"/><path d="m9 12 2 2 4-4"/></svg></span>
+              <h3>Migrate without downtime drama</h3>
+              <p>Rehearse the migration against a clone, verify the restore, then cut over — keeping the original safely in place until you are ready.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== Extensions ===== -->
+        <div class="fgroup reveal" id="extensions">
+          <div class="fgroup-head">
+            <span class="gn">07</span>
+            <h2>Extensions</h2>
+            <p>First-class support for the extensions teams actually reach for.</p>
+          </div>
+          <div class="feature-grid">
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+              <h3>TimescaleDB</h3>
+              <p>Provision time-series–ready instances with TimescaleDB enabled for high-ingest, hypertable workloads out of the box.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== Restart / IP / Port note ===== -->
+        <div class="note reveal" id="restart" style="margin-top:3.5rem">
+          <h3><span class="led led-signal led-pulse"></span>What happens when an instance restarts (and the IP/port)</h3>
+          <p>Managed instances publish on <strong>ephemeral host ports</strong> — the host port is assigned by Docker, not pinned by you. Each time an instance starts, PgFleet <strong>re-reads the published port from Docker and persists it</strong>, so the dashboard always shows the port the instance is currently reachable on.</p>
+          <p>Because of this, the <strong>host port can change across a stop/start</strong>. After a control-plane restart, the reconciler <strong>re-adopts every running container</strong> and refreshes the recorded port, so PgFleet's view stays in sync with reality rather than drifting to a stale value. The instance's internal identity, data, and configuration are unchanged — only the host-side port mapping may differ.</p>
+          <p>For a <strong>stable entry point</strong> that does not move when the origin port changes, put a reverse proxy or a <strong>Cloudflare Tunnel</strong> in front of the instance. The proxy or tunnel hostname is what your application connects to; it stays constant while PgFleet keeps the underlying origin port up to date behind it. In short: <code>127.0.0.1:&lt;ephemeral-port&gt;</code> may change, but <code>db.example.com</code> does not.</p>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ===================== CTA ===================== -->
+    <section class="section" style="padding-top:0">
+      <div class="container">
+        <div class="cta reveal">
+          <span class="eyebrow" style="justify-content:center"><span class="led led-azure led-pulse"></span>Get started</span>
+          <h2>See it run on your own hardware.</h2>
+          <p>Every feature above ships in the open-source control plane. Clone it, run it with Docker, and connect your S3 or MinIO bucket.</p>
+          <div class="cta-actions">
+            <a class="btn btn-primary btn-lg" href="https://github.com/sagoresarker/pgfleet" rel="noopener">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.36 1.09 2.93.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.5 9.5 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.69-4.57 4.94.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></svg>
+              View on GitHub
+            </a>
+            <a class="btn btn-secondary btn-lg" href="faq.html">Read the FAQ</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ===================== FOOTER ===================== -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div>
+          <a href="index.html" class="brand">
+            <span class="brand-mark" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
+            </span>
+            PgFleet
+          </a>
+          <p class="footer-about">A self-hosted, open-source control plane for managed Postgres. Provision, back up, recover, and observe your fleet on your own infrastructure.</p>
+        </div>
+        <div class="footer-col">
+          <h4>Product</h4>
+          <ul>
+            <li><a href="features.html">Features</a></li>
+            <li><a href="features.html#backups">Backups &amp; PITR</a></li>
+            <li><a href="features.html#ha">High availability</a></li>
+            <li><a href="features.html#remote">Remote backup</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Resources</h4>
+          <ul>
+            <li><a href="faq.html">FAQ</a></li>
+            <li><a href="features.html#restart">Restart &amp; ports</a></li>
+            <li><a href="https://github.com/sagoresarker/pgfleet" rel="noopener">GitHub</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Status</h4>
+          <ul>
+            <li><span class="pill pill-healthy"><span class="led led-healthy"></span>open source</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bar">
+        <span>© 2026 PgFleet · Self-hosted managed Postgres</span>
+        <span>Built with Go + Next.js · pgBackRest · PgCat</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/main.js" defer></script>
+</body>
+</html>
