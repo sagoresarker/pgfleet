@@ -43,6 +43,18 @@ export function AnalyticsTab({ id, running }: { id: string; running: boolean }) 
         <StatCard label="Longest txn" value={secs(m.longest_transaction_seconds?.value)} sub={`${fmt(m.idle_in_transaction?.value)} idle-in-txn`} />
       </div>
 
+      {/* Resource gauges (container CPU/mem + data-volume disk). */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <StatCard label="Disk free" value={pct(m.disk_free_percent?.value)} sub={tone(m.disk_free_percent?.value, 25, 10)} />
+        <StatCard label="CPU" value={pct(m.cpu_percent?.value)} />
+        <StatCard label="Memory" value={pct(m.memory_percent?.value)} sub={m.memory_bytes ? formatBytes(m.memory_bytes.value) : undefined} />
+        <StatCard label="Disk used" value={m.disk_used_bytes ? formatBytes(m.disk_used_bytes.value) : "—"} sub={m.disk_total_bytes ? `of ${formatBytes(m.disk_total_bytes.value)}` : undefined} />
+      </div>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <TimeChart id={id} metric="disk_free_percent" title="Disk free · last hour" running={running} domain={[0, 100]} unit="%" color="var(--color-healthy)" />
+        <TimeChart id={id} metric="cpu_percent" title="CPU · last hour" running={running} unit="%" color="var(--color-signal)" />
+      </div>
+
       {/* Charts */}
       <div className="grid gap-6 lg:grid-cols-2">
         <TimeChart id={id} metric="connections" title="Connections · last hour" running={running} />

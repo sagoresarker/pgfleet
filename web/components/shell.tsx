@@ -2,7 +2,7 @@
 
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
-import { Activity, Boxes, Database, LogOut, Network, ShieldCheck, Users } from "lucide-react";
+import { Activity, Bell, Boxes, Database, LogOut, Network, ScrollText, ShieldCheck, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
@@ -14,6 +14,8 @@ const nav = [
   { href: "/instances", label: "Instances", icon: Database },
   { href: "/clusters", label: "Clusters", icon: Network },
   { href: "/health", label: "Reliability", icon: ShieldCheck },
+  { href: "/alerts", label: "Alerts", icon: Bell },
+  { href: "/events", label: "Events", icon: ScrollText },
   { href: "/users", label: "Access", icon: Users },
 ];
 
