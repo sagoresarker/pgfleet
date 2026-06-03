@@ -44,6 +44,18 @@ type Deps struct {
 	Health *HealthHandler
 	// Events is the WebSocket hub for live progress (optional).
 	Events *ws.Hub
+	// Timescale serves TimescaleDB management endpoints (optional).
+	Timescale *TimescaleHandler
+	// Alerts serves the active-alerts view (optional).
+	Alerts *AlertsHandler
+	// EventsHistory serves the persisted event timeline (optional).
+	EventsHistory *EventsHistoryHandler
+	// Logs serves instance container logs (optional).
+	Logs *LogsHandler
+	// Prometheus serves the /metrics exposition endpoint (optional). It is
+	// mounted unauthenticated at /metrics by Prometheus convention; restrict it
+	// at the network layer.
+	Prometheus *PrometheusHandler
 }
 
 // NewRouter builds the control-plane HTTP handler.
@@ -56,6 +68,11 @@ func NewRouter(deps Deps) http.Handler {
 
 	r.Get("/healthz", handleHealthz)
 	r.Get("/readyz", handleReadyz(deps.Ready))
+	// Prometheus scrape endpoint: unauthenticated by convention (scrapers do not
+	// send bearer tokens) — restrict it at the network layer.
+	if deps.Prometheus != nil {
+		r.Get("/metrics", deps.Prometheus.Metrics)
+	}
 
 	r.Route("/api/v1", func(api chi.Router) {
 		if deps.Auth != nil {
@@ -99,6 +116,27 @@ func NewRouter(deps Deps) http.Handler {
 						hr.Use(auth.RequireAction(auth.ActionMetricsRead))
 						hr.Get("/health", deps.Health.List)
 					})
+				}
+				if deps.Alerts != nil {
+					pr.Group(func(ar chi.Router) {
+						ar.Use(auth.RequireAction(auth.ActionMetricsRead))
+						ar.Get("/alerts", deps.Alerts.List)
+					})
+				}
+				if deps.EventsHistory != nil {
+					pr.Group(func(er chi.Router) {
+						er.Use(auth.RequireAction(auth.ActionMetricsRead))
+						er.Get("/events/history", deps.EventsHistory.List)
+					})
+				}
+				if deps.Logs != nil {
+					pr.Group(func(lr chi.Router) {
+						lr.Use(auth.RequireAction(auth.ActionInstanceRead))
+						lr.Get("/instances/{id}/logs", deps.Logs.Get)
+					})
+				}
+				if deps.Timescale != nil {
+					mountTimescaleRoutes(pr, deps.Timescale)
 				}
 			})
 		}
@@ -158,6 +196,26 @@ func mountClusterRoutes(pr chi.Router, h *ClustersHandler) {
 	pr.Group(func(dr chi.Router) {
 		dr.Use(auth.RequireAction(auth.ActionInstanceDelete))
 		dr.Delete("/clusters/{id}", h.Destroy)
+	})
+}
+
+func mountTimescaleRoutes(pr chi.Router, h *TimescaleHandler) {
+	base := "/instances/{id}/timescale"
+	// Reads: list hypertables + background jobs.
+	pr.Group(func(rr chi.Router) {
+		rr.Use(auth.RequireAction(auth.ActionInstanceRead))
+		rr.Get(base+"/hypertables", h.List)
+		rr.Get(base+"/jobs", h.Jobs)
+	})
+	// Writes: create hypertables + manage retention/compression/aggregates.
+	pr.Group(func(wr chi.Router) {
+		wr.Use(auth.RequireAction(auth.ActionInstanceWrite))
+		wr.Post(base+"/hypertables", h.CreateHypertable)
+		wr.Post(base+"/retention", h.AddRetention)
+		wr.Delete(base+"/retention", h.RemoveRetention)
+		wr.Post(base+"/compression", h.EnableCompression)
+		wr.Delete(base+"/compression", h.RemoveCompression)
+		wr.Post(base+"/continuous-aggregates", h.CreateContinuousAggregate)
 	})
 }
 
