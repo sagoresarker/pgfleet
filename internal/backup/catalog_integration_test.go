@@ -70,6 +70,29 @@ func TestCatalogUpsertIsIdempotentAndUpdates(t *testing.T) {
 	}
 }
 
+func TestCatalogDeleteRemovesSingleLabel(t *testing.T) {
+	cat, instID := setupCatalog(t)
+	ctx := context.Background()
+	_ = cat.Upsert(ctx, instID, bk("keep", "full", 1))
+	_ = cat.Upsert(ctx, instID, bk("gone", "incr", 1))
+
+	if err := cat.Delete(ctx, instID, "gone"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	list, _ := cat.List(ctx, instID)
+	if len(list) != 1 || list[0].Label != "keep" {
+		t.Errorf("after delete = %+v, want only keep", list)
+	}
+
+	// Deleting an absent label is a no-op (idempotent), not an error.
+	if err := cat.Delete(ctx, instID, "gone"); err != nil {
+		t.Errorf("re-delete should be a no-op, got %v", err)
+	}
+	if list, _ = cat.List(ctx, instID); len(list) != 1 {
+		t.Errorf("after re-delete len = %d, want 1", len(list))
+	}
+}
+
 func TestCatalogPruneRemovesExpired(t *testing.T) {
 	cat, instID := setupCatalog(t)
 	ctx := context.Background()

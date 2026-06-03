@@ -95,6 +95,14 @@ func (p *Provisioner) Destroy(ctx context.Context, id string, retainBackups bool
 	return p.repo.Delete(ctx, id)
 }
 
+// MarkError flags an instance as errored with the given reason. It is used to
+// surface an async preflight failure (e.g. the source backup for a clone could
+// not be produced) on the target instance, so it does not linger in
+// "provisioning". A missing instance is tolerated.
+func (p *Provisioner) MarkError(ctx context.Context, id, reason string) error {
+	return p.repo.SetStatus(ctx, id, instance.StatusError, reason)
+}
+
 // DSN builds a connection string for clients, using the configured instance
 // host and the instance's assigned port.
 func (p *Provisioner) DSN(ctx context.Context, id string) (string, error) {

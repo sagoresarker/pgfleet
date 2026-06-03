@@ -167,8 +167,11 @@ func run() error {
 	if rerr := reconciler.Reconcile(ctx); rerr != nil {
 		log.Warn("initial reconciliation failed", "err", rerr)
 	}
+	eventStore := events.NewStore(pool)
 	catalog := backup.NewCatalog(pool)
-	backups := backup.New(rt, instances, catalog)
+	// WithEvents so both scheduled and API-triggered backups/deletes emit durable
+	// events into the timeline.
+	backups := backup.New(rt, instances, catalog).WithEvents(eventStore)
 	metricStore := metrics.NewStore(pool)
 	collector := metrics.NewCollector()
 	resourceCollector := metrics.NewResourceCollector(rt)
@@ -176,7 +179,6 @@ func run() error {
 	healthChecker := health.NewChecker(rt, instances, catalog, health.DefaultThresholds())
 	alertStore := alerts.NewStore(pool)
 	alertNotifier := alerts.NewWebhookNotifier(cfg.AlertWebhookURL, 5*time.Second)
-	eventStore := events.NewStore(pool)
 
 	sched := scheduler.New(scheduler.WithErrorHandler(func(name string, err error) {
 		log.Warn("scheduled job failed", "job", name, "err", err)
@@ -265,7 +267,8 @@ func run() error {
 		Auth:      api.NewAuthHandler(users, issuer, recorder),
 		SSO:       ssoHandler,
 		Users:     api.NewUsersHandler(users, recorder),
-		Instances: api.NewInstancesHandler(instances, provisioner, hub).WithAudit(recorder).WithAsync(async),
+		Audit:     api.NewAuditHandler(recorder),
+		Instances: api.NewInstancesHandler(instances, provisioner, hub).WithAudit(recorder).WithAsync(async).WithCloneBackup(backups),
 		Clusters:  api.NewClustersHandler(clusterSvc, clusters, instances, cfg.InstanceHost, recorder).WithAsync(async),
 		Backups:   api.NewBackupsHandler(backups, provisioner, recorder).WithAsync(async),
 		Metrics:   api.NewMetricsHandler(metricStore, insights),

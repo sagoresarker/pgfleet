@@ -10,21 +10,31 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/sagoresarker/pgfleet/internal/apperr"
 	"github.com/sagoresarker/pgfleet/internal/backup"
 	"github.com/sagoresarker/pgfleet/internal/provision"
 )
 
 type fakeBackupRunner struct {
-	runs chan [2]string
-	list []backup.Backup
+	runs    chan [2]string
+	deletes chan [2]string
+	list    []backup.Backup
+	delErr  error
 }
 
 func newFakeBackupRunner() *fakeBackupRunner {
-	return &fakeBackupRunner{runs: make(chan [2]string, 4)}
+	return &fakeBackupRunner{runs: make(chan [2]string, 4), deletes: make(chan [2]string, 4)}
 }
 
 func (f *fakeBackupRunner) Run(_ context.Context, instanceID, backupType string) error {
 	f.runs <- [2]string{instanceID, backupType}
+	return nil
+}
+func (f *fakeBackupRunner) Delete(_ context.Context, instanceID, label string) error {
+	if f.delErr != nil {
+		return f.delErr
+	}
+	f.deletes <- [2]string{instanceID, label}
 	return nil
 }
 func (f *fakeBackupRunner) List(context.Context, string) ([]backup.Backup, error) {
@@ -45,10 +55,15 @@ func (f *fakeRestorer) Restore(_ context.Context, _ string, opts provision.Resto
 }
 
 func mountBackups(runner BackupRunner, restorer Restorer) http.Handler {
-	h := NewBackupsHandler(runner, restorer, nil)
+	return mountBackupsAudited(runner, restorer, nil)
+}
+
+func mountBackupsAudited(runner BackupRunner, restorer Restorer, rec AuditRecorder) http.Handler {
+	h := NewBackupsHandler(runner, restorer, rec)
 	r := chi.NewRouter()
 	r.Post("/api/v1/instances/{id}/backups", h.Create)
 	r.Get("/api/v1/instances/{id}/backups", h.List)
+	r.Delete("/api/v1/instances/{id}/backups/{label}", h.Delete)
 	r.Post("/api/v1/instances/{id}/restore", h.Restore)
 	return r
 }
@@ -98,6 +113,52 @@ func TestListBackups(t *testing.T) {
 	_ = json.Unmarshal(rr.Body.Bytes(), &resp)
 	if len(resp.Backups) != 1 || resp.Backups[0]["label"] != "20260603-120000F" {
 		t.Errorf("backups = %v", resp.Backups)
+	}
+}
+
+func TestDeleteBackupReturns204AndDeletes(t *testing.T) {
+	runner := newFakeBackupRunner()
+	h := mountBackups(runner, newFakeRestorer())
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/instances/i1/backups/20260603-120000F", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", rr.Code)
+	}
+	select {
+	case got := <-runner.deletes:
+		if got[0] != "i1" || got[1] != "20260603-120000F" {
+			t.Errorf("delete = %v, want [i1 20260603-120000F]", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("delete was not invoked")
+	}
+}
+
+func TestDeleteBackupIsAudited(t *testing.T) {
+	rec := &recordingAudit{}
+	h := mountBackupsAudited(newFakeBackupRunner(), newFakeRestorer(), rec)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/instances/i1/backups/L1", nil)
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	e := rec.only(t)
+	if e.Action != "backup.delete" || e.Target != "i1/L1" {
+		t.Errorf("audit entry = %+v, want action backup.delete target i1/L1", e)
+	}
+}
+
+func TestDeleteBackupSurfacesRunnerError(t *testing.T) {
+	runner := newFakeBackupRunner()
+	runner.delErr = apperr.New(apperr.KindNotFound, "no such backup")
+	h := mountBackups(runner, newFakeRestorer())
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/instances/i1/backups/missing", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rr.Code)
 	}
 }
 

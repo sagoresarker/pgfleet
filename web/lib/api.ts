@@ -24,6 +24,15 @@ export interface Instance {
   public?: boolean;
 }
 
+export interface AuditEntry {
+  id: string;
+  actor: string;
+  action: string;
+  target: string;
+  metadata?: Record<string, string>;
+  created_at: string;
+}
+
 export interface Backup {
   id: string;
   label: string;
@@ -183,6 +192,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 export const api = {
+  listAudit: (limit = 100) => request<{ entries: AuditEntry[] }>("GET", `/api/v1/audit?limit=${limit}`),
   login: (email: string, password: string) =>
     request<{ token: string; user: User }>("POST", "/api/v1/auth/login", { email, password }),
   // ssoLogin exchanges the proxy-verified identity (Authelia/OIDC forward-auth
@@ -229,6 +239,8 @@ export const api = {
 
   listBackups: (id: string) => request<{ backups: Backup[] }>("GET", `/api/v1/instances/${id}/backups`),
   createBackup: (id: string, type: string) => request<void>("POST", `/api/v1/instances/${id}/backups`, { type }),
+  deleteBackup: (id: string, label: string) =>
+    request<void>("DELETE", `/api/v1/instances/${id}/backups/${encodeURIComponent(label)}`),
   restore: (id: string, input: { type?: string; target?: string; set?: string }) =>
     request<void>("POST", `/api/v1/instances/${id}/restore`, input),
 

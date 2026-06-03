@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/sagoresarker/pgfleet/internal/docker"
+	"github.com/sagoresarker/pgfleet/internal/events"
 	"github.com/sagoresarker/pgfleet/internal/instance"
 	"github.com/sagoresarker/pgfleet/internal/pgbackrest"
 )
@@ -28,6 +29,7 @@ type fakeCatalog struct {
 	mu       sync.Mutex
 	upserted []string
 	pruned   [][]string
+	deleted  []string
 }
 
 func (c *fakeCatalog) Upsert(_ context.Context, _ string, b pgbackrest.BackupInfo) error {
@@ -42,7 +44,33 @@ func (c *fakeCatalog) Prune(_ context.Context, _ string, keep []string) error {
 	c.pruned = append(c.pruned, keep)
 	return nil
 }
+func (c *fakeCatalog) Delete(_ context.Context, _ string, label string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.deleted = append(c.deleted, label)
+	return nil
+}
 func (c *fakeCatalog) List(context.Context, string) ([]Backup, error) { return nil, nil }
+
+type fakeRecorder struct {
+	mu     sync.Mutex
+	events []events.NewEvent
+}
+
+func (r *fakeRecorder) Record(_ context.Context, ne events.NewEvent) (events.Event, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, ne)
+	return events.Event{}, nil
+}
+
+func (r *fakeRecorder) snapshot() []events.NewEvent {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]events.NewEvent, len(r.events))
+	copy(out, r.events)
+	return out
+}
 
 func runningInstance() instance.Instance {
 	return instance.Instance{ID: "i1", Name: "db", Stanza: "db", ContainerID: "c1", Status: instance.StatusRunning}
@@ -146,6 +174,120 @@ func TestSyncParsesAndUpserts(t *testing.T) {
 	}
 	if len(backups) != 2 {
 		t.Errorf("parsed backups = %d, want 2", len(backups))
+	}
+}
+
+func TestDeleteExpiresSetAndPrunesCatalog(t *testing.T) {
+	rt := docker.NewFake()
+	id, _ := rt.CreateContainer(context.Background(), docker.ContainerSpec{Name: "c1"})
+	_ = rt.StartContainer(context.Background(), id)
+	var sawSet string
+	rt.ExecFunc = func(_ string, cmd []string) (docker.ExecResult, error) {
+		if last(cmd) == "expire" {
+			for _, a := range cmd {
+				if strings.HasPrefix(a, "--set=") {
+					sawSet = strings.TrimPrefix(a, "--set=")
+				}
+			}
+			return docker.ExecResult{ExitCode: 0}, nil
+		}
+		return docker.ExecResult{}, nil
+	}
+	cat := &fakeCatalog{}
+	rec := &fakeRecorder{}
+	svc := New(rt, lookupFunc(func(context.Context, string) (instance.Instance, error) {
+		in := runningInstance()
+		in.ContainerID = id
+		return in, nil
+	}), cat).WithEvents(rec)
+
+	if err := svc.Delete(context.Background(), "i1", "20260603-120000F"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if sawSet != "20260603-120000F" {
+		t.Errorf("expire --set = %q, want the deleted label", sawSet)
+	}
+	if len(cat.deleted) != 1 || cat.deleted[0] != "20260603-120000F" {
+		t.Errorf("catalog deletes = %v, want [20260603-120000F]", cat.deleted)
+	}
+	// A delete event of type "backup" must be recorded.
+	evs := rec.snapshot()
+	var del *events.NewEvent
+	for i := range evs {
+		if evs[i].Type == "backup" && strings.Contains(evs[i].Message, "deleted") {
+			del = &evs[i]
+		}
+	}
+	if del == nil {
+		t.Fatalf("no backup delete event recorded, got %+v", evs)
+	}
+	if del.InstanceID != "i1" || del.Metadata["label"] != "20260603-120000F" {
+		t.Errorf("delete event = %+v, want instance i1 + label metadata", del)
+	}
+}
+
+func TestDeleteRejectsEmptyLabel(t *testing.T) {
+	cat := &fakeCatalog{}
+	svc := newService(docker.NewFake(), cat)
+	err := svc.Delete(context.Background(), "i1", "   ")
+	if err == nil {
+		t.Fatal("empty label should be rejected")
+	}
+	if len(cat.deleted) != 0 {
+		t.Error("catalog must not be touched when label is invalid")
+	}
+}
+
+func TestRunRecordsStartAndCompleteEvents(t *testing.T) {
+	rt := docker.NewFake()
+	id, _ := rt.CreateContainer(context.Background(), docker.ContainerSpec{Name: "c1"})
+	_ = rt.StartContainer(context.Background(), id)
+	rt.ExecFunc = func(_ string, cmd []string) (docker.ExecResult, error) {
+		if last(cmd) == "info" {
+			return docker.ExecResult{ExitCode: 0, Stdout: infoTwoBackups}, nil
+		}
+		return docker.ExecResult{ExitCode: 0}, nil
+	}
+	rec := &fakeRecorder{}
+	svc := New(rt, lookupFunc(func(context.Context, string) (instance.Instance, error) {
+		in := runningInstance()
+		in.ContainerID = id
+		return in, nil
+	}), &fakeCatalog{}).WithEvents(rec)
+
+	if err := svc.Run(context.Background(), "i1", "full"); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	evs := rec.snapshot()
+	if len(evs) != 2 {
+		t.Fatalf("recorded %d events, want 2 (start+complete): %+v", len(evs), evs)
+	}
+	if evs[0].Type != "backup" || !strings.Contains(evs[0].Message, "started") {
+		t.Errorf("first event = %+v, want backup start", evs[0])
+	}
+	if evs[1].Type != "backup" || !strings.Contains(evs[1].Message, "completed") {
+		t.Errorf("second event = %+v, want backup complete", evs[1])
+	}
+}
+
+func TestRunWithoutRecorderIsNoOp(t *testing.T) {
+	rt := docker.NewFake()
+	id, _ := rt.CreateContainer(context.Background(), docker.ContainerSpec{Name: "c1"})
+	_ = rt.StartContainer(context.Background(), id)
+	rt.ExecFunc = func(_ string, cmd []string) (docker.ExecResult, error) {
+		if last(cmd) == "info" {
+			return docker.ExecResult{ExitCode: 0, Stdout: infoTwoBackups}, nil
+		}
+		return docker.ExecResult{ExitCode: 0}, nil
+	}
+	svc := New(rt, lookupFunc(func(context.Context, string) (instance.Instance, error) {
+		in := runningInstance()
+		in.ContainerID = id
+		return in, nil
+	}), &fakeCatalog{}) // no WithEvents
+
+	if err := svc.Run(context.Background(), "i1", "full"); err != nil {
+		t.Fatalf("Run without recorder should still succeed: %v", err)
 	}
 }
 

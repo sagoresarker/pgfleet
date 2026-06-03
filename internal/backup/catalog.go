@@ -56,6 +56,20 @@ func (c *Catalog) Prune(ctx context.Context, instanceID string, keep []string) e
 	return nil
 }
 
+// Delete removes a single catalog row for an instance by label (the backup the
+// operator deleted via pgbackrest expire --set). It is a no-op if the label is
+// absent, so callers can treat re-deletes idempotently.
+func (c *Catalog) Delete(ctx context.Context, instanceID, label string) error {
+	_, err := c.pool.Exec(ctx,
+		`DELETE FROM backups WHERE instance_id = $1 AND label = $2`,
+		instanceID, label,
+	)
+	if err != nil {
+		return apperr.Wrap(apperr.KindInternal, "backup: delete", err)
+	}
+	return nil
+}
+
 // List returns an instance's backups, newest first.
 func (c *Catalog) List(ctx context.Context, instanceID string) ([]Backup, error) {
 	rows, err := c.pool.Query(ctx,

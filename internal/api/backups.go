@@ -11,9 +11,10 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/provision"
 )
 
-// BackupRunner takes backups and lists the catalog.
+// BackupRunner takes backups, deletes a single backup, and lists the catalog.
 type BackupRunner interface {
 	Run(ctx context.Context, instanceID, backupType string) error
+	Delete(ctx context.Context, instanceID, label string) error
 	List(ctx context.Context, instanceID string) ([]backup.Backup, error)
 }
 
@@ -93,6 +94,26 @@ func (h *BackupsHandler) List(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"backups": payloads})
+}
+
+// Delete removes a single backup set by label, synchronously. It runs
+// pgbackrest expire --set against the instance's stanza and prunes the catalog
+// row; on success it returns 204 No Content. The destructive nature of deleting
+// a recovery point means it is gated at the backup-restore RBAC level (see the
+// router), the most privileged backup action.
+func (h *BackupsHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	label := chi.URLParam(r, "label")
+	if label == "" {
+		respondError(w, apperr.New(apperr.KindInvalid, "backup label is required"))
+		return
+	}
+	recordAudit(h.audit, r, "backup.delete", id+"/"+label)
+	if err := h.runner.Delete(r.Context(), id, label); err != nil {
+		respondError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type restoreRequest struct {

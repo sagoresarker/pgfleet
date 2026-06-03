@@ -19,6 +19,7 @@ import {
   Input,
   Modal,
   PasswordInput,
+  Select,
   Skeleton,
   SkeletonRows,
   Stat,
@@ -44,6 +45,7 @@ import {
   Power,
   RefreshCw,
   Trash2,
+  Users,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -124,6 +126,7 @@ export default function InstanceDetailPage() {
           {[
             { value: "overview", label: "Overview" },
             { value: "databases", label: "Databases" },
+            { value: "roles", label: "Roles" },
             { value: "backups", label: "Backups" },
             { value: "analytics", label: "Analytics" },
             { value: "console", label: "SQL Console" },
@@ -153,7 +156,11 @@ export default function InstanceDetailPage() {
         </Tabs.Content>
 
         <Tabs.Content value="databases" className="focus:outline-none">
-          <DatabasesTab id={id} running={inst.status === "running"} />
+          <DatabasesTab id={id} running={inst.status === "running"} writable={writable} />
+        </Tabs.Content>
+
+        <Tabs.Content value="roles" className="focus:outline-none">
+          <RolesTab id={id} running={inst.status === "running"} />
         </Tabs.Content>
 
         <Tabs.Content value="backups" className="focus:outline-none">
@@ -189,7 +196,7 @@ function InstanceToolbar({
   backupCount,
 }: {
   id: string;
-  inst: { name: string; status: string; public?: boolean };
+  inst: { name: string; status: string; public?: boolean; role?: string; cluster_id?: string };
   backupCount: number;
 }) {
   const qc = useQueryClient();
@@ -287,7 +294,13 @@ function InstanceToolbar({
       </ActionMenu>
 
       <CloneModal id={id} sourceName={inst.name} backupCount={backupCount} open={cloneOpen} onOpenChange={setCloneOpen} />
-      <DestroyModal id={id} name={inst.name} open={destroyOpen} onOpenChange={setDestroyOpen} />
+      <DestroyModal
+        id={id}
+        name={inst.name}
+        isClusterPrimary={inst.role === "primary" && !!inst.cluster_id}
+        open={destroyOpen}
+        onOpenChange={setDestroyOpen}
+      />
     </div>
   );
 }
@@ -319,15 +332,14 @@ function CloneModal({
     onError: (e) => setError(e instanceof Error ? e.message : "Clone failed"),
   });
 
-  // A clone is restored from a backup, so the source must have at least one.
-  const hasBackup = backupCount > 0;
-  const valid = hasBackup && /^[a-z][a-z0-9-]{1,38}$/.test(name) && password.length >= 8;
+  const valid = /^[a-z][a-z0-9-]{1,38}$/.test(name) && password.length >= 8;
+  const fresh = backupCount === 0;
   return (
     <Modal
       open={open}
       onOpenChange={onOpenChange}
       title="Clone instance"
-      description={`Provision a new, independent instance from a backup of ${sourceName}.`}
+      description={`Provision a new, independent copy of ${sourceName} as it is right now.`}
       footer={
         <>
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)} disabled={clone.isPending}>
@@ -340,15 +352,14 @@ function CloneModal({
       }
     >
       <div className="space-y-4">
-        {!hasBackup && (
-          <div className="flex items-start gap-2.5 rounded-md border border-signal/30 bg-signal/10 px-3 py-2.5 text-xs text-signal">
-            <Database className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>
-              A clone is restored from a backup, and <strong>{sourceName}</strong> has none yet. Take a full backup
-              (Backups tab) first, then clone.
-            </span>
-          </div>
-        )}
+        <div className="flex items-start gap-2.5 rounded-md border border-azure/30 bg-azure/10 px-3 py-2.5 text-xs text-azure">
+          <Database className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            Cloning first captures a fresh backup of <strong>{sourceName}</strong>
+            {fresh ? " (it has none yet)" : ""}, then restores it into the new instance — so the clone reflects the
+            current state. This can take a little while; follow progress in Events.
+          </span>
+        </div>
         <Field label="New instance name" hint="Lowercase letters, digits and hyphens; 2–39 chars.">
           <Input
             value={name}
@@ -356,11 +367,10 @@ function CloneModal({
             placeholder="orders-clone"
             autoComplete="off"
             spellCheck={false}
-            disabled={!hasBackup}
           />
         </Field>
         <Field label="New superuser password" hint="At least 8 characters. The clone gets its own credentials.">
-          <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" disabled={!hasBackup} />
+          <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
         </Field>
         {error && (
           <div role="alert" aria-live="assertive" className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
@@ -375,11 +385,13 @@ function CloneModal({
 function DestroyModal({
   id,
   name,
+  isClusterPrimary,
   open,
   onOpenChange,
 }: {
   id: string;
   name: string;
+  isClusterPrimary?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -394,6 +406,34 @@ function DestroyModal({
     },
     onError: (e) => toast.push(e instanceof Error ? e.message : "Destroy failed", "danger"),
   });
+
+  // Guard: a cluster's PRIMARY must not be destroyed directly — that would
+  // decapitate the cluster. Direct the operator to delete the cluster instead.
+  if (isClusterPrimary) {
+    return (
+      <Modal
+        open={open}
+        onOpenChange={onOpenChange}
+        title="Can't destroy a cluster primary"
+        description={`${name} is the PRIMARY of a high-availability cluster.`}
+        size="sm"
+        footer={
+          <Button variant="primary" size="sm" onClick={() => onOpenChange(false)}>
+            Got it
+          </Button>
+        }
+      >
+        <div className="flex items-start gap-2.5 rounded-md border border-danger/30 bg-danger/10 px-3 py-2.5 text-xs text-danger">
+          <Trash2 className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            Destroying the primary directly would break replication and risk data loss. Delete the whole{" "}
+            <strong>cluster</strong> from the Clusters page — it tears down the members in the correct order.
+          </span>
+        </div>
+      </Modal>
+    );
+  }
+
   return (
     <ConfirmDialog
       open={open}
@@ -420,16 +460,7 @@ function BackupsTab({
   backupList: Backup[];
   loading: boolean;
 }) {
-  const qc = useQueryClient();
-  const toast = useToast();
-  const takeBackup = useMutation({
-    mutationFn: (type: string) => api.createBackup(id, type),
-    onSuccess: () => {
-      toast.push("Backup started", "azure");
-      setTimeout(() => qc.invalidateQueries({ queryKey: ["backups", id] }), 1500);
-    },
-    onError: (e) => toast.push(e instanceof Error ? e.message : "Backup failed", "danger"),
-  });
+  const [backupOpen, setBackupOpen] = useState(false);
 
   return (
     <Card>
@@ -437,8 +468,8 @@ function BackupsTab({
         <CardTitle>Backup catalog</CardTitle>
         {writable && (
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" loading={takeBackup.isPending} onClick={() => takeBackup.mutate("full")}>
-              {!takeBackup.isPending && <Plus className="h-4 w-4" />} Backup
+            <Button size="sm" variant="outline" onClick={() => setBackupOpen(true)}>
+              <Plus className="h-4 w-4" /> Backup
             </Button>
             <RestoreDialog instanceId={id} backups={backupList} />
           </div>
@@ -453,11 +484,11 @@ function BackupsTab({
           <EmptyState
             icon={<Database className="h-5 w-5" />}
             title="No backups yet"
-            description="Take a full backup to protect this instance and unlock point-in-time recovery."
+            description="Take a backup to protect this instance and unlock point-in-time recovery and cloning."
             action={
               writable ? (
-                <Button size="sm" loading={takeBackup.isPending} onClick={() => takeBackup.mutate("full")}>
-                  {!takeBackup.isPending && <Plus className="h-4 w-4" />} Take first backup
+                <Button size="sm" onClick={() => setBackupOpen(true)}>
+                  <Plus className="h-4 w-4" /> Take first backup
                 </Button>
               ) : undefined
             }
@@ -465,7 +496,7 @@ function BackupsTab({
         ) : (
           <ul className="divide-y divide-line">
             {backupList.map((b) => (
-              <li key={b.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-4 px-5 py-3.5">
+              <li key={b.id} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-4 px-5 py-3.5">
                 <div className="min-w-0">
                   <div className="truncate font-mono text-xs text-fg">{b.label}</div>
                   <div className="truncate font-mono text-[11px] text-fg-faint">
@@ -474,17 +505,100 @@ function BackupsTab({
                 </div>
                 <Badge tone={b.type === "full" ? "azure" : "neutral"}>{b.type}</Badge>
                 <span className="font-mono text-xs text-fg-muted tnum">{formatBytes(b.repo_size)}</span>
+                {writable ? <DeleteBackupButton id={id} label={b.label} /> : <span />}
               </li>
             ))}
           </ul>
         )}
       </CardBody>
+      <BackupModal id={id} open={backupOpen} onOpenChange={setBackupOpen} />
     </Card>
   );
 }
 
+function BackupModal({ id, open, onOpenChange }: { id: string; open: boolean; onOpenChange: (o: boolean) => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [type, setType] = useState("full");
+  const take = useMutation({
+    mutationFn: () => api.createBackup(id, type),
+    onSuccess: () => {
+      toast.push(`${type} backup started — follow progress in Events`, "azure");
+      onOpenChange(false);
+      setTimeout(() => qc.invalidateQueries({ queryKey: ["backups", id] }), 1500);
+    },
+    onError: (e) => toast.push(e instanceof Error ? e.message : "Backup failed", "danger"),
+  });
+  return (
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Take a backup"
+      description="pgBackRest backups stream to this instance's repository. Progress and completion are recorded in the Events log."
+      footer={
+        <>
+          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)} disabled={take.isPending}>
+            Cancel
+          </Button>
+          <Button size="sm" loading={take.isPending} onClick={() => take.mutate()}>
+            <Plus className="h-4 w-4" /> Start backup
+          </Button>
+        </>
+      }
+    >
+      <Field label="Backup type" hint="Full = a complete standalone copy. Differential/Incremental build on the last full and are smaller/faster.">
+        <Select value={type} onChange={(e) => setType(e.target.value)}>
+          <option value="full">Full — complete standalone backup</option>
+          <option value="diff">Differential — changes since the last full</option>
+          <option value="incr">Incremental — changes since the last backup</option>
+        </Select>
+      </Field>
+      <p className="mt-3 font-mono text-[11px] text-fg-faint">
+        pgBackRest assigns the label automatically (timestamp + type); it can&apos;t be set manually.
+      </p>
+    </Modal>
+  );
+}
+
+function DeleteBackupButton({ id, label }: { id: string; label: string }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const del = useMutation({
+    mutationFn: () => api.deleteBackup(id, label),
+    onSuccess: () => {
+      toast.push("Backup deleted", "azure");
+      setOpen(false);
+      qc.invalidateQueries({ queryKey: ["backups", id] });
+    },
+    onError: (e) => toast.push(e instanceof Error ? e.message : "Delete failed", "danger"),
+  });
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        aria-label={`Delete backup ${label}`}
+        className="cursor-pointer rounded p-1.5 text-fg-faint transition-colors hover:bg-danger/10 hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/40"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
+      <ConfirmDialog
+        open={open}
+        onOpenChange={setOpen}
+        title="Delete this backup?"
+        description={`Remove ${label} from the repository. This cannot be undone; later incremental/differential backups that depend on it may also be affected.`}
+        danger
+        confirmLabel="Delete backup"
+        loading={del.isPending}
+        onConfirm={() => del.mutate()}
+      />
+    </>
+  );
+}
+
 /* ---- Databases tab — lists the databases inside this instance ---- */
-function DatabasesTab({ id, running }: { id: string; running: boolean }) {
+function DatabasesTab({ id, running, writable }: { id: string; running: boolean; writable: boolean }) {
+  const [createOpen, setCreateOpen] = useState(false);
   const dbs = useQuery({
     queryKey: ["databases", id],
     enabled: running,
@@ -515,10 +629,149 @@ function DatabasesTab({ id, running }: { id: string; running: boolean }) {
     <Card>
       <CardHeader>
         <CardTitle>Databases</CardTitle>
-        <span className="font-mono text-[11px] text-fg-faint tnum">{rows.length} database{rows.length === 1 ? "" : "s"}</span>
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-[11px] text-fg-faint tnum">
+            {rows.length} database{rows.length === 1 ? "" : "s"}
+          </span>
+          {writable && (
+            <Button size="sm" variant="outline" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" /> Create database
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CreateDatabaseModal id={id} open={createOpen} onOpenChange={setCreateOpen} />
+      <DatabasesBody loading={dbs.isLoading} err={err} rows={rows} />
+    </Card>
+  );
+}
+
+function DatabasesBody({ loading, err, rows }: { loading: boolean; err: string | null; rows: unknown[][] }) {
+  return (
+    <CardBody className="p-0">
+      {loading ? (
+        <div className="p-5">
+          <SkeletonRows rows={3} />
+        </div>
+      ) : err ? (
+        <div role="alert" className="m-5 rounded-md border border-danger/30 bg-danger/10 px-3.5 py-2.5 font-mono text-xs text-danger">
+          {err}
+        </div>
+      ) : rows.length === 0 ? (
+        <EmptyState icon={<Database className="h-5 w-5" />} title="No databases" description="This instance has no non-template databases." />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-left text-sm">
+            <thead>
+              <tr className="border-b border-line bg-ink-800 font-mono text-[10px] uppercase tracking-wider text-fg-faint">
+                <th className="px-5 py-2.5 font-medium">Database</th>
+                <th className="px-5 py-2.5 font-medium">Owner</th>
+                <th className="px-5 py-2.5 font-medium">Encoding</th>
+                <th className="px-5 py-2.5 text-right font-medium">Size</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i} className="border-b border-line/60 transition-colors hover:bg-ink-800/50">
+                  <td className="px-5 py-2.5 font-display text-fg">{String(r[0])}</td>
+                  <td className="px-5 py-2.5 font-mono text-xs text-fg-muted">{String(r[1])}</td>
+                  <td className="px-5 py-2.5 font-mono text-xs text-fg-muted">{String(r[2])}</td>
+                  <td className="px-5 py-2.5 text-right font-mono text-xs text-fg-muted tnum">{String(r[3])}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </CardBody>
+  );
+}
+
+function CreateDatabaseModal({ id, open, onOpenChange }: { id: string; open: boolean; onOpenChange: (o: boolean) => void }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const create = useMutation({
+    // Identifier is validated client-side and quoted server-side via the SQL runner.
+    mutationFn: () => api.runSQL(id, `CREATE DATABASE "${name}"`),
+    onSuccess: () => {
+      toast.push(`Database ${name} created`, "healthy");
+      setName("");
+      onOpenChange(false);
+      qc.invalidateQueries({ queryKey: ["databases", id] });
+    },
+    onError: (e) => setError(e instanceof Error ? e.message : "Create failed"),
+  });
+  const valid = /^[a-z_][a-z0-9_]{0,62}$/.test(name);
+  return (
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Create database"
+      footer={
+        <>
+          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)} disabled={create.isPending}>
+            Cancel
+          </Button>
+          <Button size="sm" loading={create.isPending} disabled={!valid} onClick={() => create.mutate()}>
+            <Plus className="h-4 w-4" /> Create
+          </Button>
+        </>
+      }
+    >
+      <Field label="Database name" hint="Lowercase letters, digits and underscores; must start with a letter or underscore.">
+        <Input
+          value={name}
+          onChange={(e) => {
+            setName(e.target.value.toLowerCase());
+            setError(null);
+          }}
+          placeholder="analytics"
+          autoComplete="off"
+          spellCheck={false}
+        />
+      </Field>
+      {error && (
+        <div role="alert" aria-live="assertive" className="mt-3 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+          {error}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+/* ---- Roles tab — lists the database roles/users in this instance ---- */
+function RolesTab({ id, running }: { id: string; running: boolean }) {
+  const roles = useQuery({
+    queryKey: ["roles", id],
+    enabled: running,
+    refetchInterval: 30000,
+    queryFn: () =>
+      api.runSQL(
+        id,
+        "SELECT rolname AS role, rolsuper AS superuser, rolcreatedb AS createdb, rolcanlogin AS login, " +
+          "CASE WHEN rolconnlimit < 0 THEN 'unlimited' ELSE rolconnlimit::text END AS conn_limit " +
+          "FROM pg_roles ORDER BY rolname",
+      ),
+  });
+
+  if (!running) {
+    return (
+      <EmptyState icon={<Users className="h-5 w-5" />} title="Roles unavailable" description="Role listing is available while the instance is running." />
+    );
+  }
+  const rows = roles.data?.rows ?? [];
+  const err = roles.error instanceof Error ? roles.error.message : null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Roles &amp; users</CardTitle>
+        <span className="font-mono text-[11px] text-fg-faint tnum">{rows.length} role{rows.length === 1 ? "" : "s"}</span>
       </CardHeader>
       <CardBody className="p-0">
-        {dbs.isLoading ? (
+        {roles.isLoading ? (
           <div className="p-5">
             <SkeletonRows rows={3} />
           </div>
@@ -527,25 +780,29 @@ function DatabasesTab({ id, running }: { id: string; running: boolean }) {
             {err}
           </div>
         ) : rows.length === 0 ? (
-          <EmptyState icon={<Database className="h-5 w-5" />} title="No databases" description="This instance has no non-template databases." />
+          <EmptyState icon={<Users className="h-5 w-5" />} title="No roles" description="This instance has no roles." />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-left text-sm">
               <thead>
                 <tr className="border-b border-line bg-ink-800 font-mono text-[10px] uppercase tracking-wider text-fg-faint">
-                  <th className="px-5 py-2.5 font-medium">Database</th>
-                  <th className="px-5 py-2.5 font-medium">Owner</th>
-                  <th className="px-5 py-2.5 font-medium">Encoding</th>
-                  <th className="px-5 py-2.5 text-right font-medium">Size</th>
+                  <th className="px-5 py-2.5 font-medium">Role</th>
+                  <th className="px-5 py-2.5 font-medium">Attributes</th>
+                  <th className="px-5 py-2.5 text-right font-medium">Conn limit</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r, i) => (
                   <tr key={i} className="border-b border-line/60 transition-colors hover:bg-ink-800/50">
                     <td className="px-5 py-2.5 font-display text-fg">{String(r[0])}</td>
-                    <td className="px-5 py-2.5 font-mono text-xs text-fg-muted">{String(r[1])}</td>
-                    <td className="px-5 py-2.5 font-mono text-xs text-fg-muted">{String(r[2])}</td>
-                    <td className="px-5 py-2.5 text-right font-mono text-xs text-fg-muted tnum">{String(r[3])}</td>
+                    <td className="px-5 py-2.5">
+                      <div className="flex flex-wrap gap-1.5">
+                        {String(r[1]) === "true" && <Badge tone="danger">superuser</Badge>}
+                        {String(r[2]) === "true" && <Badge tone="azure">createdb</Badge>}
+                        {String(r[3]) === "true" ? <Badge tone="healthy">login</Badge> : <Badge tone="neutral">no login</Badge>}
+                      </div>
+                    </td>
+                    <td className="px-5 py-2.5 text-right font-mono text-xs text-fg-muted tnum">{String(r[4])}</td>
                   </tr>
                 ))}
               </tbody>

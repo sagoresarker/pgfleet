@@ -3,12 +3,18 @@ package api
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/sagoresarker/pgfleet/internal/apperr"
 	"github.com/sagoresarker/pgfleet/internal/instance"
 	"github.com/sagoresarker/pgfleet/internal/provision"
 )
+
+// cloneTimeout bounds the full clone flow (source backup + restore + bring-up)
+// so a hung pgBackRest operation can't leak the background goroutine.
+const cloneTimeout = 30 * time.Minute
 
 // InstanceStore is the subset of the instance repository the handler needs.
 type InstanceStore interface {
@@ -27,6 +33,7 @@ type InstanceProvisioner interface {
 	Destroy(ctx context.Context, id string, retainBackups bool) error
 	SetVisibility(ctx context.Context, id string, public bool) error
 	DSN(ctx context.Context, id string) (string, error)
+	MarkError(ctx context.Context, id, reason string) error
 }
 
 // ProgressSink receives provisioning progress for an instance (e.g. a WS hub).
@@ -34,13 +41,22 @@ type ProgressSink interface {
 	Publish(instanceID, step, detail string)
 }
 
+// CloneBackupRunner takes a backup of an instance. It is satisfied by
+// *backup.Service (its Run method) and lets the Clone handler capture a fresh
+// full backup of the source before cloning, so the clone reflects the source's
+// state at clone time.
+type CloneBackupRunner interface {
+	Run(ctx context.Context, instanceID, backupType string) error
+}
+
 // InstancesHandler serves managed-instance endpoints.
 type InstancesHandler struct {
-	store    InstanceStore
-	prov     InstanceProvisioner
-	progress ProgressSink
-	audit    AuditRecorder
-	async    *Async
+	store      InstanceStore
+	prov       InstanceProvisioner
+	progress   ProgressSink
+	audit      AuditRecorder
+	async      *Async
+	cloneBakup CloneBackupRunner
 }
 
 // NewInstancesHandler builds an InstancesHandler. progress may be nil.
@@ -57,6 +73,14 @@ func (h *InstancesHandler) WithAudit(rec AuditRecorder) *InstancesHandler {
 // WithAsync attaches the background-task tracker for graceful shutdown.
 func (h *InstancesHandler) WithAsync(a *Async) *InstancesHandler {
 	h.async = a
+	return h
+}
+
+// WithCloneBackup attaches the backup runner used to capture a fresh full
+// backup of the source before a clone. If nil, Clone proceeds against whatever
+// backup the source already has (and fails if it has none).
+func (h *InstancesHandler) WithCloneBackup(r CloneBackupRunner) *InstancesHandler {
+	h.cloneBakup = r
 	return h
 }
 
@@ -192,6 +216,27 @@ func (h *InstancesHandler) Clone(w http.ResponseWriter, r *http.Request) {
 		if h.progress != nil {
 			progress = func(step, detail string) { h.progress.Publish(cloneID, step, detail) }
 		}
+		// A clone is a point-in-time copy: capture a fresh full backup of the
+		// source first, so the clone reflects the source's state at clone time.
+		// Bound the whole operation so a hung backup/restore can't leak the
+		// goroutine. If the backup can't be produced, abort BEFORE Clone creates
+		// any volumes/containers, and mark the target errored so it doesn't
+		// linger in "provisioning".
+		ctx, cancel := context.WithTimeout(ctx, cloneTimeout)
+		defer cancel()
+		emit := func(step, detail string) {
+			if progress != nil {
+				progress(step, detail)
+			}
+		}
+		if h.cloneBakup != nil {
+			emit("backup", "taking a fresh backup of "+source.Name)
+			if err := h.cloneBakup.Run(ctx, source.ID, "full"); err != nil {
+				emit("error", "source backup failed: "+err.Error())
+				_ = h.prov.MarkError(ctx, cloneID, "clone aborted: source backup failed: "+err.Error())
+				return
+			}
+		}
 		_ = h.prov.Clone(ctx, cloneID, source, progress)
 	})
 
@@ -248,8 +293,23 @@ func (h *InstancesHandler) lifecycle(w http.ResponseWriter, r *http.Request, fn 
 }
 
 // Destroy removes an instance. ?retain_backups=true keeps the backup repo.
+//
+// Directly destroying a cluster PRIMARY is refused: tearing the primary out
+// from under its replicas leaves the cluster headless and the replicas
+// orphaned. The operator must destroy the CLUSTER instead, which removes its
+// members in the correct order. Replicas and standalones are unaffected.
 func (h *InstancesHandler) Destroy(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	inst, err := h.store.Get(r.Context(), id)
+	if err != nil {
+		respondError(w, err)
+		return
+	}
+	if inst.Role == instance.RolePrimary && inst.ClusterID != "" {
+		respondError(w, apperr.New(apperr.KindConflict,
+			"cannot destroy a cluster primary directly; destroy the cluster "+inst.ClusterID+" instead (it tears down members in order)"))
+		return
+	}
 	retain := r.URL.Query().Get("retain_backups") == "true"
 	if err := h.prov.Destroy(r.Context(), id, retain); err != nil {
 		respondError(w, err)

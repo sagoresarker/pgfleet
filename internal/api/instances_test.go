@@ -63,11 +63,14 @@ func (f *fakeInstanceStore) List(_ context.Context) ([]instance.Instance, error)
 }
 
 type fakeProvisioner struct {
+	mu          sync.Mutex
 	provisioned chan string
 	visibility  chan string
 	started     []string
 	stopped     []string
 	destroyed   []string
+	marked      []string
+	cloned      []string
 	dsn         string
 }
 
@@ -87,6 +90,9 @@ func (f *fakeProvisioner) Provision(_ context.Context, id string, progress provi
 	return nil
 }
 func (f *fakeProvisioner) Clone(_ context.Context, cloneID string, _ instance.Instance, _ provision.ProgressFunc) error {
+	f.mu.Lock()
+	f.cloned = append(f.cloned, cloneID)
+	f.mu.Unlock()
 	f.provisioned <- cloneID
 	return nil
 }
@@ -108,9 +114,18 @@ func (f *fakeProvisioner) Destroy(_ context.Context, id string, _ bool) error {
 	return nil
 }
 func (f *fakeProvisioner) DSN(_ context.Context, _ string) (string, error) { return f.dsn, nil }
+func (f *fakeProvisioner) MarkError(_ context.Context, id, reason string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.marked = append(f.marked, id+": "+reason)
+	return nil
+}
 
 func mountInstances(store InstanceStore, prov InstanceProvisioner) http.Handler {
-	h := NewInstancesHandler(store, prov, nil)
+	return mountInstancesHandler(NewInstancesHandler(store, prov, nil))
+}
+
+func mountInstancesHandler(h *InstancesHandler) http.Handler {
 	r := chi.NewRouter()
 	r.Post("/api/v1/instances", h.Create)
 	r.Get("/api/v1/instances", h.List)
@@ -120,7 +135,48 @@ func mountInstances(store InstanceStore, prov InstanceProvisioner) http.Handler 
 	r.Delete("/api/v1/instances/{id}", h.Destroy)
 	r.Get("/api/v1/instances/{id}/connection", h.Connection)
 	r.Post("/api/v1/instances/{id}/visibility", h.Visibility)
+	r.Post("/api/v1/instances/{id}/clone", h.Clone)
 	return h2(r)
+}
+
+// fakeCloneBackup records the instance backed up and can be made to fail, to
+// exercise the clone auto-backup path.
+type fakeCloneBackup struct {
+	mu     sync.Mutex
+	calls  []string
+	failed chan struct{}
+	fail   bool
+}
+
+func newFakeCloneBackup(fail bool) *fakeCloneBackup {
+	return &fakeCloneBackup{fail: fail, failed: make(chan struct{}, 1)}
+}
+
+func (f *fakeCloneBackup) Run(_ context.Context, instanceID, backupType string) error {
+	f.mu.Lock()
+	f.calls = append(f.calls, instanceID+":"+backupType)
+	f.mu.Unlock()
+	if f.fail {
+		select {
+		case f.failed <- struct{}{}:
+		default:
+		}
+		return apperr.New(apperr.KindInternal, "backup boom")
+	}
+	return nil
+}
+
+func (f *fakeCloneBackup) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
+}
+
+// setInstance overwrites an instance row in the fake store (for role/cluster).
+func (f *fakeInstanceStore) setInstance(inst instance.Instance) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.items[inst.ID] = inst
 }
 
 func h2(h http.Handler) http.Handler { return h }
@@ -251,6 +307,140 @@ func TestVisibilityValidInstanceReturns202(t *testing.T) {
 	case <-prov.visibility:
 	case <-time.After(2 * time.Second):
 		t.Fatal("SetVisibility was not triggered")
+	}
+}
+
+// Clone auto-backup: a fresh full backup of the SOURCE is taken before the
+// provisioner Clone runs, so the clone reflects the source's current state.
+func TestCloneTakesSourceBackupBeforeCloning(t *testing.T) {
+	store := newFakeInstanceStore()
+	source, _ := store.Create(context.Background(), instance.NewInstance{Name: "src-db", RepoType: instance.RepoS3, Password: "a-good-password"})
+	prov := newFakeProvisioner()
+	bak := newFakeCloneBackup(false)
+	h := mountInstancesHandler(NewInstancesHandler(store, prov, nil).WithCloneBackup(bak))
+
+	rr := postJSON(t, h, "/api/v1/instances/"+source.ID+"/clone", `{"name":"clone-db","password":"a-good-password"}`)
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202 (%s)", rr.Code, rr.Body.String())
+	}
+
+	select {
+	case <-prov.provisioned:
+	case <-time.After(2 * time.Second):
+		t.Fatal("clone was not triggered")
+	}
+	if bak.callCount() != 1 {
+		t.Fatalf("source backup calls = %d, want 1", bak.callCount())
+	}
+	if got := bak.calls[0]; got != source.ID+":full" {
+		t.Errorf("backup target = %q, want %q", got, source.ID+":full")
+	}
+	prov.mu.Lock()
+	cloned := len(prov.cloned)
+	prov.mu.Unlock()
+	if cloned != 1 {
+		t.Fatalf("clone was not executed after backup (cloned=%d)", cloned)
+	}
+}
+
+// Clone auto-backup failure aborts the clone: the provisioner Clone never runs
+// and the target is marked errored (no half-built target).
+func TestCloneAbortsWhenSourceBackupFails(t *testing.T) {
+	store := newFakeInstanceStore()
+	source, _ := store.Create(context.Background(), instance.NewInstance{Name: "src-db", RepoType: instance.RepoS3, Password: "a-good-password"})
+	prov := newFakeProvisioner()
+	bak := newFakeCloneBackup(true)
+	h := mountInstancesHandler(NewInstancesHandler(store, prov, nil).WithCloneBackup(bak))
+
+	rr := postJSON(t, h, "/api/v1/instances/"+source.ID+"/clone", `{"name":"clone-db","password":"a-good-password"}`)
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202 (%s)", rr.Code, rr.Body.String())
+	}
+
+	select {
+	case <-bak.failed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("source backup was not attempted")
+	}
+	// Give the goroutine a moment to (not) call Clone and to MarkError.
+	select {
+	case id := <-prov.provisioned:
+		t.Fatalf("Clone ran (%q) despite the source backup failing", id)
+	case <-time.After(300 * time.Millisecond):
+	}
+	prov.mu.Lock()
+	marked := append([]string(nil), prov.marked...)
+	cloned := len(prov.cloned)
+	prov.mu.Unlock()
+	if cloned != 0 {
+		t.Fatalf("Clone executed despite backup failure (cloned=%d)", cloned)
+	}
+	if len(marked) != 1 || !strings.Contains(marked[0], "source backup failed") {
+		t.Fatalf("target was not marked errored: %v", marked)
+	}
+}
+
+// Destroy guard: a cluster PRIMARY cannot be destroyed directly (409 Conflict).
+func TestDestroyClusterPrimaryIsRefused(t *testing.T) {
+	store := newFakeInstanceStore()
+	inst, _ := store.Create(context.Background(), instance.NewInstance{Name: "prim-db", RepoType: instance.RepoS3, Password: "a-good-password"})
+	inst.Role = instance.RolePrimary
+	inst.ClusterID = "clu-1"
+	store.setInstance(inst)
+	prov := newFakeProvisioner()
+	h := mountInstances(store, prov)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/instances/"+inst.ID, nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (%s)", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "destroy the cluster") {
+		t.Errorf("error body missing guidance: %s", rr.Body.String())
+	}
+	if len(prov.destroyed) != 0 {
+		t.Errorf("Destroy was called for a cluster primary: %v", prov.destroyed)
+	}
+}
+
+// Destroy guard: a cluster REPLICA may be destroyed directly.
+func TestDestroyClusterReplicaIsAllowed(t *testing.T) {
+	store := newFakeInstanceStore()
+	inst, _ := store.Create(context.Background(), instance.NewInstance{Name: "repl-db", RepoType: instance.RepoS3, Password: "a-good-password"})
+	inst.Role = instance.RoleReplica
+	inst.ClusterID = "clu-1"
+	store.setInstance(inst)
+	prov := newFakeProvisioner()
+	h := mountInstances(store, prov)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/instances/"+inst.ID, nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204 (%s)", rr.Code, rr.Body.String())
+	}
+	if len(prov.destroyed) != 1 {
+		t.Errorf("replica was not destroyed: %v", prov.destroyed)
+	}
+}
+
+// Destroy guard: a standalone instance is unaffected.
+func TestDestroyStandaloneIsAllowed(t *testing.T) {
+	store := newFakeInstanceStore()
+	inst, _ := store.Create(context.Background(), instance.NewInstance{Name: "solo-db", RepoType: instance.RepoS3, Password: "a-good-password"})
+	// Default role is standalone; no cluster.
+	prov := newFakeProvisioner()
+	h := mountInstances(store, prov)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/instances/"+inst.ID, nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204 (%s)", rr.Code, rr.Body.String())
+	}
+	if len(prov.destroyed) != 1 {
+		t.Errorf("standalone was not destroyed: %v", prov.destroyed)
 	}
 }
 

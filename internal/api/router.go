@@ -36,6 +36,8 @@ type Deps struct {
 	SSO *SSOHandler
 	// Users serves admin user management.
 	Users *UsersHandler
+	// Audit serves read-only access to the append-only audit trail (admin-only).
+	Audit *AuditHandler
 	// Instances serves managed-instance endpoints.
 	Instances *InstancesHandler
 	// Clusters serves HA cluster endpoints.
@@ -192,6 +194,15 @@ func NewRouter(deps Deps) http.Handler {
 				if deps.Remote != nil {
 					mountRemoteRoutes(pr, deps.Remote)
 				}
+				if deps.Audit != nil {
+					// The audit log records who did what across the whole fleet,
+					// including privileged data-plane actions, so reading it is
+					// admin-only (same bar as managing users).
+					pr.Group(func(ar chi.Router) {
+						ar.Use(auth.RequireAction(auth.ActionUserManage))
+						ar.Get("/audit", deps.Audit.List)
+					})
+				}
 			})
 		}
 
@@ -315,8 +326,11 @@ func mountBackupRoutes(pr chi.Router, h *BackupsHandler) {
 		wr.Post("/instances/{id}/backups", h.Create)
 	})
 	pr.Group(func(rs chi.Router) {
+		// Restore and single-backup deletion both permanently change recovery
+		// state, so they share the most-privileged backup action.
 		rs.Use(auth.RequireAction(auth.ActionBackupRestore))
 		rs.Post("/instances/{id}/restore", h.Restore)
+		rs.Delete("/instances/{id}/backups/{label}", h.Delete)
 	})
 }
 

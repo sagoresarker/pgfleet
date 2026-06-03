@@ -62,6 +62,23 @@ func TestExpireCmd(t *testing.T) {
 	}
 }
 
+func TestExpireSetCmd(t *testing.T) {
+	got, err := ExpireSet("db", conf, "20260603-120000F")
+	if err != nil {
+		t.Fatalf("ExpireSet: %v", err)
+	}
+	want := []string{"pgbackrest", "--config=" + conf, "--stanza=db", "--set=20260603-120000F", "expire"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ExpireSet = %v, want %v", got, want)
+	}
+}
+
+func TestExpireSetRejectsEmptyLabel(t *testing.T) {
+	if _, err := ExpireSet("db", conf, ""); err == nil {
+		t.Error("ExpireSet with empty label should error")
+	}
+}
+
 func TestRestoreLatest(t *testing.T) {
 	got, err := Restore("db", conf, RestoreOpts{Delta: true})
 	if err != nil {

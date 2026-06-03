@@ -37,6 +37,15 @@ func Expire(stanza, confPath string) []string {
 	return append(base(stanza, confPath), "expire")
 }
 
+// ExpireSet deletes a single backup set identified by its label via
+// `expire --set=<label>`, leaving the rest of the retention untouched.
+func ExpireSet(stanza, confPath, set string) ([]string, error) {
+	if set == "" {
+		return nil, fmt.Errorf("pgbackrest: expire --set requires a backup label")
+	}
+	return append(base(stanza, confPath), "--set="+set, "expire"), nil
+}
+
 // RestoreOpts parameterizes a restore.
 type RestoreOpts struct {
 	// Type selects the recovery target type: "" (latest), "time", "lsn",

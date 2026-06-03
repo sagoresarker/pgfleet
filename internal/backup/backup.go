@@ -11,6 +11,7 @@ import (
 
 	"github.com/sagoresarker/pgfleet/internal/apperr"
 	"github.com/sagoresarker/pgfleet/internal/docker"
+	"github.com/sagoresarker/pgfleet/internal/events"
 	"github.com/sagoresarker/pgfleet/internal/instance"
 	"github.com/sagoresarker/pgfleet/internal/pgbackrest"
 )
@@ -41,7 +42,14 @@ type instanceLookup interface {
 type catalog interface {
 	Upsert(ctx context.Context, instanceID string, b pgbackrest.BackupInfo) error
 	Prune(ctx context.Context, instanceID string, keepLabels []string) error
+	Delete(ctx context.Context, instanceID, label string) error
 	List(ctx context.Context, instanceID string) ([]Backup, error)
+}
+
+// EventRecorder records durable backup lifecycle events (optional). It mirrors
+// the failover controller's recorder so the same events.Store satisfies both.
+type EventRecorder interface {
+	Record(ctx context.Context, ne events.NewEvent) (events.Event, error)
 }
 
 // Service runs backups/restores and syncs the catalog.
@@ -49,6 +57,7 @@ type Service struct {
 	rt        docker.ContainerRuntime
 	instances instanceLookup
 	catalog   catalog
+	events    EventRecorder
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex // per-instance backup serialization
@@ -57,6 +66,14 @@ type Service struct {
 // New builds a backup Service.
 func New(rt docker.ContainerRuntime, instances instanceLookup, cat catalog) *Service {
 	return &Service{rt: rt, instances: instances, catalog: cat, locks: map[string]*sync.Mutex{}}
+}
+
+// WithEvents attaches a durable event recorder. Passing nil disables recording
+// (the Service is a no-op recorder by default), keeping callers that do not wire
+// events unaffected. Returns the Service for chaining.
+func (s *Service) WithEvents(rec EventRecorder) *Service {
+	s.events = rec
+	return s
 }
 
 // Run takes a backup of the given type (full|incr|diff), serialized per
@@ -84,11 +101,51 @@ func (s *Service) Run(ctx context.Context, instanceID, backupType string) error 
 	if err != nil {
 		return err
 	}
+	s.record(ctx, inst, "backup started ("+backupType+")", backupType, "")
 	if err := s.execOK(ctx, inst.ContainerID, asPostgres(cmd)); err != nil {
 		return err
 	}
-	_, err = s.sync(ctx, inst)
-	return err
+	if _, err := s.sync(ctx, inst); err != nil {
+		return err
+	}
+	s.record(ctx, inst, "backup completed ("+backupType+")", backupType, "")
+	return nil
+}
+
+// Delete removes a single backup set identified by its label: it runs
+// pgbackrest expire --set=<label> against the instance's stanza, then removes
+// that label from the catalog. The label must be non-empty.
+func (s *Service) Delete(ctx context.Context, instanceID, label string) error {
+	if strings.TrimSpace(label) == "" {
+		return apperr.New(apperr.KindInvalid, "backup: delete requires a non-empty label")
+	}
+
+	inst, err := s.instances.Get(ctx, instanceID)
+	if err != nil {
+		return err
+	}
+	// Replicas have no backup stanza; backups live on the cluster primary.
+	if inst.Role == instance.RoleReplica {
+		return apperr.New(apperr.KindInvalid, "backup: replicas have no backups to delete; operate on the cluster primary")
+	}
+
+	cmd, err := pgbackrest.ExpireSet(inst.Stanza, confPath, label)
+	if err != nil {
+		return apperr.Wrap(apperr.KindInvalid, "backup: delete", err)
+	}
+
+	lock := s.lockFor(instanceID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	if err := s.execOK(ctx, inst.ContainerID, asPostgres(cmd)); err != nil {
+		return err
+	}
+	if err := s.catalog.Delete(ctx, inst.ID, label); err != nil {
+		return err
+	}
+	s.record(ctx, inst, "backup deleted ("+label+")", "", label)
+	return nil
 }
 
 // Sync refreshes the catalog from the live pgBackRest info and returns the
@@ -162,6 +219,28 @@ func (s *Service) Expire(ctx context.Context, instanceID string) error {
 // List returns the catalog for an instance.
 func (s *Service) List(ctx context.Context, instanceID string) ([]Backup, error) {
 	return s.catalog.List(ctx, instanceID)
+}
+
+// record writes a durable "backup" event. It is nil-safe (no recorder → no-op)
+// and never fails the surrounding operation. backupType/label are added to the
+// metadata only when non-empty.
+func (s *Service) record(ctx context.Context, inst instance.Instance, message, backupType, label string) {
+	if s.events == nil {
+		return
+	}
+	meta := map[string]string{"instance": inst.Name}
+	if backupType != "" {
+		meta["backup_type"] = backupType
+	}
+	if label != "" {
+		meta["label"] = label
+	}
+	_, _ = s.events.Record(ctx, events.NewEvent{
+		InstanceID: inst.ID,
+		Type:       "backup",
+		Message:    message,
+		Metadata:   meta,
+	})
 }
 
 func (s *Service) lockFor(instanceID string) *sync.Mutex {

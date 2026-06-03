@@ -55,7 +55,7 @@ func (p *Provisioner) ensureSourceHasBackup(ctx context.Context, source instance
 		}
 	}
 	return apperr.New(apperr.KindInvalid,
-		"clone: source has no backup to clone from; take a backup of the source first")
+		"clone: source has no backup to clone from; a fresh backup of the source could not be produced")
 }
 
 func (p *Provisioner) clone(ctx context.Context, cloneID string, source instance.Instance, progress ProgressFunc) (err error) {
@@ -69,9 +69,11 @@ func (p *Provisioner) clone(ctx context.Context, cloneID string, source instance
 	}
 
 	// Pre-flight: a clone restores from the SOURCE's latest backup, so the source
-	// must actually have one. Without this check a backup-less source produces an
-	// opaque pgBackRest "no backup set found" error deep in the restore logs after
-	// volumes/containers have already been created. Fail early and clearly.
+	// must actually have one. In the normal flow the API layer captures a fresh
+	// full backup of the source before invoking Clone, so this check passes; it
+	// remains as a guard against an aborted/absent backup, failing early and
+	// clearly rather than producing an opaque pgBackRest "no backup set found"
+	// error deep in the restore logs after volumes/containers are created.
 	progress.emit("preflight", "verifying source has a backup")
 	if err := p.ensureSourceHasBackup(ctx, source); err != nil {
 		return err

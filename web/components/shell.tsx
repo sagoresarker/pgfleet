@@ -6,6 +6,7 @@ import {
   Activity,
   Bell,
   Boxes,
+  ClipboardList,
   Database,
   DownloadCloud,
   LogOut,
@@ -31,6 +32,7 @@ const nav = [
   { href: "/alerts", label: "Alerts", icon: Bell },
   { href: "/events", label: "Events", icon: ScrollText },
   { href: "/users", label: "Access", icon: Users },
+  { href: "/audit", label: "Audit log", icon: ClipboardList },
 ];
 
 function NavItems({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
