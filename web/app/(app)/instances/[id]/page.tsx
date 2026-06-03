@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { AnalyticsTab } from "./analytics";
+import { ConsoleTab } from "./console";
 import { LogsTab } from "./logs";
 import { TimescaleTab } from "./timescale";
 
@@ -95,6 +96,7 @@ export default function InstanceDetailPage() {
             { value: "overview", label: "Overview" },
             { value: "backups", label: "Backups" },
             { value: "analytics", label: "Analytics" },
+            { value: "console", label: "Console" },
             { value: "logs", label: "Logs" },
             ...(inst.extensions?.includes("timescaledb") ? [{ value: "timescaledb", label: "TimescaleDB" }] : []),
           ].map((t) => (
@@ -161,6 +163,10 @@ export default function InstanceDetailPage() {
 
         <Tabs.Content value="analytics">
           <AnalyticsTab id={id} running={inst.status === "running"} />
+        </Tabs.Content>
+
+        <Tabs.Content value="console">
+          <ConsoleTab id={id} running={inst.status === "running"} writable={writable} />
         </Tabs.Content>
 
         <Tabs.Content value="logs">

@@ -217,6 +217,17 @@ export const api = {
   // Instance container logs (tail).
   instanceLogs: (id: string) => request<{ logs: string }>("GET", `/api/v1/instances/${id}/logs`),
 
+  // Ad-hoc SQL console.
+  runSQL: (id: string, query: string) =>
+    request<{ columns: string[]; rows: unknown[][]; rows_affected: number; command: string; truncated: boolean }>(
+      "POST",
+      `/api/v1/instances/${id}/sql`,
+      { query },
+    ),
+  // One-shot container command.
+  execCommand: (id: string, command: string[]) =>
+    request<{ exit_code: number; stdout: string; stderr: string }>("POST", `/api/v1/instances/${id}/exec`, { command }),
+
   // TimescaleDB management.
   listHypertables: (id: string) =>
     request<{ hypertables: Hypertable[] }>("GET", `/api/v1/instances/${id}/timescale/hypertables`),

@@ -251,6 +251,8 @@ func run() error {
 		EventsHistory: api.NewEventsHistoryHandler(eventStore),
 		Logs:          api.NewLogsHandler(instances, rt),
 		Prometheus:    api.NewPrometheusHandler(instances, metricStore),
+		SQL:           api.NewSQLHandler(provisioner.DSN),
+		Exec:          api.NewExecHandler(instances, rt),
 	})
 
 	serveErr := api.Serve(ctx, ln, router, log)

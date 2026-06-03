@@ -56,6 +56,10 @@ type Deps struct {
 	// mounted unauthenticated at /metrics by Prometheus convention; restrict it
 	// at the network layer.
 	Prometheus *PrometheusHandler
+	// SQL runs ad-hoc queries from the dashboard (optional).
+	SQL *SQLHandler
+	// Exec runs one-shot container commands (optional).
+	Exec *ExecHandler
 }
 
 // NewRouter builds the control-plane HTTP handler.
@@ -137,6 +141,22 @@ func NewRouter(deps Deps) http.Handler {
 				}
 				if deps.Timescale != nil {
 					mountTimescaleRoutes(pr, deps.Timescale)
+				}
+				if deps.SQL != nil {
+					// Ad-hoc SQL runs as the superuser, so it is gated at the
+					// connection level (operator/admin), like revealing the DSN.
+					pr.Group(func(sr chi.Router) {
+						sr.Use(auth.RequireAction(auth.ActionInstanceConnect))
+						sr.Post("/instances/{id}/sql", deps.SQL.Run)
+					})
+				}
+				if deps.Exec != nil {
+					// Container exec is privileged (root in the container); gate
+					// it at the write level (operator/admin).
+					pr.Group(func(xr chi.Router) {
+						xr.Use(auth.RequireAction(auth.ActionInstanceWrite))
+						xr.Post("/instances/{id}/exec", deps.Exec.Run)
+					})
 				}
 			})
 		}
