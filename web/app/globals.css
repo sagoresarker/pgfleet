@@ -1,31 +1,33 @@
 @import "tailwindcss";
 
 /*
- * PgFleet "instrument panel" design system.
- * Dark ink-blue canvas, hairline surfaces, glowing status LEDs, azure primary
- * with amber WAL/backup signals.
+ * PgFleet "instrument panel" design system — LIGHT.
+ * Bright, slightly-cool canvas, white raised surfaces, hairline borders,
+ * glowing status LEDs, deep azure primary with amber WAL/backup signals.
+ * Semantic token names are preserved (ink-950 = canvas; raised surfaces get
+ * whiter) so components adapt without per-class changes.
  */
 @theme {
-  --color-ink-950: #070a0f;
-  --color-ink-900: #0a0e15;
-  --color-ink-850: #0d121b;
-  --color-ink-800: #111824;
-  --color-ink-700: #18212f;
-  --color-ink-600: #222d3d;
-  --color-line: #1c2634;
-  --color-line-bright: #2a384a;
+  --color-ink-950: #e9eef4; /* app canvas */
+  --color-ink-900: #ffffff; /* primary raised surface (cards) */
+  --color-ink-850: #fafbfd; /* secondary surface */
+  --color-ink-800: #f3f6fa; /* tertiary / inset surface */
+  --color-ink-700: #eaeff5; /* hover fill */
+  --color-ink-600: #d6deea; /* subtle fill / scrollbar thumb */
+  --color-line: #e3e8f0; /* hairline border */
+  --color-line-bright: #c6d0dd; /* hover / active border */
 
-  --color-fg: #e7eef6;
-  --color-fg-muted: #8a99ab;
-  --color-fg-faint: #5c6b7d;
+  --color-fg: #16202e; /* primary text */
+  --color-fg-muted: #54627a; /* secondary text */
+  --color-fg-faint: #8593a6; /* tertiary text */
 
-  --color-azure: #5b9dff;
-  --color-azure-bright: #7db4ff;
-  --color-azure-dim: #21406b;
-  --color-signal: #f2a93b;
-  --color-healthy: #46c46b;
-  --color-danger: #f2545b;
-  --color-violet: #9d7bff;
+  --color-azure: #2563eb;
+  --color-azure-bright: #1d4ed8; /* hover (darker) */
+  --color-azure-dim: #dbe6fb; /* light azure tint */
+  --color-signal: #c2710c;
+  --color-healthy: #15a34a;
+  --color-danger: #dc2626;
+  --color-violet: #7c3aed;
 
   --font-display: var(--font-martian), ui-monospace, monospace;
   --font-body: var(--font-hanken), ui-sans-serif, system-ui, sans-serif;
@@ -39,7 +41,7 @@
 }
 
 html {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 body {
@@ -49,8 +51,8 @@ body {
   -webkit-font-smoothing: antialiased;
   /* Faint blueprint grid for atmosphere. */
   background-image:
-    linear-gradient(to right, rgba(91, 157, 255, 0.025) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(91, 157, 255, 0.025) 1px, transparent 1px);
+    linear-gradient(to right, rgba(37, 99, 235, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(37, 99, 235, 0.04) 1px, transparent 1px);
   background-size: 44px 44px;
 }
 
@@ -111,29 +113,29 @@ body {
   background: linear-gradient(
     180deg,
     transparent 0%,
-    rgba(91, 157, 255, 0.08) 50%,
+    rgba(37, 99, 235, 0.08) 50%,
     transparent 100%
   );
 }
 
 ::selection {
-  background: rgba(91, 157, 255, 0.3);
-  color: #fff;
+  background: rgba(37, 99, 235, 0.18);
+  color: var(--color-fg);
 }
 
 /* Custom scrollbar. */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-track { background: var(--color-ink-900); }
+::-webkit-scrollbar-track { background: var(--color-ink-850); }
 ::-webkit-scrollbar-thumb {
   background: var(--color-ink-600);
   border-radius: 9999px;
-  border: 2px solid var(--color-ink-900);
+  border: 2px solid var(--color-ink-850);
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--color-line-bright); }
 
 /* Hero glow + staggered reveal for the landing page. */
 .glow-text {
-  text-shadow: 0 0 32px rgba(91, 157, 255, 0.25);
+  text-shadow: 0 0 36px rgba(37, 99, 235, 0.18);
 }
 .reveal {
   animation: rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;

@@ -86,7 +86,7 @@ export default function LandingPage() {
           </a>
           <Link
             href="/dashboard"
-            className="inline-flex items-center gap-2 rounded-md bg-azure px-4 py-2 font-display text-sm font-medium tracking-tight text-ink-950 shadow-[0_0_0_1px_rgba(91,157,255,0.4),0_10px_30px_-12px_rgba(91,157,255,0.7)] transition-colors hover:bg-azure-bright"
+            className="inline-flex items-center gap-2 rounded-md bg-azure px-4 py-2 font-display text-sm font-medium tracking-tight text-ink-950 shadow-[0_0_0_1px_rgba(37, 99, 235,0.4),0_10px_30px_-12px_rgba(37, 99, 235,0.7)] transition-colors hover:bg-azure-bright"
           >
             Open console
             <ArrowRight className="h-4 w-4" />
@@ -113,7 +113,7 @@ export default function LandingPage() {
           <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link
               href="/dashboard"
-              className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-azure px-5 py-3 font-display text-sm font-medium tracking-tight text-ink-950 shadow-[0_0_0_1px_rgba(91,157,255,0.4),0_12px_32px_-12px_rgba(91,157,255,0.7)] transition-colors hover:bg-azure-bright sm:w-auto"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-azure px-5 py-3 font-display text-sm font-medium tracking-tight text-ink-950 shadow-[0_0_0_1px_rgba(37, 99, 235,0.4),0_12px_32px_-12px_rgba(37, 99, 235,0.7)] transition-colors hover:bg-azure-bright sm:w-auto"
             >
               <Terminal className="h-4 w-4" />
               Open the console
@@ -197,7 +197,7 @@ export default function LandingPage() {
           </p>
           <Link
             href="/dashboard"
-            className="relative mt-7 inline-flex items-center gap-2 rounded-md bg-azure px-6 py-3 font-display text-sm font-medium tracking-tight text-ink-950 shadow-[0_0_0_1px_rgba(91,157,255,0.4),0_12px_32px_-12px_rgba(91,157,255,0.7)] transition-colors hover:bg-azure-bright"
+            className="relative mt-7 inline-flex items-center gap-2 rounded-md bg-azure px-6 py-3 font-display text-sm font-medium tracking-tight text-ink-950 shadow-[0_0_0_1px_rgba(37, 99, 235,0.4),0_12px_32px_-12px_rgba(37, 99, 235,0.7)] transition-colors hover:bg-azure-bright"
           >
             Open the console
             <ArrowRight className="h-4 w-4" />
@@ -233,7 +233,7 @@ function FleetPreview() {
     { name: "billing", meta: "pg16 · s3 · provisioning", led: "led-signal led-pulse", status: "provisioning" },
   ];
   return (
-    <div className="overflow-hidden rounded-xl border border-line bg-ink-850/90 shadow-[0_40px_80px_-32px_rgba(0,0,0,0.9)] backdrop-blur">
+    <div className="overflow-hidden rounded-xl border border-line bg-ink-850/90 shadow-[0_40px_80px_-32px_rgba(15,31,51,0.18)] backdrop-blur">
       <div className="flex items-center gap-2 border-b border-line px-4 py-3">
         <span className="h-2.5 w-2.5 rounded-full bg-danger/70" />
         <span className="h-2.5 w-2.5 rounded-full bg-signal/70" />

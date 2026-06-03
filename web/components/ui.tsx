@@ -8,9 +8,9 @@ type ButtonSize = "sm" | "md";
 
 const buttonVariants: Record<ButtonVariant, string> = {
   primary:
-    "bg-azure text-ink-950 hover:bg-azure-bright shadow-[0_0_0_1px_rgba(91,157,255,0.4),0_8px_24px_-12px_rgba(91,157,255,0.6)] font-medium",
-  ghost: "text-fg-muted hover:text-fg hover:bg-ink-700/60",
-  outline: "border border-line-bright text-fg hover:border-azure/60 hover:text-azure bg-ink-800/40",
+    "bg-azure text-white hover:bg-azure-bright shadow-[0_1px_2px_rgba(37,99,235,0.25),0_8px_20px_-10px_rgba(37,99,235,0.45)] font-medium",
+  ghost: "text-fg-muted hover:text-fg hover:bg-ink-700",
+  outline: "border border-line-bright text-fg hover:border-azure/60 hover:text-azure bg-ink-900",
   danger: "border border-danger/40 text-danger hover:bg-danger/10",
 };
 
@@ -39,8 +39,8 @@ export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       className={cn(
-        "rounded-lg border border-line bg-ink-850/80 backdrop-blur-sm",
-        "shadow-[0_1px_0_0_rgba(255,255,255,0.02)_inset,0_24px_48px_-32px_rgba(0,0,0,0.8)]",
+        "rounded-lg border border-line bg-ink-900",
+        "shadow-[0_1px_2px_rgba(15,31,51,0.04),0_12px_32px_-18px_rgba(15,31,51,0.16)]",
         className
       )}
       {...props}
