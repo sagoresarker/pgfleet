@@ -100,6 +100,9 @@ type RestoreOpts struct {
 	Set string
 	// Delta restores only changed files into an existing data dir.
 	Delta bool
+	// Repo selects which repository to restore from (1 or 2); 0 lets pgbackrest
+	// pick (repo1). Use 2 to recover from the second repo when repo1 is lost.
+	Repo int
 }
 
 // Restore builds a restore command.
@@ -108,6 +111,9 @@ func Restore(stanza, confPath string, o RestoreOpts) ([]string, error) {
 		return nil, fmt.Errorf("pgbackrest: restore --type=%s requires a target", o.Type)
 	}
 	args := base(stanza, confPath)
+	if o.Repo > 0 {
+		args = append(args, fmt.Sprintf("--repo=%d", o.Repo))
+	}
 	if o.Type != "" {
 		args = append(args, "--type="+o.Type, "--target="+o.Target)
 		if o.TargetAction != "" {

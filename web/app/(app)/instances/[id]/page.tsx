@@ -1,5 +1,6 @@
 "use client";
 
+import { BackupLineage } from "@/components/backup-lineage";
 import { RestoreDialog } from "@/components/restore-dialog";
 import { PageHeader } from "@/components/shell";
 import { InstanceStatus } from "@/components/status";
@@ -490,6 +491,8 @@ function BackupsTab({
   });
 
   return (
+    <div className="space-y-6">
+    {backupList.length > 0 && <BackupLineage backups={backupList} />}
     <Card>
       <CardHeader>
         <CardTitle>Backup catalog</CardTitle>
@@ -552,6 +555,7 @@ function BackupsTab({
       </CardBody>
       <BackupModal id={id} open={backupOpen} onOpenChange={setBackupOpen} />
     </Card>
+    </div>
   );
 }
 
@@ -561,7 +565,7 @@ function BackupModal({ id, open, onOpenChange }: { id: string; open: boolean; on
   const [type, setType] = useState("full");
   const [note, setNote] = useState("");
   const take = useMutation({
-    mutationFn: () => api.createBackup(id, type, note.trim() || undefined),
+    mutationFn: () => api.createBackup(id, type, { annotation: note.trim() || undefined }),
     onSuccess: () => {
       toast.push(`${type} backup started — follow progress in Events`, "azure");
       setNote("");

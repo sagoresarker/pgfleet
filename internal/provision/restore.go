@@ -27,6 +27,9 @@ type RestoreOptions struct {
 	// Delta restores only files that differ from the target backup into an
 	// existing data dir, instead of a full clean restore (--delta).
 	Delta bool
+	// Repo selects which repository to restore from (1 or 2); 0 = repo1. Use 2
+	// to recover from the second repo when repo1 is unavailable.
+	Repo int
 }
 
 // Restore performs an in-place restore of an instance: it stops the instance,
@@ -70,6 +73,7 @@ func (p *Provisioner) restore(ctx context.Context, id string, opts RestoreOption
 		TargetAction: targetAction(opts.Type),
 		Set:          opts.Set,
 		Delta:        opts.Delta,
+		Repo:         opts.Repo,
 	})
 	if err != nil {
 		return err

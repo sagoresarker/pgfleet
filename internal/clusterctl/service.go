@@ -266,6 +266,35 @@ func (s *Service) RouterAdminDSN(ctx context.Context, clusterID, host string) (s
 	return u.String(), nil
 }
 
+// RouterBackend identifies one member behind the router by the address PgCat
+// knows it as (its container hostname) plus the role we assigned it. The pool
+// handler uses this to attribute live SHOW SERVERS traffic to the primary vs a
+// replica, since PgCat's admin output carries no role of its own.
+type RouterBackend struct {
+	Name    string `json:"name"`
+	Role    string `json:"role"`
+	Address string `json:"address"`
+}
+
+// RouterBackends returns the cluster's members as router backends (name, role,
+// and the container hostname PgCat connects to). Implements the topology half
+// of api.RouterAdminResolver. The primary is returned first.
+func (s *Service) RouterBackends(ctx context.Context, clusterID string) ([]RouterBackend, error) {
+	members, err := s.instances.ListByCluster(ctx, clusterID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RouterBackend, 0, len(members))
+	for _, m := range members {
+		out = append(out, RouterBackend{
+			Name:    m.Name,
+			Role:    string(m.Role),
+			Address: provision.InstanceContainerName(m.Name),
+		})
+	}
+	return out, nil
+}
+
 func emit(p provision.ProgressFunc, step, detail string) {
 	if p != nil {
 		p(step, detail)

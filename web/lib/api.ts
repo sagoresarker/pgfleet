@@ -61,6 +61,58 @@ export interface PoolDbStat {
   avg_wait_time: number;
 }
 
+// RoutingBackend is one cluster member with live traffic attributed to it from
+// PgCat's SHOW SERVERS — the data behind the routing topology graph.
+export interface RoutingBackend {
+  name: string;
+  role: string;
+  address: string;
+  connections: number;
+  active_connections: number;
+  query_count: number;
+  transaction_count: number;
+  bytes_sent: number;
+  bytes_received: number;
+}
+
+// ServerStat / ClientStat are raw SHOW SERVERS / SHOW CLIENTS rows for the
+// per-connection ops tables.
+export interface ServerStat {
+  server_id: string;
+  database: string;
+  user: string;
+  address: string;
+  application_name: string;
+  state: string;
+  transaction_count: number;
+  query_count: number;
+  bytes_sent: number;
+  bytes_received: number;
+  age_seconds: number;
+}
+
+export interface ClientStat {
+  client_id: string;
+  database: string;
+  user: string;
+  application_name: string;
+  state: string;
+  transaction_count: number;
+  query_count: number;
+  error_count: number;
+  age_seconds: number;
+  maxwait: number;
+  maxwait_us: number;
+}
+
+export interface PoolStatsResponse {
+  pools: PoolStat[];
+  stats: PoolDbStat[];
+  servers: ServerStat[];
+  clients: ClientStat[];
+  routing: RoutingBackend[];
+}
+
 export interface Backup {
   id: string;
   label: string;
@@ -267,15 +319,19 @@ export const api = {
   clusterConnection: (id: string) => request<{ dsn: string }>("GET", `/api/v1/clusters/${id}/connection`),
 
   listBackups: (id: string) => request<{ backups: Backup[] }>("GET", `/api/v1/instances/${id}/backups`),
-  createBackup: (id: string, type: string, annotation?: string) =>
-    request<void>("POST", `/api/v1/instances/${id}/backups`, annotation ? { type, annotation } : { type }),
+  createBackup: (id: string, type: string, opts?: { annotation?: string; standby?: boolean }) =>
+    request<void>("POST", `/api/v1/instances/${id}/backups`, {
+      type,
+      ...(opts?.annotation ? { annotation: opts.annotation } : {}),
+      ...(opts?.standby ? { standby: true } : {}),
+    }),
   deleteBackup: (id: string, label: string) =>
     request<void>("DELETE", `/api/v1/instances/${id}/backups/${encodeURIComponent(label)}`),
   verifyBackups: (id: string) => request<void>("POST", `/api/v1/instances/${id}/backups/verify`),
-  restore: (id: string, input: { type?: string; target?: string; set?: string; delta?: boolean }) =>
+  restore: (id: string, input: { type?: string; target?: string; set?: string; delta?: boolean; repo?: number }) =>
     request<void>("POST", `/api/v1/instances/${id}/restore`, input),
   poolStats: (clusterId: string) =>
-    request<{ pools: PoolStat[]; stats: PoolDbStat[] }>("GET", `/api/v1/clusters/${clusterId}/pool/stats`),
+    request<PoolStatsResponse>("GET", `/api/v1/clusters/${clusterId}/pool/stats`),
 
   latestMetrics: (id: string) => request<{ metrics: Record<string, MetricSample> }>("GET", `/api/v1/instances/${id}/metrics`),
   rangeMetrics: (id: string, metric: string, since: string) =>

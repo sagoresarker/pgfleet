@@ -3,11 +3,12 @@
 import { api, type Backup } from "@/lib/api";
 import { useQueryClient } from "@tanstack/react-query";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Clock, History, Layers, RotateCcw, X } from "lucide-react";
+import { Clock, History, Layers, RotateCcw, Target, X } from "lucide-react";
 import { useState } from "react";
-import { Button, Field, Input } from "./ui";
+import { Button, Field, Input, Select } from "./ui";
 
-type Mode = "latest" | "time" | "set";
+type Mode = "latest" | "time" | "set" | "advanced";
+type AdvType = "name" | "lsn" | "xid";
 
 export function RestoreDialog({ instanceId, backups }: { instanceId: string; backups: Backup[] }) {
   const qc = useQueryClient();
@@ -15,6 +16,9 @@ export function RestoreDialog({ instanceId, backups }: { instanceId: string; bac
   const [mode, setMode] = useState<Mode>("latest");
   const [target, setTarget] = useState("");
   const [set, setSet] = useState(backups[0]?.label ?? "");
+  const [advType, setAdvType] = useState<AdvType>("name");
+  const [advTarget, setAdvTarget] = useState("");
+  const [repo, setRepo] = useState<1 | 2>(1);
   const [delta, setDelta] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -28,8 +32,10 @@ export function RestoreDialog({ instanceId, backups }: { instanceId: string; bac
           ? {}
           : mode === "time"
             ? { type: "time", target: toPgTimestamp(target) }
-            : { set };
-      await api.restore(instanceId, { ...base, delta });
+            : mode === "advanced"
+              ? { type: advType, target: advTarget.trim() }
+              : { set };
+      await api.restore(instanceId, { ...base, delta, ...(repo === 2 ? { repo: 2 } : {}) });
       qc.invalidateQueries({ queryKey: ["instance", instanceId] });
       setOpen(false);
     } catch (err) {
@@ -63,10 +69,11 @@ export function RestoreDialog({ instanceId, backups }: { instanceId: string; bac
           {/* WAL timeline */}
           <WalTimeline backups={backups} />
 
-          <div className="mt-5 grid grid-cols-3 gap-2">
+          <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
             <ModeTab active={mode === "latest"} onClick={() => setMode("latest")} icon={<History className="h-3.5 w-3.5" />} label="Latest" />
             <ModeTab active={mode === "time"} onClick={() => setMode("time")} icon={<Clock className="h-3.5 w-3.5" />} label="Point in time" />
             <ModeTab active={mode === "set"} onClick={() => setMode("set")} icon={<Layers className="h-3.5 w-3.5" />} label="Backup" />
+            <ModeTab active={mode === "advanced"} onClick={() => setMode("advanced")} icon={<Target className="h-3.5 w-3.5" />} label="Target" />
           </div>
 
           <div className="mt-4 min-h-[64px]">
@@ -91,7 +98,31 @@ export function RestoreDialog({ instanceId, backups }: { instanceId: string; bac
                 </select>
               </Field>
             )}
+            {mode === "advanced" && (
+              <div className="grid grid-cols-[8rem_1fr] gap-3">
+                <Field label="Target type" hint="Recover to a restore point, an LSN, or a transaction id.">
+                  <Select value={advType} onChange={(e) => setAdvType(e.target.value as AdvType)}>
+                    <option value="name">Named restore point</option>
+                    <option value="lsn">LSN</option>
+                    <option value="xid">Transaction id</option>
+                  </Select>
+                </Field>
+                <Field
+                  label="Value"
+                  hint={advType === "lsn" ? "e.g. 0/16B6230" : advType === "xid" ? "e.g. 728193" : "a pg_create_restore_point() name"}
+                >
+                  <Input value={advTarget} onChange={(e) => setAdvTarget(e.target.value)} placeholder={advType === "lsn" ? "0/16B6230" : ""} spellCheck={false} />
+                </Field>
+              </div>
+            )}
           </div>
+
+          <Field label="Restore from repository" hint="Use the second repository to recover when the primary repo is unavailable.">
+            <Select value={String(repo)} onChange={(e) => setRepo(Number(e.target.value) === 2 ? 2 : 1)}>
+              <option value="1">repo1 — primary repository</option>
+              <option value="2">repo2 — failover copy</option>
+            </Select>
+          </Field>
 
           <label className="mt-4 flex cursor-pointer items-start gap-2.5 rounded-md border border-line bg-ink-850 px-3 py-2.5">
             <input
@@ -116,7 +147,10 @@ export function RestoreDialog({ instanceId, backups }: { instanceId: string; bac
             <Dialog.Close asChild>
               <Button variant="ghost">Cancel</Button>
             </Dialog.Close>
-            <Button onClick={onRestore} disabled={submitting || (mode === "time" && !target)}>
+            <Button
+              onClick={onRestore}
+              disabled={submitting || (mode === "time" && !target) || (mode === "advanced" && !advTarget.trim())}
+            >
               {submitting ? "Restoring…" : "Begin restore"}
             </Button>
           </div>

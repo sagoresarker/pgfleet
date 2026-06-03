@@ -174,6 +174,29 @@ func TestRestoreBySet(t *testing.T) {
 	}
 }
 
+func TestRestoreFromRepo2(t *testing.T) {
+	got, err := Restore("db", conf, RestoreOpts{Repo: 2, Set: "20260603-120000F"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"pgbackrest", "--config=" + conf, "--stanza=db", "--repo=2", "--set=20260603-120000F", "restore"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Restore from repo2 = %v, want %v", got, want)
+	}
+}
+
+func TestRestoreRepoOmittedWhenZero(t *testing.T) {
+	got, err := Restore("db", conf, RestoreOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range got {
+		if len(a) >= 6 && a[:6] == "--repo" {
+			t.Errorf("repo flag should be omitted when Repo=0, got %v", got)
+		}
+	}
+}
+
 func TestRestoreRejectsTimeWithoutTarget(t *testing.T) {
 	if _, err := Restore("db", conf, RestoreOpts{Type: "time"}); err == nil {
 		t.Error("--type=time without target should error")

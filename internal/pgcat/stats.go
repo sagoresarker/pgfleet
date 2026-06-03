@@ -45,11 +45,54 @@ type Stat struct {
 	AvgWaitTime     int64  `json:"avg_wait_time"`
 }
 
-// PoolStats is the parsed result of SHOW POOLS and SHOW STATS from a router's
-// admin interface.
+// ServerStat is one row of PgCat's SHOW SERVERS: a single backend (server)
+// connection the router holds. Address is PgCat's address_name (the configured
+// backend host) which the caller maps back to a cluster member to attribute
+// traffic to the primary vs a replica. The counters are cumulative for the
+// lifetime of that connection (they reset when the connection recycles), so
+// they read as an instantaneous load share, not a monotonic rate.
+type ServerStat struct {
+	ServerID         string `json:"server_id"`
+	Database         string `json:"database"`
+	User             string `json:"user"`
+	Address          string `json:"address"`
+	ApplicationName  string `json:"application_name"`
+	State            string `json:"state"`
+	TransactionCount int64  `json:"transaction_count"`
+	QueryCount       int64  `json:"query_count"`
+	BytesSent        int64  `json:"bytes_sent"`
+	BytesReceived    int64  `json:"bytes_received"`
+	AgeSeconds       int64  `json:"age_seconds"`
+	PrepareCacheHit  int64  `json:"prepare_cache_hit"`
+	PrepareCacheMiss int64  `json:"prepare_cache_miss"`
+}
+
+// ClientStat is one row of PgCat's SHOW CLIENTS: a single client (application)
+// connection in front of the router, with its lifetime transaction/query/error
+// counts and how long it has waited for a server.
+type ClientStat struct {
+	ClientID         string `json:"client_id"`
+	Database         string `json:"database"`
+	User             string `json:"user"`
+	ApplicationName  string `json:"application_name"`
+	State            string `json:"state"`
+	TransactionCount int64  `json:"transaction_count"`
+	QueryCount       int64  `json:"query_count"`
+	ErrorCount       int64  `json:"error_count"`
+	AgeSeconds       int64  `json:"age_seconds"`
+	Maxwait          int64  `json:"maxwait"`
+	MaxwaitUs        int64  `json:"maxwait_us"`
+}
+
+// PoolStats is the parsed result of the router admin SHOW commands. Pools and
+// Stats come from SHOW POOLS / SHOW STATS; Servers and Clients (SHOW SERVERS /
+// SHOW CLIENTS) are best-effort — an older PgCat that lacks them yields empty
+// slices rather than failing the whole read.
 type PoolStats struct {
-	Pools []PoolStat `json:"pools"`
-	Stats []Stat     `json:"stats"`
+	Pools   []PoolStat   `json:"pools"`
+	Stats   []Stat       `json:"stats"`
+	Servers []ServerStat `json:"servers"`
+	Clients []ClientStat `json:"clients"`
 }
 
 // ReadPoolStats connects to a PgCat ADMIN interface (the router's host:port as
@@ -72,9 +115,23 @@ func ReadPoolStats(ctx context.Context, adminDSN string) (PoolStats, error) {
 		return PoolStats{}, err
 	}
 
+	// SHOW SERVERS / SHOW CLIENTS are best-effort: they drive the routing view
+	// and connection tables but must not break the core pool/stats panel if a
+	// PgCat build doesn't support them.
+	var servers []ServerStat
+	if serverRows, err := queryAdmin(ctx, conn, "SHOW SERVERS"); err == nil {
+		servers = parseServerRows(serverRows)
+	}
+	var clients []ClientStat
+	if clientRows, err := queryAdmin(ctx, conn, "SHOW CLIENTS"); err == nil {
+		clients = parseClientRows(clientRows)
+	}
+
 	return PoolStats{
-		Pools: parsePoolRows(poolRows),
-		Stats: parseStatRows(statRows),
+		Pools:   parsePoolRows(poolRows),
+		Stats:   parseStatRows(statRows),
+		Servers: servers,
+		Clients: clients,
 	}, nil
 }
 
@@ -159,6 +216,48 @@ func parseStatRows(rows []map[string]string) []Stat {
 			AvgXactTime:     atoi(r["avg_xact_time"]),
 			AvgQueryTime:    atoi(r["avg_query_time"]),
 			AvgWaitTime:     atoi(r["avg_wait_time"]),
+		})
+	}
+	return out
+}
+
+func parseServerRows(rows []map[string]string) []ServerStat {
+	out := make([]ServerStat, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, ServerStat{
+			ServerID:         r["server_id"],
+			Database:         r["database_name"],
+			User:             r["user"],
+			Address:          r["address_id"],
+			ApplicationName:  r["application_name"],
+			State:            r["state"],
+			TransactionCount: atoi(r["transaction_count"]),
+			QueryCount:       atoi(r["query_count"]),
+			BytesSent:        atoi(r["bytes_sent"]),
+			BytesReceived:    atoi(r["bytes_received"]),
+			AgeSeconds:       atoi(r["age_seconds"]),
+			PrepareCacheHit:  atoi(r["prepare_cache_hit"]),
+			PrepareCacheMiss: atoi(r["prepare_cache_miss"]),
+		})
+	}
+	return out
+}
+
+func parseClientRows(rows []map[string]string) []ClientStat {
+	out := make([]ClientStat, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, ClientStat{
+			ClientID:         r["client_id"],
+			Database:         r["database"],
+			User:             r["user"],
+			ApplicationName:  r["application_name"],
+			State:            r["state"],
+			TransactionCount: atoi(r["transaction_count"]),
+			QueryCount:       atoi(r["query_count"]),
+			ErrorCount:       atoi(r["error_count"]),
+			AgeSeconds:       atoi(r["age_seconds"]),
+			Maxwait:          atoi(r["maxwait"]),
+			MaxwaitUs:        atoi(r["maxwait_us"]),
 		})
 	}
 	return out

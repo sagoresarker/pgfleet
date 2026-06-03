@@ -1,6 +1,7 @@
 "use client";
 
 import { PageHeader } from "@/components/shell";
+import { RouterObservability } from "@/components/routing";
 import { ClusterStatus } from "@/components/status";
 import {
   ActionMenu,
@@ -157,7 +158,8 @@ export default function ClusterDetailPage() {
         </div>
       </div>
 
-      <div className="mt-6">
+      <div className="mt-6 space-y-6">
+        <RouterObservability id={id} ready={ready} />
         <PoolStatsPanel id={id} ready={ready} />
       </div>
     </div>

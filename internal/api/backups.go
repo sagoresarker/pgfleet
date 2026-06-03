@@ -54,6 +54,9 @@ type createBackupRequest struct {
 	// Annotation, when set, names the backup (stored as the "name" annotation on
 	// the backup set and surfaced back in the catalog/info).
 	Annotation string `json:"annotation"`
+	// Standby takes the backup from a replica to offload the primary
+	// (--backup-standby); ignored for a standalone instance with no standby.
+	Standby bool `json:"standby"`
 }
 
 type backupPayload struct {
@@ -80,7 +83,7 @@ func (h *BackupsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := chi.URLParam(r, "id")
-	opts := backup.RunOpts{Annotation: req.Annotation}
+	opts := backup.RunOpts{Annotation: req.Annotation, Standby: req.Standby}
 	recordAudit(h.audit, r, "backup.create", id)
 	h.async.Go(func(ctx context.Context) { _ = h.runner.RunWith(ctx, id, req.Type, opts) })
 	w.WriteHeader(http.StatusAccepted)
@@ -141,6 +144,8 @@ type restoreRequest struct {
 	Set    string `json:"set"`
 	// Delta restores only changed files into the existing data dir (--delta).
 	Delta bool `json:"delta"`
+	// Repo selects which repository to restore from (1 or 2); 0 = repo1.
+	Repo int `json:"repo"`
 }
 
 // Restore starts a restore (or PITR) asynchronously, returning 202.
@@ -158,8 +163,12 @@ func (h *BackupsHandler) Restore(w http.ResponseWriter, r *http.Request) {
 		respondError(w, apperr.New(apperr.KindInvalid, "restore type requires a target"))
 		return
 	}
+	if req.Repo != 0 && req.Repo != 1 && req.Repo != 2 {
+		respondError(w, apperr.New(apperr.KindInvalid, "restore repo must be 1 or 2"))
+		return
+	}
 	id := chi.URLParam(r, "id")
-	opts := provision.RestoreOptions{Type: req.Type, Target: req.Target, Set: req.Set, Delta: req.Delta}
+	opts := provision.RestoreOptions{Type: req.Type, Target: req.Target, Set: req.Set, Delta: req.Delta, Repo: req.Repo}
 	recordAudit(h.audit, r, "backup.restore", id)
 	h.async.Go(func(ctx context.Context) { _ = h.restorer.Restore(ctx, id, opts, nil) })
 	w.WriteHeader(http.StatusAccepted)

@@ -44,6 +44,68 @@ func TestParsePoolRowsToleratesMissingAndBadFields(t *testing.T) {
 	}
 }
 
+func TestParseServerRows(t *testing.T) {
+	rows := []map[string]string{
+		{
+			"server_id": "0xab", "database_name": "postgres", "user": "postgres",
+			"address_id": "pgfleet-pg-orders-p:5432", "application_name": "pgcat",
+			"state": "active", "transaction_count": "12", "query_count": "40",
+			"bytes_sent": "2048", "bytes_received": "4096", "age_seconds": "30",
+			"prepare_cache_hit": "5", "prepare_cache_miss": "1",
+		},
+	}
+	servers := parseServerRows(rows)
+	if len(servers) != 1 {
+		t.Fatalf("len = %d, want 1", len(servers))
+	}
+	s := servers[0]
+	if s.Address != "pgfleet-pg-orders-p:5432" || s.Database != "postgres" || s.State != "active" {
+		t.Errorf("identity = %+v", s)
+	}
+	if s.QueryCount != 40 || s.TransactionCount != 12 {
+		t.Errorf("counts = %+v", s)
+	}
+	if s.BytesSent != 2048 || s.BytesReceived != 4096 {
+		t.Errorf("bytes = %+v", s)
+	}
+	if s.AgeSeconds != 30 {
+		t.Errorf("age = %d", s.AgeSeconds)
+	}
+}
+
+func TestParseServerRowsToleratesMissingFields(t *testing.T) {
+	rows := []map[string]string{{"address_id": "host", "query_count": "oops"}}
+	servers := parseServerRows(rows)
+	if len(servers) != 1 || servers[0].Address != "host" || servers[0].QueryCount != 0 {
+		t.Fatalf("servers = %+v", servers)
+	}
+}
+
+func TestParseClientRows(t *testing.T) {
+	rows := []map[string]string{
+		{
+			"client_id": "0xcd", "database": "postgres", "user": "app",
+			"application_name": "web", "state": "active",
+			"transaction_count": "7", "query_count": "21", "error_count": "1",
+			"age_seconds": "12", "maxwait": "0", "maxwait_us": "900",
+		},
+	}
+	clients := parseClientRows(rows)
+	if len(clients) != 1 {
+		t.Fatalf("len = %d, want 1", len(clients))
+	}
+	c := clients[0]
+	if c.Database != "postgres" || c.User != "app" || c.ApplicationName != "web" || c.State != "active" {
+		t.Errorf("identity = %+v", c)
+	}
+	if c.QueryCount != 21 || c.TransactionCount != 7 || c.ErrorCount != 1 {
+		t.Errorf("counts = %+v", c)
+	}
+	if c.AgeSeconds != 12 || c.MaxwaitUs != 900 {
+		t.Errorf("timing = %+v", c)
+	}
+}
+
 func TestParseStatRows(t *testing.T) {
 	rows := []map[string]string{
 		{
