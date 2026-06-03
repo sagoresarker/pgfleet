@@ -47,8 +47,8 @@ export function RestoreDialog({ instanceId, backups }: { instanceId: string; bac
         </Button>
       </Dialog.Trigger>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-ink-950/80 backdrop-blur-sm data-[state=open]:animate-in" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-xl border border-line bg-ink-850 p-6 shadow-[0_40px_80px_-32px_rgba(0,0,0,0.9)]">
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-[#0f1f33]/40 backdrop-blur-sm data-[state=open]:animate-in" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-xl border border-line bg-ink-900 p-6 shadow-[0_40px_80px_-32px_rgba(15,31,51,0.25)]">
           <div className="mb-1 flex items-center justify-between">
             <Dialog.Title className="font-display text-base font-semibold">Restore instance</Dialog.Title>
             <Dialog.Close className="text-fg-faint hover:text-fg">

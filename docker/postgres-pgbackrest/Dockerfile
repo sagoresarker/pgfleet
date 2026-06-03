@@ -2,7 +2,11 @@
 # pgBackRest can run archive-push/backup/restore against the local cluster and
 # an S3/MinIO or local-volume repository. pgBackRest runs as the postgres OS
 # user (uid 999 in the official image) so it shares ownership of PGDATA/pg_wal.
-FROM postgres:16
+#
+# PG_VERSION selects the PostgreSQL major version (13–17). Build a specific
+# version with: docker build --build-arg PG_VERSION=17 -t pgfleet/postgres-pgbackrest:17 .
+ARG PG_VERSION=16
+FROM postgres:${PG_VERSION}
 
 # pgbackrest from the Debian Bookworm repos. Pin nothing here; the integration
 # build records the resolved version. Create the directories pgBackRest needs,

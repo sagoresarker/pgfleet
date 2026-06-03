@@ -44,7 +44,7 @@ export default function LoginPage() {
           <Logo />
         </div>
 
-        <div className="rounded-xl border border-line bg-ink-850/80 p-7 shadow-[0_32px_64px_-32px_rgba(0,0,0,0.9)] backdrop-blur">
+        <div className="rounded-xl border border-line bg-ink-850/80 p-7 shadow-[0_32px_64px_-32px_rgba(15,31,51,0.18)] backdrop-blur">
           <h1 className="font-display text-lg font-semibold tracking-tight">Sign in</h1>
           <p className="mt-1 text-sm text-fg-muted">Access the Postgres control plane.</p>
 

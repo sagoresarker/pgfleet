@@ -12,9 +12,9 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/secrets"
 )
 
-// DefaultImage is the managed-instance image used when none is specified.
-// It must match docker.ManagedImage.
-const DefaultImage = "pgfleet/postgres-pgbackrest:16"
+// DefaultImage is the managed-instance image used when neither image nor
+// version is specified. It must match docker.ManagedImage.
+const DefaultImage = "pgfleet/postgres-pgbackrest:" + DefaultVersion
 
 const uniqueViolation = "23505"
 
@@ -201,11 +201,13 @@ func scanInstance(row rowScanner) (Instance, error) {
 }
 
 func applyDefaults(in *NewInstance) {
-	if in.Image == "" {
-		in.Image = DefaultImage
-	}
 	if in.PGVersion == "" {
-		in.PGVersion = "16"
+		in.PGVersion = DefaultVersion
+	}
+	// Derive the image from the chosen version unless an explicit image was
+	// given, so each version provisions from its matching pgBackRest image.
+	if in.Image == "" {
+		in.Image = ImageForVersion(in.PGVersion)
 	}
 	if in.Superuser == "" {
 		in.Superuser = "postgres"

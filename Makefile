@@ -47,9 +47,18 @@ fmt: ## Format code
 vet: ## Run go vet
 	$(GO) vet $(PKG)
 
+PG_VERSIONS ?= 13 14 15 16 17
+
 .PHONY: image
-image: ## Build the managed postgres+pgBackRest image
+image: ## Build the default managed postgres+pgBackRest image (PG 16)
 	docker build -t pgfleet/postgres-pgbackrest:16 docker/postgres-pgbackrest
+
+.PHONY: images
+images: ## Build the managed image for every supported PG version (13–17)
+	@for v in $(PG_VERSIONS); do \
+		echo "==> building pgfleet/postgres-pgbackrest:$$v"; \
+		docker build --build-arg PG_VERSION=$$v -t pgfleet/postgres-pgbackrest:$$v docker/postgres-pgbackrest || exit 1; \
+	done
 
 .PHONY: dev-up
 dev-up: ## Start dev dependencies (meta-DB + MinIO)

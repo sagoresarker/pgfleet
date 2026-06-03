@@ -107,6 +107,21 @@ func TestCollectorReadsRealStats(t *testing.T) {
 	if _, ok := byMetric["checkpoints_timed"]; !ok {
 		t.Error("expected checkpoints_timed metric")
 	}
+	// Enriched metrics must be present.
+	for _, m := range []string{
+		"cache_hit_ratio", "tup_returned", "temp_files", "max_connections",
+		"connection_utilization", "locks_held", "wal_records", "longest_transaction_seconds",
+	} {
+		if _, ok := byMetric[m]; !ok {
+			t.Errorf("expected enriched metric %q", m)
+		}
+	}
+	if r := byMetric["cache_hit_ratio"]; r < 0 || r > 100 {
+		t.Errorf("cache_hit_ratio = %v, want 0..100", r)
+	}
+	if byMetric["max_connections"] < 1 {
+		t.Errorf("max_connections = %v, want >= 1", byMetric["max_connections"])
+	}
 }
 
 func TestTopQueriesFromStatStatements(t *testing.T) {
