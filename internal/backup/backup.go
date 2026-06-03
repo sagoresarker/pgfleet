@@ -62,9 +62,9 @@ func New(rt docker.ContainerRuntime, instances instanceLookup, cat catalog) *Ser
 // Run takes a backup of the given type (full|incr|diff), serialized per
 // instance, then refreshes the catalog.
 func (s *Service) Run(ctx context.Context, instanceID, backupType string) error {
-	cmd, err := pgbackrest.Backup("", confPath, backupType)
-	if err != nil {
-		return err // invalid type, fail before touching the instance
+	// Validate the backup type up front, before touching the instance.
+	if _, err := pgbackrest.Backup("", confPath, backupType); err != nil {
+		return err
 	}
 
 	inst, err := s.instances.Get(ctx, instanceID)
@@ -76,8 +76,10 @@ func (s *Service) Run(ctx context.Context, instanceID, backupType string) error 
 	lock.Lock()
 	defer lock.Unlock()
 
-	// Rebuild with the real stanza now that we have the instance.
-	cmd, _ = pgbackrest.Backup(inst.Stanza, confPath, backupType)
+	cmd, err := pgbackrest.Backup(inst.Stanza, confPath, backupType)
+	if err != nil {
+		return err
+	}
 	if err := s.execOK(ctx, inst.ContainerID, asPostgres(cmd)); err != nil {
 		return err
 	}

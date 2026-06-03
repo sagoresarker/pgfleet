@@ -10,8 +10,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/sagoresarker/pgfleet/internal/instance"
-	"github.com/sagoresarker/pgfleet/internal/secrets"
 	"github.com/sagoresarker/pgfleet/internal/provisiontest"
+	"github.com/sagoresarker/pgfleet/internal/secrets"
 	"github.com/sagoresarker/pgfleet/internal/testsupport"
 )
 

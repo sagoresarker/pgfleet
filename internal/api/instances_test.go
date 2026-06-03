@@ -81,9 +81,15 @@ func (f *fakeProvisioner) Provision(_ context.Context, id string, progress provi
 	f.provisioned <- id
 	return nil
 }
-func (f *fakeProvisioner) Start(_ context.Context, id string) error   { f.started = append(f.started, id); return nil }
-func (f *fakeProvisioner) Stop(_ context.Context, id string) error    { f.stopped = append(f.stopped, id); return nil }
-func (f *fakeProvisioner) Restart(_ context.Context, id string) error { return nil }
+func (f *fakeProvisioner) Start(_ context.Context, id string) error {
+	f.started = append(f.started, id)
+	return nil
+}
+func (f *fakeProvisioner) Stop(_ context.Context, id string) error {
+	f.stopped = append(f.stopped, id)
+	return nil
+}
+func (f *fakeProvisioner) Restart(_ context.Context, _ string) error { return nil }
 func (f *fakeProvisioner) Destroy(_ context.Context, id string, _ bool) error {
 	f.destroyed = append(f.destroyed, id)
 	return nil

@@ -180,4 +180,3 @@ func (h *InstancesHandler) Connection(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"dsn": dsn})
 }
-

@@ -109,8 +109,8 @@ func TestCreateUserValidation(t *testing.T) {
 
 	bodies := []string{
 		`{"email":"x@x.com","password":"longenough","role":"root"}`, // bad role
-		`{"email":"x@x.com","password":"short","role":"viewer"}`,      // weak password
-		`{"email":"","password":"longenough","role":"viewer"}`,        // missing email
+		`{"email":"x@x.com","password":"short","role":"viewer"}`,    // weak password
+		`{"email":"","password":"longenough","role":"viewer"}`,      // missing email
 		`not json`,
 	}
 	for _, b := range bodies {
