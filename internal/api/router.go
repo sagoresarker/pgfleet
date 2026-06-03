@@ -54,6 +54,8 @@ type Deps struct {
 	Timescale *TimescaleHandler
 	// Alerts serves the active-alerts view (optional).
 	Alerts *AlertsHandler
+	// AlertRules serves user-configurable alert-rule CRUD (optional).
+	AlertRules *AlertRulesHandler
 	// EventsHistory serves the persisted event timeline (optional).
 	EventsHistory *EventsHistoryHandler
 	// Logs serves instance container logs (optional).
@@ -143,6 +145,19 @@ func NewRouter(deps Deps) http.Handler {
 					pr.Group(func(ar chi.Router) {
 						ar.Use(auth.RequireAction(auth.ActionMetricsRead))
 						ar.Get("/alerts", deps.Alerts.List)
+					})
+				}
+				if deps.AlertRules != nil {
+					// Listing rules is read-level; mutating them is write-level.
+					pr.Group(func(rr chi.Router) {
+						rr.Use(auth.RequireAction(auth.ActionMetricsRead))
+						rr.Get("/alert-rules", deps.AlertRules.List)
+					})
+					pr.Group(func(rr chi.Router) {
+						rr.Use(auth.RequireAction(auth.ActionInstanceWrite))
+						rr.Post("/alert-rules", deps.AlertRules.Create)
+						rr.Put("/alert-rules/{id}", deps.AlertRules.Update)
+						rr.Delete("/alert-rules/{id}", deps.AlertRules.Delete)
 					})
 				}
 				if deps.EventsHistory != nil {

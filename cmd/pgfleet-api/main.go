@@ -183,6 +183,7 @@ func run() error {
 	healthStore := health.NewStore(pool)
 	healthChecker := health.NewChecker(rt, instances, catalog, health.DefaultThresholds())
 	alertStore := alerts.NewStore(pool)
+	alertRuleStore := alerts.NewRuleStore(pool)
 	alertNotifier := alerts.NewWebhookNotifier(cfg.AlertWebhookURL, 5*time.Second)
 
 	sched := scheduler.New(scheduler.WithErrorHandler(func(name string, err error) {
@@ -202,7 +203,7 @@ func run() error {
 		return runHealthChecks(ctx, instances, healthChecker, healthStore)
 	})
 	sched.Register("evaluate-alerts", alertsInterval, func(ctx context.Context) error {
-		return evaluateAlerts(ctx, instances, metricStore, healthStore, alertStore, alertNotifier, eventStore)
+		return evaluateAlerts(ctx, instances, metricStore, healthStore, alertStore, alertRuleStore, alertNotifier, eventStore)
 	})
 	sched.Register("restore-drills", drillInterval, func(ctx context.Context) error {
 		return runRestoreDrills(ctx, instances, provisioner, healthStore)
@@ -283,6 +284,7 @@ func run() error {
 
 		Timescale:     api.NewTimescaleHandler(instances, provisioner.DSN),
 		Alerts:        api.NewAlertsHandler(alertStore),
+		AlertRules:    api.NewAlertRulesHandler(alertRuleStore).WithAudit(recorder),
 		EventsHistory: api.NewEventsHistoryHandler(eventStore),
 		Logs:          api.NewLogsHandler(instances, rt),
 		Prometheus:    api.NewPrometheusHandler(instances, metricStore),
@@ -366,7 +368,7 @@ func collectMetrics(ctx context.Context, lister *instance.Repository, prov *prov
 // evaluateAlerts builds a per-instance snapshot from the latest metrics + health
 // report, evaluates the alert thresholds, persists firing/resolved state, and
 // fires the webhook + records an event on each transition.
-func evaluateAlerts(ctx context.Context, lister *instance.Repository, metricStore *metrics.Store, healthStore *health.Store, alertStore *alerts.Store, notifier *alerts.WebhookNotifier, eventStore *events.Store) error {
+func evaluateAlerts(ctx context.Context, lister *instance.Repository, metricStore *metrics.Store, healthStore *health.Store, alertStore *alerts.Store, ruleStore *alerts.RuleStore, notifier *alerts.WebhookNotifier, eventStore *events.Store) error {
 	instances, err := lister.List(ctx)
 	if err != nil {
 		return err
@@ -379,10 +381,15 @@ func evaluateAlerts(ctx context.Context, lister *instance.Repository, metricStor
 		}
 	}
 
-	th := alerts.DefaultThresholds()
+	defaults := alerts.DefaultThresholds()
 	for _, inst := range instances {
 		if inst.Status != instance.StatusRunning {
 			continue
+		}
+		// Merge user-configured rules (global + this instance's) over the defaults.
+		th := defaults
+		if rules, err := ruleStore.ListEffective(ctx, inst.ID); err == nil {
+			th = alerts.EffectiveThresholds(defaults, rules)
 		}
 		latest, err := metricStore.Latest(ctx, inst.ID)
 		if err != nil {

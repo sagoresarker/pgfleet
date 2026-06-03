@@ -215,6 +215,19 @@ export interface RemoteDump {
   created_at: string;
 }
 
+export type AlertKind = "disk_full" | "replication_lag" | "backup_stale" | "connection_saturation";
+
+export interface AlertRule {
+  id: string;
+  instance_id?: string | null;
+  kind: AlertKind;
+  threshold: number;
+  severity: "warning" | "critical";
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export type RemoteRestoreTarget = "instance" | "cluster";
 
 const TOKEN_KEY = "pgfleet.token";
@@ -342,6 +355,14 @@ export const api = {
 
   // Active alerts (persisted, transition-tracked).
   listAlerts: () => request<{ alerts: ActiveAlert[] }>("GET", "/api/v1/alerts"),
+
+  // User-configurable alert rules (threshold overrides per kind/instance).
+  listAlertRules: () => request<{ rules: AlertRule[] }>("GET", "/api/v1/alert-rules"),
+  createAlertRule: (body: { instance_id?: string | null; kind: AlertKind; threshold: number; severity: string; enabled: boolean }) =>
+    request<{ rule: AlertRule }>("POST", "/api/v1/alert-rules", body),
+  updateAlertRule: (id: string, body: { instance_id?: string | null; kind: AlertKind; threshold: number; severity: string; enabled: boolean }) =>
+    request<{ rule: AlertRule }>("PUT", `/api/v1/alert-rules/${id}`, body),
+  deleteAlertRule: (id: string) => request<void>("DELETE", `/api/v1/alert-rules/${id}`),
 
   // Durable event timeline.
   listEvents: (params?: { instance_id?: string; type?: string; limit?: number }) => {
