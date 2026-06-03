@@ -161,8 +161,17 @@ func NewRouter(deps Deps) http.Handler {
 					})
 				}
 				if deps.Exec != nil {
-					// Container exec is privileged (root in the container); gate
-					// it at the write level (operator/admin).
+					// SEC-1: gating across the three privileged data-plane
+					// endpoints is deliberately set so that NONE are reachable by
+					// read-only viewers. SQL and Dump are gated at the connect
+					// level (they are DSN-equivalent: full data access as the
+					// superuser). Exec is gated STRICTER, at the write level,
+					// because it runs ARBITRARY commands as root inside the
+					// container — strictly more dangerous than a DB query or a
+					// logical dump (it can touch the filesystem, processes, and
+					// anything else in the container, not just the database).
+					// Keeping exec stricter is the safe, intentional choice, not
+					// an accident.
 					pr.Group(func(xr chi.Router) {
 						xr.Use(auth.RequireAction(auth.ActionInstanceWrite))
 						xr.Post("/instances/{id}/exec", deps.Exec.Run)

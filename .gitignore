@@ -27,3 +27,7 @@ web/playwright-report/
 .idea/
 .vscode/
 *.swp
+
+# build artifacts
+/loadgen
+bin/

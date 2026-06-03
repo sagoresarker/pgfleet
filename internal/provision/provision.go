@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sagoresarker/pgfleet/internal/apperr"
@@ -85,11 +86,33 @@ type Provisioner struct {
 	rt   docker.ContainerRuntime
 	repo store
 	opts Options
+
+	// visMuMap serializes visibility flips per instance id, so two concurrent
+	// flips (or a flip racing itself) can never both tear down/recreate the
+	// container and leave a half-built or duplicate container.
+	visMuMap  map[string]*sync.Mutex
+	visMuLock sync.Mutex
 }
 
 // New builds a Provisioner.
 func New(rt docker.ContainerRuntime, repo store, opts Options) *Provisioner {
 	return &Provisioner{rt: rt, repo: repo, opts: opts}
+}
+
+// instanceVisMutex returns the per-instance visibility mutex, creating it on
+// first use.
+func (p *Provisioner) instanceVisMutex(id string) *sync.Mutex {
+	p.visMuLock.Lock()
+	defer p.visMuLock.Unlock()
+	if p.visMuMap == nil {
+		p.visMuMap = map[string]*sync.Mutex{}
+	}
+	m, ok := p.visMuMap[id]
+	if !ok {
+		m = &sync.Mutex{}
+		p.visMuMap[id] = m
+	}
+	return m
 }
 
 // Provision brings an instance from "provisioning" to a healthy "running"

@@ -14,9 +14,11 @@ type fakeProm struct {
 	reachable map[string]bool  // instanceID -> reachable
 	lsn       map[string]int64 // replicaID -> replay lsn
 	promoted  []string
-	stopped   []string
+	fenced    []string
+	prepared  []string
 	recloned  []string
 	router    bool
+	fenceErr  error
 }
 
 func (f *fakeProm) PrimaryReachable(_ context.Context, inst instance.Instance) bool {
@@ -29,8 +31,15 @@ func (f *fakeProm) Promote(_ context.Context, inst instance.Instance) error {
 	f.promoted = append(f.promoted, inst.ID)
 	return nil
 }
-func (f *fakeProm) Stop(_ context.Context, id string) error {
-	f.stopped = append(f.stopped, id)
+func (f *fakeProm) Fence(_ context.Context, inst instance.Instance) error {
+	if f.fenceErr != nil {
+		return f.fenceErr
+	}
+	f.fenced = append(f.fenced, inst.ID)
+	return nil
+}
+func (f *fakeProm) PrepareReclone(_ context.Context, inst instance.Instance) error {
+	f.prepared = append(f.prepared, inst.ID)
 	return nil
 }
 func (f *fakeProm) ProvisionReplica(_ context.Context, replicaID string, _ instance.Instance, _ provision.ProgressFunc) error {
@@ -140,8 +149,11 @@ func TestFailoverPromotesMostCaughtUpReplica(t *testing.T) {
 	if len(prom.promoted) != 1 || prom.promoted[0] != "r2" {
 		t.Errorf("promoted = %v, want [r2] (highest LSN)", prom.promoted)
 	}
-	if len(prom.stopped) != 1 || prom.stopped[0] != "p" {
-		t.Errorf("old primary not fenced: stopped = %v", prom.stopped)
+	if len(prom.fenced) != 1 || prom.fenced[0] != "p" {
+		t.Errorf("old primary not fenced (stopped+removed): fenced = %v", prom.fenced)
+	}
+	if len(prom.prepared) != 1 || prom.prepared[0] != "r1" {
+		t.Errorf("other replica not reset before reclone: prepared = %v", prom.prepared)
 	}
 	if clusters.primary["c1"] != "r2" {
 		t.Errorf("cluster primary = %q, want r2", clusters.primary["c1"])
@@ -183,3 +195,39 @@ func TestFailoverAbortsWithoutReplica(t *testing.T) {
 		t.Errorf("status = %q, want error", clusters.status["c1"])
 	}
 }
+
+// TestFailoverAbortsIfFenceFails — if the old primary cannot be fenced (we can't
+// guarantee it is down), we must NOT promote a replica (split-brain risk).
+func TestFailoverAbortsIfFenceFails(t *testing.T) {
+	prom, clusters, insts, router, _ := setup()
+	prom.fenceErr = errFence
+	c := New(clusters, insts, prom, router, nil, 1, nil)
+
+	_ = c.Run(context.Background())
+	if len(prom.promoted) != 0 {
+		t.Errorf("promoted despite a failed fence (split-brain risk): %v", prom.promoted)
+	}
+	if clusters.status["c1"] != cluster.StatusError {
+		t.Errorf("status = %q, want error", clusters.status["c1"])
+	}
+}
+
+// TestFailoverWontPromoteZeroProgressStandby — a replica that has replayed no
+// WAL (lsn 0) is not promotable (would lose everything).
+func TestFailoverWontPromoteZeroProgressStandby(t *testing.T) {
+	prom, clusters, insts, router, _ := setup()
+	prom.lsn["r1"] = 0
+	prom.lsn["r2"] = 0
+	c := New(clusters, insts, prom, router, nil, 1, nil)
+
+	_ = c.Run(context.Background())
+	if len(prom.promoted) != 0 {
+		t.Errorf("promoted a zero-progress standby: %v", prom.promoted)
+	}
+}
+
+var errFence = &fenceError{}
+
+type fenceError struct{}
+
+func (*fenceError) Error() string { return "cannot reach docker daemon" }

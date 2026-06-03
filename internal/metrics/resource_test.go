@@ -129,8 +129,10 @@ func TestResourceCollectorCollect(t *testing.T) {
 	}
 
 	by := samplesByMetric(got)
+	if _, ok := by["cpu_percent"]; ok {
+		t.Error("cpu_percent must not be emitted from a one-shot stats sample (REG-6)")
+	}
 	want := map[string]float64{
-		"cpu_percent":       42.5,
 		"memory_bytes":      float64(512 << 20),
 		"memory_percent":    50.0,
 		"disk_total_bytes":  1000,
@@ -151,6 +153,54 @@ func TestResourceCollectorCollect(t *testing.T) {
 		}
 		if !sm.At.Equal(fixed) {
 			t.Errorf("metric %q At = %v, want %v", metric, sm.At, fixed)
+		}
+	}
+}
+
+// TestResourceCollectorOmitsCPUPercent verifies REG-6: the one-shot Docker
+// stats sample carries an empty PreCPUStats, so the CPUPercent derived from it
+// is not a meaningful instantaneous gauge. The collector must not emit a
+// fabricated cpu_percent. It exposes the meaningful memory and disk metrics
+// instead.
+func TestResourceCollectorOmitsCPUPercent(t *testing.T) {
+	rt := docker.NewFake()
+	id, err := rt.CreateContainer(context.Background(), docker.ContainerSpec{Name: "pg"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rt.StartContainer(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
+
+	rt.StatsFunc = func(string) (docker.ContainerStats, error) {
+		// CPUPercent here is whatever the one-shot path produced; it is
+		// meaningless and must not surface as a sample.
+		return docker.ContainerStats{
+			CPUPercent:    9999.0,
+			MemoryBytes:   256 << 20,
+			MemoryPercent: 25.0,
+		}, nil
+	}
+	rt.ExecFunc = func(_ string, _ []string) (docker.ExecResult, error) {
+		return docker.ExecResult{
+			ExitCode: 0,
+			Stdout: "Filesystem 1B-blocks Used Available Use% Mounted on\n" +
+				"overlay 1000 250 750 25% /var/lib/postgresql/data\n",
+		}, nil
+	}
+
+	got, err := NewResourceCollector(rt).Collect(context.Background(), "inst-1", id)
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	by := samplesByMetric(got)
+	if _, ok := by["cpu_percent"]; ok {
+		t.Error("cpu_percent must not be emitted: a one-shot sample has empty PreCPUStats and the value is meaningless")
+	}
+	// Meaningful metrics are still present.
+	for _, m := range []string{"memory_bytes", "memory_percent", "disk_total_bytes", "disk_used_bytes", "disk_free_percent"} {
+		if _, ok := by[m]; !ok {
+			t.Errorf("expected meaningful metric %q to be emitted", m)
 		}
 	}
 }
@@ -201,8 +251,11 @@ func TestResourceCollectorStatsOnlyWhenDiskFails(t *testing.T) {
 		t.Fatalf("Collect should succeed when only disk fails: %v", err)
 	}
 	by := samplesByMetric(got)
-	if _, ok := by["cpu_percent"]; !ok {
-		t.Error("expected cpu_percent when stats succeeded")
+	if _, ok := by["memory_bytes"]; !ok {
+		t.Error("expected memory_bytes when stats succeeded")
+	}
+	if _, ok := by["cpu_percent"]; ok {
+		t.Error("cpu_percent must not be emitted (REG-6)")
 	}
 	if _, ok := by["disk_free_percent"]; ok {
 		t.Error("did not expect disk metrics when df failed")

@@ -160,7 +160,7 @@ func GetObject(ctx context.Context, c Config, key string) ([]byte, error) {
 		Key:    aws.String(key),
 	})
 	if err != nil {
-		return nil, apperr.Wrap(apperr.KindInternal, "objectstore: get object", err)
+		return nil, mapGetError(err)
 	}
 	defer func() { _ = out.Body.Close() }()
 	data, err := io.ReadAll(out.Body)
@@ -168,6 +168,26 @@ func GetObject(ctx context.Context, c Config, key string) ([]byte, error) {
 		return nil, apperr.Wrap(apperr.KindInternal, "objectstore: read object body", err)
 	}
 	return data, nil
+}
+
+// mapGetError classifies an error returned by GetObject. A missing key (the
+// modeled *types.NoSuchKey, or a generic NoSuchKey/NotFound/404 reported by the
+// underlying S3/MinIO client) maps to KindNotFound; everything else is
+// KindInternal. The original error is always wrapped as the cause.
+func mapGetError(err error) error {
+	var noSuchKey *types.NoSuchKey
+	var notFound *types.NotFound
+	if errors.As(err, &noSuchKey) || errors.As(err, &notFound) {
+		return apperr.Wrap(apperr.KindNotFound, "objectstore: object not found", err)
+	}
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		switch apiErr.ErrorCode() {
+		case "NoSuchKey", "NotFound", "404":
+			return apperr.Wrap(apperr.KindNotFound, "objectstore: object not found", err)
+		}
+	}
+	return apperr.Wrap(apperr.KindInternal, "objectstore: get object", err)
 }
 
 // ListObjects returns the keys in the configured bucket that start with prefix.

@@ -50,3 +50,41 @@ func (p *Provisioner) Promote(ctx context.Context, inst instance.Instance) error
 		"psql", "-U", inst.Superuser, "-d", "postgres", "-tAc", "SELECT pg_promote(wait := true)",
 	}))
 }
+
+// Fence permanently removes a failed primary's container (not just Stop — a
+// stopped container with RestartPolicy=unless-stopped could be revived and
+// cause split-brain). The data volume and the instance row are kept so an
+// operator can rebuild it as a replica. Returns an error if the container could
+// not be removed (the caller must NOT promote a replica when fencing fails).
+func (p *Provisioner) Fence(ctx context.Context, inst instance.Instance) error {
+	if inst.ContainerID == "" {
+		return nil // nothing running to fence
+	}
+	timeout := stopTimeoutSeconds
+	_ = p.rt.StopContainer(ctx, inst.ContainerID, &timeout)
+	if err := p.rt.RemoveContainer(ctx, inst.ContainerID, true); err != nil {
+		return apperr.Wrap(apperr.KindInternal, "failover: fence old primary", err)
+	}
+	_ = p.repo.SetRuntime(ctx, inst.ID, "", 0)
+	return nil
+}
+
+// PrepareReclone removes a replica's container and stale data volume so it can
+// be re-cloned cleanly from the new primary (ProvisionReplica needs an empty
+// data volume and a free container name). The repo volume and row are kept.
+func (p *Provisioner) PrepareReclone(ctx context.Context, inst instance.Instance) error {
+	if inst.ContainerID != "" {
+		timeout := stopTimeoutSeconds
+		_ = p.rt.StopContainer(ctx, inst.ContainerID, &timeout)
+		_ = p.rt.RemoveContainer(ctx, inst.ContainerID, true)
+	}
+	dataVol := inst.DataVolume
+	if dataVol == "" {
+		dataVol = volumeName("data", inst.ID)
+	}
+	if err := p.rt.RemoveVolume(ctx, dataVol, true); err != nil {
+		return apperr.Wrap(apperr.KindInternal, "failover: reset replica data volume", err)
+	}
+	_ = p.repo.SetRuntime(ctx, inst.ID, "", 0)
+	return nil
+}

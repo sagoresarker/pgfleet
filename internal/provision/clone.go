@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/sagoresarker/pgfleet/internal/apperr"
 	"github.com/sagoresarker/pgfleet/internal/docker"
 	"github.com/sagoresarker/pgfleet/internal/instance"
 	"github.com/sagoresarker/pgfleet/internal/pgbackrest"
@@ -27,6 +28,36 @@ func (p *Provisioner) Clone(ctx context.Context, cloneID string, source instance
 	return p.repo.SetStatus(ctx, cloneID, instance.StatusRunning, "")
 }
 
+// ensureSourceHasBackup verifies the source instance's stanza has at least one
+// backup to clone from, by querying its pgBackRest catalog (`info`) on the live
+// source container. Returns a clear KindInvalid error if the source has no
+// backup yet (or if it is not running, so the catalog cannot be read).
+func (p *Provisioner) ensureSourceHasBackup(ctx context.Context, source instance.Instance) error {
+	if source.ContainerID == "" {
+		return apperr.New(apperr.KindInvalid,
+			"clone: source instance is not running; start it and take a backup before cloning")
+	}
+	res, err := p.rt.Exec(ctx, source.ContainerID, asPostgres(pgbackrest.Info(source.Stanza, confPath)))
+	if err != nil {
+		return apperr.Wrap(apperr.KindInvalid, "clone: cannot read source backup catalog", err)
+	}
+	if res.ExitCode != 0 {
+		return apperr.New(apperr.KindInvalid,
+			"clone: cannot read source backup catalog: "+redactSecrets(strings.TrimSpace(res.Stderr+res.Stdout)))
+	}
+	stanzas, err := pgbackrest.ParseInfo([]byte(res.Stdout))
+	if err != nil {
+		return apperr.Wrap(apperr.KindInvalid, "clone: cannot parse source backup catalog", err)
+	}
+	for _, s := range stanzas {
+		if s.Name == source.Stanza && len(s.Backups) > 0 {
+			return nil
+		}
+	}
+	return apperr.New(apperr.KindInvalid,
+		"clone: source has no backup to clone from; take a backup of the source first")
+}
+
 func (p *Provisioner) clone(ctx context.Context, cloneID string, source instance.Instance, progress ProgressFunc) (err error) {
 	clone, err := p.repo.Get(ctx, cloneID)
 	if err != nil {
@@ -34,6 +65,15 @@ func (p *Provisioner) clone(ctx context.Context, cloneID string, source instance
 	}
 	password, err := p.repo.Password(ctx, cloneID)
 	if err != nil {
+		return err
+	}
+
+	// Pre-flight: a clone restores from the SOURCE's latest backup, so the source
+	// must actually have one. Without this check a backup-less source produces an
+	// opaque pgBackRest "no backup set found" error deep in the restore logs after
+	// volumes/containers have already been created. Fail early and clearly.
+	progress.emit("preflight", "verifying source has a backup")
+	if err := p.ensureSourceHasBackup(ctx, source); err != nil {
 		return err
 	}
 
@@ -75,7 +115,10 @@ func (p *Provisioner) clone(ctx context.Context, cloneID string, source instance
 	if err != nil {
 		return err
 	}
-	if err = p.runRestoreContainer(ctx, source, restoreArgs, dataVol); err != nil {
+	// The source's repo is mounted READ-ONLY: a clone only ever reads the
+	// source's backups, and a read-write mount would let a buggy/aborted restore
+	// corrupt the source's live backup repository.
+	if err = p.runRestoreContainer(ctx, source, restoreArgs, dataVol, true); err != nil {
 		return err
 	}
 

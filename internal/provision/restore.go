@@ -88,7 +88,8 @@ func (p *Provisioner) restore(ctx context.Context, id string, opts RestoreOption
 	}
 
 	progress.emit("restoring", "restoring into a staging volume")
-	if err := p.runRestoreContainer(ctx, inst, restoreArgs, newVol); err != nil {
+	// The repo here is the instance's OWN repo (read-write).
+	if err := p.runRestoreContainer(ctx, inst, restoreArgs, newVol, false); err != nil {
 		removeNewVol()
 		p.rollbackRestore(ctx, inst, "", "") // restart the original instance
 		return err
@@ -167,10 +168,21 @@ func (p *Provisioner) rollbackRestore(ctx context.Context, inst instance.Instanc
 
 // runRestoreContainer runs a one-shot container that writes the pgbackrest
 // config and restores into the given (fresh) data volume, then exits.
-func (p *Provisioner) runRestoreContainer(ctx context.Context, inst instance.Instance, restoreArgs []string, dataVolume string) error {
+//
+// repoReadOnly mounts the (source) repo volume read-only — used by Clone, where
+// the repo being read belongs to a DIFFERENT, live instance whose backups must
+// never be mutated by the restore. When read-only, the repo path is not chowned
+// (chowning a read-only mount fails, and a restore only ever reads the repo).
+func (p *Provisioner) runRestoreContainer(ctx context.Context, inst instance.Instance, restoreArgs []string, dataVolume string, repoReadOnly bool) error {
 	conf, err := p.backrestConf(inst)
 	if err != nil {
 		return err
+	}
+	// Only chown the (writable) data dir; the repo dir is chowned only when it is
+	// mounted read-write (the instance's own repo).
+	chownTargets := pgDataPath
+	if !repoReadOnly {
+		chownTargets = repoPath + " " + pgDataPath
 	}
 	// Restore into the fresh volume, then run recovery to completion HERE --
 	// this container has the pgbackrest.conf needed for archive-get during WAL
@@ -179,7 +191,7 @@ func (p *Provisioner) runRestoreContainer(ctx context.Context, inst instance.Ins
 	script := strings.Join([]string{
 		"set -e",
 		"mkdir -p /etc/pgbackrest",
-		"chown postgres:postgres " + repoPath + " " + pgDataPath,
+		"chown postgres:postgres " + chownTargets,
 		"umask 0177",
 		"cat > " + confPath + " <<'PGBR_EOF'",
 		conf,
@@ -193,7 +205,7 @@ func (p *Provisioner) runRestoreContainer(ctx context.Context, inst instance.Ins
 
 	mounts := []docker.Mount{{Volume: dataVolume, Path: pgDataPath}}
 	if inst.RepoType == instance.RepoLocal {
-		mounts = append(mounts, docker.Mount{Volume: volumeName("repo", inst.ID), Path: repoPath})
+		mounts = append(mounts, docker.Mount{Volume: volumeName("repo", inst.ID), Path: repoPath, ReadOnly: repoReadOnly})
 	}
 	spec := docker.ContainerSpec{
 		Name:  "pgfleet-restore-" + inst.Name + "-" + shortStamp(),

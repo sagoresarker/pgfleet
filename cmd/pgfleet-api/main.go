@@ -251,9 +251,9 @@ func run() error {
 		EventsHistory: api.NewEventsHistoryHandler(eventStore),
 		Logs:          api.NewLogsHandler(instances, rt),
 		Prometheus:    api.NewPrometheusHandler(instances, metricStore),
-		SQL:           api.NewSQLHandler(provisioner.DSN),
-		Exec:          api.NewExecHandler(instances, rt),
-		Dump:          api.NewDumpHandler(instances, provisioner.DSN),
+		SQL:           api.NewSQLHandler(provisioner.DSN).WithAudit(recorder),
+		Exec:          api.NewExecHandler(instances, rt).WithAudit(recorder),
+		Dump:          api.NewDumpHandler(instances, provisioner.DSN).WithLogger(log).WithAudit(recorder),
 	})
 
 	serveErr := api.Serve(ctx, ln, router, log)

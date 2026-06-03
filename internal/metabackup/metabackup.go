@@ -6,8 +6,12 @@ package metabackup
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"os/exec"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,10 +41,54 @@ func New(store objectstore.Config) *Service {
 	}
 }
 
-// stampKey returns the full object key for a dump taken at t. Keys sort
-// lexicographically into chronological order.
+// stampKey returns the full object key for a dump taken at t. The full,
+// fixed-width timestamp comes first so keys sort lexicographically into
+// chronological order; a short random suffix is appended AFTER the stamp so two
+// backups taken within the same second (1s stamp resolution) still produce
+// distinct keys and do not overwrite each other (MB-1). Because the suffix
+// follows the complete stamp, keys from different seconds still sort by time
+// regardless of their suffixes.
 func (s *Service) stampKey(t time.Time) string {
-	return s.prefix + "pgfleet-meta-" + t.UTC().Format(stampLayout) + ".dump"
+	return s.prefix + "pgfleet-meta-" + t.UTC().Format(stampLayout) + "-" + uniqueSuffix() + ".dump"
+}
+
+// uniqueSuffix returns a short, lowercase-hex random token. It uses crypto/rand
+// so concurrent or rapid same-second backups get collision-free keys. On the
+// astronomically unlikely event that the entropy source fails, it falls back to
+// the nanosecond component of the wall clock, which still distinguishes
+// same-second calls in practice.
+func uniqueSuffix() string {
+	var b [6]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return strings.ToLower(time.Now().UTC().Format("000000000"))
+	}
+	return hex.EncodeToString(b[:])
+}
+
+// pgDumpVersionRe captures the major version from `pg_dump --version` output,
+// e.g. "pg_dump (PostgreSQL) 16.2" -> "16", "pg_dump (PostgreSQL) 17rc1" -> "17".
+var pgDumpVersionRe = regexp.MustCompile(`\(PostgreSQL\)\s+(\d+)`)
+
+// parsePgDumpMajor extracts the major version from `pg_dump --version` output.
+// It returns ok=false when the output does not contain a recognizable version.
+func parsePgDumpMajor(out string) (int, bool) {
+	m := pgDumpVersionRe.FindStringSubmatch(out)
+	if m == nil {
+		return 0, false
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	return n, true
+}
+
+// serverMajorFromVersionNum converts a Postgres server_version_num (e.g. 160002
+// for 16.2, or 90624 for 9.6.24) into its major version. Since PG 10 the major
+// version is num/10000; the same formula yields 9 for the 9.x line, which is the
+// granularity pg_dump version-compatibility cares about.
+func serverMajorFromVersionNum(num int) int {
+	return num / 10000
 }
 
 // Backup runs pg_dump against dsn, captures the custom-format dump, and uploads

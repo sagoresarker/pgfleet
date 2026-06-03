@@ -136,6 +136,12 @@ type visibilityRequest struct {
 // container is recreated with the new binding asynchronously (202).
 func (h *InstancesHandler) Visibility(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	// REG-5: verify the instance exists before accepting the flip, so a bad/
+	// nonexistent id 404s instead of returning a 202 for a no-op background task.
+	if _, err := h.store.Get(r.Context(), id); err != nil {
+		respondError(w, err)
+		return
+	}
 	var req visibilityRequest
 	if err := decodeJSON(r, &req); err != nil {
 		respondError(w, err)

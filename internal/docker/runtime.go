@@ -39,6 +39,9 @@ type PortMapping struct {
 type Mount struct {
 	Volume string
 	Path   string
+	// ReadOnly mounts the volume read-only. Used so a clone's restore container
+	// cannot write into the SOURCE instance's live backup repo.
+	ReadOnly bool
 }
 
 // ContainerSpec describes a container to create.

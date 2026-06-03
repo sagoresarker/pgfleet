@@ -22,7 +22,8 @@ type Promoter interface {
 	PrimaryReachable(ctx context.Context, inst instance.Instance) bool
 	ReplayLSN(ctx context.Context, inst instance.Instance) (int64, error)
 	Promote(ctx context.Context, inst instance.Instance) error
-	Stop(ctx context.Context, id string) error
+	Fence(ctx context.Context, inst instance.Instance) error
+	PrepareReclone(ctx context.Context, inst instance.Instance) error
 	ProvisionReplica(ctx context.Context, replicaID string, primary instance.Instance, progress provision.ProgressFunc) error
 	StartRouter(ctx context.Context, spec provision.RouterSpec, progress provision.ProgressFunc) (string, int, error)
 }
@@ -87,7 +88,9 @@ func (c *Controller) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	live := make(map[string]bool, len(clusters))
 	for _, clu := range clusters {
+		live[clu.ID] = true
 		if clu.Status != cluster.StatusRunning && clu.Status != cluster.StatusDegraded {
 			continue
 		}
@@ -109,6 +112,13 @@ func (c *Controller) Run(ctx context.Context) error {
 		c.failures[clu.ID] = 0
 		if err := c.failover(ctx, clu, primary, replicas); err != nil {
 			c.log.Warn("failover failed", "cluster", clu.Name, "err", err)
+		}
+	}
+	// Prune strike counters for clusters that no longer exist so the map cannot
+	// grow unbounded over the control plane's lifetime.
+	for id := range c.failures {
+		if !live[id] {
+			delete(c.failures, id)
 		}
 	}
 	return nil
@@ -133,14 +143,14 @@ func splitMembers(members []instance.Instance) (*instance.Instance, []instance.I
 // caught-up, so the least data loss on promotion).
 func elect(ctx context.Context, prov Promoter, replicas []instance.Instance) (instance.Instance, bool) {
 	best := instance.Instance{}
-	bestLSN := int64(-1)
+	bestLSN := int64(0) // a standby that has replayed nothing (lsn 0) is not promotable
 	found := false
 	for _, r := range replicas {
 		if !prov.PrimaryReachable(ctx, r) {
 			continue
 		}
 		lsn, err := prov.ReplayLSN(ctx, r)
-		if err != nil {
+		if err != nil || lsn <= 0 {
 			continue
 		}
 		if lsn > bestLSN {
@@ -159,11 +169,16 @@ func (c *Controller) failover(ctx context.Context, clu cluster.Cluster, oldPrima
 	}
 	c.log.Warn("initiating failover", "cluster", clu.Name, "new_primary", newP.Name)
 
-	// Fence the old primary first (stop its container) so it cannot accept
-	// writes after a replica is promoted — prevents split-brain if it was a
-	// transient outage rather than a hard failure.
+	// Fence the old primary FIRST — stop AND remove its container so it cannot
+	// accept writes (and cannot be revived by its restart policy) after a
+	// replica is promoted. If fencing fails we cannot guarantee the old primary
+	// is down, so we abort rather than risk split-brain (two writable primaries).
 	if oldPrimary != nil {
-		_ = c.prov.Stop(ctx, oldPrimary.ID)
+		if err := c.prov.Fence(ctx, *oldPrimary); err != nil {
+			_ = c.clusters.SetStatus(ctx, clu.ID, cluster.StatusError, "failover aborted: could not fence old primary: "+err.Error())
+			c.record(ctx, clu, "failover aborted: fencing the old primary failed", "")
+			return err
+		}
 	}
 
 	if err := c.prov.Promote(ctx, newP); err != nil {
@@ -188,6 +203,14 @@ func (c *Controller) failover(ctx context.Context, clu cluster.Cluster, oldPrima
 	var reattached []string
 	for _, r := range replicas {
 		if r.ID == newP.ID {
+			continue
+		}
+		// Wipe the old container + data volume first; ProvisionReplica needs an
+		// empty data volume and a free container name (the replica followed the
+		// old, now-fenced primary, so its data is stale anyway).
+		if err := c.prov.PrepareReclone(ctx, r); err != nil {
+			degraded = true
+			_ = c.instances.SetStatus(ctx, r.ID, instance.StatusError, "reattach prep failed: "+err.Error())
 			continue
 		}
 		if err := c.prov.ProvisionReplica(ctx, r.ID, newPrimary, nil); err != nil {

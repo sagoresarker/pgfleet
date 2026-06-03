@@ -4,6 +4,8 @@ package metabackup
 
 import (
 	"context"
+	"os/exec"
+	"strconv"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -11,6 +13,46 @@ import (
 	"github.com/sagoresarker/pgfleet/internal/objectstore"
 	"github.com/sagoresarker/pgfleet/internal/testsupport"
 )
+
+// skipOnVersionSkew skips the test when the HOST pg_dump major version differs
+// from the SERVER major version. pg_dump/pg_restore refuse to operate across a
+// major-version mismatch (a newer server than the host pg_dump fails outright),
+// so on a host whose pg_dump does not match the test container's Postgres the
+// suite would fail for environmental reasons rather than a real regression.
+func skipOnVersionSkew(t *testing.T, ctx context.Context, dsn string) {
+	t.Helper()
+
+	out, err := exec.CommandContext(ctx, "pg_dump", "--version").CombinedOutput()
+	if err != nil {
+		t.Skipf("skipping: cannot run host pg_dump: %v", err)
+	}
+	hostMajor, ok := parsePgDumpMajor(string(out))
+	if !ok {
+		t.Skipf("skipping: cannot parse host pg_dump version from %q", string(out))
+	}
+
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer pool.Close()
+	// server_version_num is exposed as a text setting; read it as text and
+	// convert so we do not depend on a particular scan coercion.
+	var versionStr string
+	if err := pool.QueryRow(ctx, "SHOW server_version_num").Scan(&versionStr); err != nil {
+		t.Fatalf("query server_version_num: %v", err)
+	}
+	versionNum, err := strconv.Atoi(versionStr)
+	if err != nil {
+		t.Fatalf("parse server_version_num %q: %v", versionStr, err)
+	}
+	serverMajor := serverMajorFromVersionNum(versionNum)
+
+	if hostMajor != serverMajor {
+		t.Skipf("skipping: host pg_dump major %d != server major %d (version skew)",
+			hostMajor, serverMajor)
+	}
+}
 
 func minioStore(t *testing.T, bucket string) objectstore.Config {
 	t.Helper()
@@ -85,6 +127,10 @@ func TestBackupListRestore(t *testing.T) {
 	ctx := context.Background()
 	dsn := testsupport.StartPostgres(t)
 	cfg := minioStore(t, "meta")
+
+	// pg_dump/pg_restore refuse to operate across a host/server major-version
+	// mismatch; skip rather than fail when the host toolchain is skewed.
+	skipOnVersionSkew(t, ctx, dsn)
 
 	// Seed the meta DB with a table and rows.
 	pool, err := pgxpool.New(ctx, dsn)

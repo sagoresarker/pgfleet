@@ -47,13 +47,21 @@ func (c *ResourceCollector) Collect(ctx context.Context, instanceID, containerID
 	return s, nil
 }
 
-// collectStats adds CPU and memory samples from the container runtime stats.
+// collectStats adds memory samples from the container runtime stats.
+//
+// REG-6: the runtime gathers stats via a one-shot Docker sample, which carries
+// an empty PreCPUStats. A CPU percentage derived from that single sample has no
+// prior baseline to delta against, so it is not a meaningful instantaneous
+// gauge (it collapses to lifetime-CPU / lifetime-system-time, and frequently to
+// a garbage value or zero). Rather than emit a fabricated cpu_percent, the
+// collector deliberately omits it and exposes only the memory metrics that are
+// meaningful from a single snapshot. Disk usage is gathered separately in
+// collectDisk.
 func (c *ResourceCollector) collectStats(ctx context.Context, containerID string, add func(string, float64)) error {
 	st, err := c.rt.ContainerStats(ctx, containerID)
 	if err != nil {
 		return err
 	}
-	add("cpu_percent", st.CPUPercent)
 	add("memory_bytes", float64(st.MemoryBytes))
 	add("memory_percent", st.MemoryPercent)
 	return nil
