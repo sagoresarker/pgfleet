@@ -35,6 +35,11 @@ func Generate(c Config) string {
 		poolSize = 20
 	}
 
+	// The pool name appears in bare TOML table headers ([pools.<name>]), where
+	// quoting/escaping is not available, so it is reduced to a safe identifier.
+	// Its quoted uses still go through tomlEscape.
+	poolKey := tomlBareKey(c.Database)
+
 	var b strings.Builder
 	b.WriteString("[general]\n")
 	b.WriteString("host = \"0.0.0.0\"\n")
@@ -43,7 +48,7 @@ func Generate(c Config) string {
 	b.WriteString("admin_password = \"" + tomlEscape(c.AdminPassword) + "\"\n")
 	b.WriteString("\n")
 
-	fmt.Fprintf(&b, "[pools.%s]\n", c.Database)
+	fmt.Fprintf(&b, "[pools.%s]\n", poolKey)
 	b.WriteString("pool_mode = \"transaction\"\n")
 	b.WriteString("query_parser_enabled = true\n")
 	b.WriteString("query_parser_read_write_splitting = true\n")
@@ -51,30 +56,56 @@ func Generate(c Config) string {
 	b.WriteString("default_role = \"any\"\n")
 	b.WriteString("\n")
 
-	fmt.Fprintf(&b, "[pools.%s.users.0]\n", c.Database)
+	fmt.Fprintf(&b, "[pools.%s.users.0]\n", poolKey)
 	b.WriteString("username = \"" + tomlEscape(c.User) + "\"\n")
 	b.WriteString("password = \"" + tomlEscape(c.Password) + "\"\n")
 	fmt.Fprintf(&b, "pool_size = %d\n", poolSize)
 	b.WriteString("\n")
 
-	fmt.Fprintf(&b, "[pools.%s.shards.0]\n", c.Database)
+	fmt.Fprintf(&b, "[pools.%s.shards.0]\n", poolKey)
 	b.WriteString("servers = [\n")
 	for _, s := range c.Servers {
 		port := s.Port
 		if port == 0 {
 			port = 5432
 		}
-		fmt.Fprintf(&b, "    [\"%s\", %d, \"%s\"],\n", s.Host, port, s.Role)
+		fmt.Fprintf(&b, "    [\"%s\", %d, \"%s\"],\n", tomlEscape(s.Host), port, tomlEscape(s.Role))
 	}
 	b.WriteString("]\n")
-	fmt.Fprintf(&b, "database = \"%s\"\n", c.Database)
+	b.WriteString("database = \"" + tomlEscape(c.Database) + "\"\n")
 
 	return b.String()
 }
 
-// tomlEscape escapes a value for a TOML basic (double-quoted) string.
+// tomlEscape escapes a value for a TOML basic (double-quoted) string, including
+// control characters (a raw newline/tab makes the file invalid TOML and is a
+// vector for injecting new keys).
 func tomlEscape(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `"`, `\"`)
-	return s
+	r := strings.NewReplacer(
+		`\`, `\\`,
+		`"`, `\"`,
+		"\n", `\n`,
+		"\r", `\r`,
+		"\t", `\t`,
+	)
+	return r.Replace(s)
+}
+
+// tomlBareKey reduces a string to characters valid in a bare TOML key
+// (A-Z a-z 0-9 _ -), replacing anything else with '_', so it can never inject
+// table headers or keys.
+func tomlBareKey(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	if b.Len() == 0 {
+		return "_"
+	}
+	return b.String()
 }
