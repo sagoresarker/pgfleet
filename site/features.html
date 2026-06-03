@@ -27,9 +27,10 @@
       </button>
       <ul class="nav-links" id="nav-links">
         <li><a href="features.html" aria-current="page">Features</a></li>
+        <li><a href="getting-started.html">Getting started</a></li>
         <li><a href="faq.html">FAQ</a></li>
         <li><a href="https://github.com/sagoresarker/pgfleet" rel="noopener">GitHub</a></li>
-        <li class="nav-cta"><a class="btn btn-primary" href="https://github.com/sagoresarker/pgfleet" rel="noopener">
+        <li class="nav-cta"><a class="btn btn-primary" href="getting-started.html">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
           Get started
         </a></li>
@@ -240,6 +241,32 @@
           </div>
         </div>
 
+        <!-- ===== Access & SSO ===== -->
+        <div class="fgroup reveal" id="sso">
+          <div class="fgroup-head">
+            <span class="gn">08</span>
+            <h2>Access &amp; single sign-on</h2>
+            <p>Built-in auth out of the box, optional forward-auth SSO when you want it.</p>
+          </div>
+          <div class="feature-grid">
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+              <h3>Email + password by default</h3>
+              <p>PgFleet ships with built-in user accounts and roles. A bootstrap admin is seeded once on an empty database — no external dependency needed to log in.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 4 6v6c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V6l-8-4Z"/><path d="m9 12 2 2 4-4"/></svg></span>
+              <h3>Optional SSO (forward-auth)</h3>
+              <p>Set <code>PGFLEET_SSO_EMAIL_HEADER</code> on the API and <code>NEXT_PUBLIC_OIDC_ENABLED=1</code> on the dashboard to add a “Sign in with SSO” button. PgFleet then trusts a forward-auth proxy (Authelia or any OIDC proxy) for identity.</p>
+            </div>
+            <div class="feature card">
+              <span class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><path d="M16 3.1a4 4 0 0 1 0 7.8"/><path d="M21 21v-2a4 4 0 0 0-3-3.9"/></svg></span>
+              <h3>Group → role mapping</h3>
+              <p>The proxy’s verified groups map to PgFleet <strong>admin</strong>, <strong>operator</strong>, or <strong>viewer</strong> roles (defaulting to least-privilege viewer). Authelia adds MFA and brute-force regulation in front. <a href="getting-started.html#sso">Enable it →</a></p>
+            </div>
+          </div>
+        </div>
+
         <!-- ===== Restart / IP / Port note ===== -->
         <div class="note reveal" id="restart" style="margin-top:3.5rem">
           <h3><span class="led led-signal led-pulse"></span>What happens when an instance restarts (and the IP/port)</h3>
@@ -259,11 +286,14 @@
           <h2>See it run on your own hardware.</h2>
           <p>Every feature above ships in the open-source control plane. Clone it, run it with Docker, and connect your S3 or MinIO bucket.</p>
           <div class="cta-actions">
-            <a class="btn btn-primary btn-lg" href="https://github.com/sagoresarker/pgfleet" rel="noopener">
+            <a class="btn btn-primary btn-lg" href="getting-started.html">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+              Get started
+            </a>
+            <a class="btn btn-secondary btn-lg" href="https://github.com/sagoresarker/pgfleet" rel="noopener">
               <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.36 1.09 2.93.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.5 9.5 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.69-4.57 4.94.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></svg>
               View on GitHub
             </a>
-            <a class="btn btn-secondary btn-lg" href="faq.html">Read the FAQ</a>
           </div>
         </div>
       </div>
@@ -296,6 +326,7 @@
         <div class="footer-col">
           <h4>Resources</h4>
           <ul>
+            <li><a href="getting-started.html">Getting started</a></li>
             <li><a href="faq.html">FAQ</a></li>
             <li><a href="features.html#restart">Restart &amp; ports</a></li>
             <li><a href="https://github.com/sagoresarker/pgfleet" rel="noopener">GitHub</a></li>

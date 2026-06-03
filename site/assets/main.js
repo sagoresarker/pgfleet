@@ -23,6 +23,42 @@
     });
   }
 
+  /* ---- Copy-to-clipboard for code blocks (progressive enhancement) -------- */
+  /* The <pre> is fully readable/selectable without JS; this just adds a button. */
+  document.querySelectorAll(".code-copy[data-copy]").forEach(function (btn) {
+    var block = btn.closest(".code-block");
+    var pre = block && block.querySelector("pre");
+    if (!pre) return;
+    btn.addEventListener("click", function () {
+      var text = pre.innerText.replace(/\n+$/, "");
+      var label = btn.querySelector(".label");
+      var done = function () {
+        btn.classList.add("copied");
+        if (label) label.textContent = "Copied";
+        setTimeout(function () {
+          btn.classList.remove("copied");
+          if (label) label.textContent = "Copy";
+        }, 1600);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () {});
+      } else {
+        try {
+          var ta = document.createElement("textarea");
+          ta.value = text;
+          ta.setAttribute("readonly", "");
+          ta.style.position = "absolute";
+          ta.style.left = "-9999px";
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          document.body.removeChild(ta);
+          done();
+        } catch (e) { /* no-op: text is still selectable manually */ }
+      }
+    });
+  });
+
   /* ---- Reveal on scroll --------------------------------------------------- */
   var reveals = document.querySelectorAll(".reveal");
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;

@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Getting started — PgFleet</title>
+  <meta name="description" content="Quickstart for PgFleet: prerequisites, bring up the meta-DB, MinIO, API, and dashboard with Docker Compose, set the key environment variables, log in, create your first instance, take a backup, and optionally enable Authelia SSO.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232563eb' stroke-width='2'%3E%3Cellipse cx='12' cy='5' rx='8' ry='3'/%3E%3Cpath d='M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5'/%3E%3Cpath d='M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="assets/styles.css">
+  <meta name="theme-color" content="#e9eef4">
+</head>
+<body>
+  <a href="#main" class="skip-link">Skip to content</a>
+
+  <!-- ===================== NAV ===================== -->
+  <header class="nav">
+    <nav class="nav-inner" aria-label="Primary">
+      <a href="index.html" class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
+        </span>
+        PgFleet
+        <span class="brand-tag">self-hosted</span>
+      </a>
+      <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="nav-links">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+      <ul class="nav-links" id="nav-links">
+        <li><a href="features.html">Features</a></li>
+        <li><a href="getting-started.html" aria-current="page">Getting started</a></li>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="https://github.com/sagoresarker/pgfleet" rel="noopener">GitHub</a></li>
+        <li class="nav-cta"><a class="btn btn-primary" href="https://github.com/sagoresarker/pgfleet" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.36 1.09 2.93.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.5 9.5 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.69-4.57 4.94.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></svg>
+          GitHub
+        </a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main id="main">
+
+    <!-- ===================== PAGE HEAD ===================== -->
+    <section class="section" style="padding-bottom:2.5rem">
+      <div class="container">
+        <div class="section-head reveal" style="max-width:760px">
+          <span class="build-chip" role="img" aria-label="pgfleet quickstart, about five minutes from clone to first instance">
+            <span class="bc-prompt" aria-hidden="true">pgfleet&nbsp;<span class="bc-cmd"><b>init</b></span><span class="bc-cursor"></span></span>
+            <span class="bc-commit" aria-hidden="true">
+              <span class="led led-healthy led-pulse"></span>
+              eta:<span class="tag">~5 min</span>
+            </span>
+          </span>
+          <h2 style="margin-top:0.9rem">From clone to a recoverable instance.</h2>
+          <p>A concise, credible quickstart. You will bring up the control plane and its dependencies with Docker Compose, set a handful of environment variables, log in, provision your first Postgres instance, and take a backup — then optionally put SSO in front of the dashboard.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== STEPS ===================== -->
+    <section class="section" style="padding-top:0">
+      <div class="container" style="max-width:880px">
+
+        <!-- 1. Prerequisites -->
+        <div class="gs-step reveal" id="prereq">
+          <div class="gs-rail"><span class="gs-num">1</span><span class="gs-line" aria-hidden="true"></span></div>
+          <div class="gs-body">
+            <h3>Prerequisites</h3>
+            <p>PgFleet provisions Postgres as Docker containers, so the host needs a working Docker engine. Everything else is brought up for you.</p>
+            <div class="gs-prereq">
+              <div class="card">
+                <h4><span class="led led-healthy"></span>Docker Engine</h4>
+                <p>A recent Docker that can pull <code>postgres</code> images and manage containers on your host.</p>
+              </div>
+              <div class="card">
+                <h4><span class="led led-healthy"></span>Docker Compose v2</h4>
+                <p>The bundled <code>docker compose</code> plugin — used to stand up the meta-DB and object store.</p>
+              </div>
+            </div>
+            <div class="note" style="margin-top:1.25rem">
+              <p style="margin-top:0"><strong>Object storage:</strong> backups need an S3-compatible bucket. The compose stack ships a local <strong>MinIO</strong> so you can try everything on one host; point it at managed S3 later by changing the <code>PGFLEET_S3_*</code> variables.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. Bring up the stack -->
+        <div class="gs-step reveal" id="run">
+          <div class="gs-rail"><span class="gs-num">2</span><span class="gs-line" aria-hidden="true"></span></div>
+          <div class="gs-body">
+            <h3>Clone and bring up the stack</h3>
+            <p>Clone the repository and start the dependencies — the metadata database (Postgres) and the MinIO object store — with Docker Compose. These back the API and the Next.js dashboard.</p>
+            <div class="code-block">
+              <div class="code-head">
+                <span class="dots"><i></i><i></i><i></i></span>
+                <span class="fname">shell</span>
+                <button type="button" class="code-copy" data-copy aria-label="Copy command">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+                  <span class="label">Copy</span>
+                </button>
+              </div>
+<pre><code><span class="c-prompt">$</span> git clone https://github.com/sagoresarker/pgfleet.git
+<span class="c-prompt">$</span> cd pgfleet
+
+<span class="c-comment"># bring up meta-DB + MinIO (object store)</span>
+<span class="c-prompt">$</span> docker compose <span class="c-flag">-f</span> deploy/docker-compose.yml up <span class="c-flag">-d</span>
+
+<span class="c-comment"># meta-db → localhost:5433 · MinIO API → :9000 · console → :9001</span></code></pre>
+            </div>
+            <p style="margin-top:1rem">With the dependencies healthy, start the <strong>API</strong> and <strong>dashboard</strong> (the Go control plane reads your <code>.env</code>; the Next.js UI talks to it):</p>
+            <div class="code-block">
+              <div class="code-head">
+                <span class="dots"><i></i><i></i><i></i></span>
+                <span class="fname">shell</span>
+                <button type="button" class="code-copy" data-copy aria-label="Copy command">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+                  <span class="label">Copy</span>
+                </button>
+              </div>
+<pre><code><span class="c-comment"># copy the sample env and edit the secrets (next step)</span>
+<span class="c-prompt">$</span> cp .env.example .env
+
+<span class="c-comment"># run the API + dashboard (loads .env)</span>
+<span class="c-prompt">$</span> make run
+
+<span class="c-comment"># dashboard → http://localhost:3000 · API → http://localhost:8080</span></code></pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Environment -->
+        <div class="gs-step reveal" id="env">
+          <div class="gs-rail"><span class="gs-num">3</span><span class="gs-line" aria-hidden="true"></span></div>
+          <div class="gs-body">
+            <h3>Set the key environment variables</h3>
+            <p>Edit <code>.env</code> before first run. The control plane refuses to start without the three secrets, and the bootstrap admin is seeded <strong>once</strong> on an empty database. Generate strong values rather than reusing the samples.</p>
+            <div class="code-block">
+              <div class="code-head">
+                <span class="dots"><i></i><i></i><i></i></span>
+                <span class="fname">generate secrets</span>
+                <button type="button" class="code-copy" data-copy aria-label="Copy command">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+                  <span class="label">Copy</span>
+                </button>
+              </div>
+<pre><code><span class="c-comment"># JWT secret — at least 32 bytes</span>
+<span class="c-prompt">$</span> openssl rand <span class="c-flag">-hex</span> 32
+
+<span class="c-comment"># master key — exactly 32 bytes, base64-encoded</span>
+<span class="c-prompt">$</span> openssl rand <span class="c-flag">-base64</span> 32</code></pre>
+            </div>
+            <div class="table-wrap" style="margin-top:1rem">
+              <table class="envtable">
+                <thead>
+                  <tr><th scope="col">Variable</th><th scope="col"></th><th scope="col">What to set</th></tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>PGFLEET_META_DB_DSN</code></td><td><span class="req">required</span></td>
+                    <td>DSN for the metadata Postgres, e.g. <code>postgres://pgfleet:pgfleet@localhost:5433/pgfleet?sslmode=disable</code>.</td>
+                  </tr>
+                  <tr>
+                    <td><code>PGFLEET_JWT_SECRET</code></td><td><span class="req">required</span></td>
+                    <td>Signs session tokens. Use a random string of <strong>at least 32 bytes</strong>.</td>
+                  </tr>
+                  <tr>
+                    <td><code>PGFLEET_MASTER_KEY</code></td><td><span class="req">required</span></td>
+                    <td>Encrypts stored credentials. <strong>Exactly 32 bytes, base64-encoded.</strong></td>
+                  </tr>
+                  <tr>
+                    <td><code>PGFLEET_BOOTSTRAP_ADMIN_EMAIL</code><br><code>PGFLEET_BOOTSTRAP_ADMIN_PASSWORD</code></td><td><span class="req">required</span></td>
+                    <td>The first admin, seeded once on an empty meta-DB. This is your initial login.</td>
+                  </tr>
+                  <tr>
+                    <td><code>PGFLEET_S3_ENDPOINT</code><br><code>PGFLEET_S3_BUCKET</code><br><code>PGFLEET_S3_REGION</code><br><code>PGFLEET_S3_ACCESS_KEY</code><br><code>PGFLEET_S3_SECRET_KEY</code></td><td><span class="req">required</span></td>
+                    <td>Where backups and WAL land. Defaults target the bundled MinIO (<code>localhost:9000</code>, bucket <code>pgbackrest</code>); swap for managed S3 in production.</td>
+                  </tr>
+                  <tr>
+                    <td><code>PGFLEET_INSTANCE_BIND_ADDRESS</code></td><td><span class="opt">optional</span></td>
+                    <td>Host interface that managed instances publish on. Defaults to <code>127.0.0.1</code> (private — same-host/proxy access only). Widen to a private IP or <code>0.0.0.0</code> only deliberately.</td>
+                  </tr>
+                  <tr>
+                    <td><code>PGFLEET_AUTO_FAILOVER</code></td><td><span class="opt">optional</span></td>
+                    <td>Promote a replica when the primary dies. Defaults to <code>true</code>.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="note" style="margin-top:1.25rem">
+              <p style="margin-top:0"><strong>Keep instances private.</strong> Leaving <code>PGFLEET_INSTANCE_BIND_ADDRESS</code> at <code>127.0.0.1</code> means nothing is reachable from outside the host until you intentionally publish it. Front anything you do expose with a reverse proxy or Cloudflare Tunnel.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. First login + instance + backup -->
+        <div class="gs-step reveal" id="first-instance">
+          <div class="gs-rail"><span class="gs-num">4</span><span class="gs-line" aria-hidden="true"></span></div>
+          <div class="gs-body">
+            <h3>Log in, create an instance, take a backup</h3>
+            <p>Open the dashboard at <code>http://localhost:3000</code> and sign in with the bootstrap admin you set above. Then:</p>
+            <ul style="color:var(--fg-muted);margin-top:0.6rem;padding-left:1.1rem;display:grid;gap:0.45rem;">
+              <li><strong>Create your first instance.</strong> Pick a Postgres version (and TimescaleDB if you want hypertables), name it, and provision — PgFleet launches the container and starts archiving WAL to your bucket within seconds.</li>
+              <li><strong>Take a backup.</strong> Trigger a full backup from the instance view, or let the schedule (<code>PGFLEET_BACKUP_INTERVAL</code>, default <code>24h</code>) run it. Backups go to your S3/MinIO bucket via pgBackRest.</li>
+              <li><strong>Prove it with a restore drill.</strong> Restore that backup into a fresh instance — or use the PITR wizard to rewind to a chosen second — to confirm it is genuinely restorable. A backup you have never restored is a hope, not a backup.</li>
+            </ul>
+            <div class="code-block" style="margin-top:1rem">
+              <div class="code-head">
+                <span class="dots"><i></i><i></i><i></i></span>
+                <span class="fname">pgfleet · first run</span>
+                <span class="pill pill-healthy" style="margin-left:auto"><span class="led led-healthy led-pulse"></span>ready</span>
+              </div>
+<pre><code><span class="c-prompt">✓</span> meta-db migrated · admin <span class="c-str">admin@pgfleet.local</span> seeded
+<span class="c-prompt">✓</span> instance <span class="c-str">orders-prod</span> provisioned (pg16)
+<span class="c-prompt">✓</span> WAL archiving → <span class="c-str">s3://pgbackrest</span> <span class="c-flag">ok</span>
+<span class="c-prompt">✓</span> full backup complete · <span class="c-var">retention 24h</span></code></pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- 5. Optional SSO -->
+        <div class="gs-step reveal" id="sso">
+          <div class="gs-rail"><span class="gs-num">5</span></div>
+          <div class="gs-body">
+            <h3>Optional: enable Authelia SSO</h3>
+            <p>By default PgFleet uses its built-in <strong>email + password</strong> login — no extra setup. Single sign-on is <strong>optional and toggled by environment</strong>. When you set <code>PGFLEET_SSO_EMAIL_HEADER</code> on the API and <code>NEXT_PUBLIC_OIDC_ENABLED=1</code> on the dashboard, a “Sign in with SSO” button appears and PgFleet trusts a forward-auth proxy (Authelia or any OIDC proxy) for identity, mapping the user’s groups to PgFleet <strong>admin / operator / viewer</strong> roles.</p>
+            <div class="code-block">
+              <div class="code-head">
+                <span class="dots"><i></i><i></i><i></i></span>
+                <span class="fname">.env (API) — enable SSO</span>
+                <button type="button" class="code-copy" data-copy aria-label="Copy command">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+                  <span class="label">Copy</span>
+                </button>
+              </div>
+<pre><code><span class="c-comment"># SSO mounts only when EMAIL_HEADER is set — unset = disabled</span>
+<span class="c-var">PGFLEET_SSO_EMAIL_HEADER</span>=Remote-Email
+<span class="c-var">PGFLEET_SSO_GROUPS_HEADER</span>=Remote-Groups
+<span class="c-var">PGFLEET_SSO_ADMIN_GROUP</span>=pgfleet-admins
+<span class="c-var">PGFLEET_SSO_OPERATOR_GROUP</span>=pgfleet-operators
+<span class="c-var">PGFLEET_SSO_AUTO_PROVISION</span>=true
+
+<span class="c-comment"># dashboard: show the SSO button</span>
+<span class="c-var">NEXT_PUBLIC_OIDC_ENABLED</span>=1</code></pre>
+            </div>
+            <p style="margin-top:1rem">A ready-to-adapt stack — Caddy (TLS + <code>forward_auth</code>) in front of Authelia (login + TOTP MFA + brute-force regulation) in front of PgFleet — lives in <code>deploy/authelia/</code>:</p>
+            <div class="code-block">
+              <div class="code-head">
+                <span class="dots"><i></i><i></i><i></i></span>
+                <span class="fname">shell</span>
+                <button type="button" class="code-copy" data-copy aria-label="Copy command">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+                  <span class="label">Copy</span>
+                </button>
+              </div>
+<pre><code><span class="c-prompt">$</span> docker compose <span class="c-flag">-f</span> deploy/authelia/docker-compose.yml up <span class="c-flag">-d</span>
+<span class="c-comment"># → your domain → Authelia portal → enroll TOTP → dashboard, signed in</span></code></pre>
+            </div>
+            <div class="note" style="margin-top:1.25rem">
+              <p style="margin-top:0"><strong>Two invariants keep this safe.</strong> The proxy must <strong>strip client-supplied copies</strong> of the trusted headers before forward-auth (the bundled Caddyfile does this), and the API must be reachable <strong>only through the proxy</strong> — never publish its port directly, or a caller could forge the header. Disabled PgFleet accounts are still rejected at the SSO exchange, so off-boarding revokes access. Full write-up: <code>docs/authelia-sso.md</code>.</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ===================== CTA ===================== -->
+    <section class="section" style="padding-top:0">
+      <div class="container">
+        <div class="cta reveal">
+          <span class="eyebrow" style="justify-content:center"><span class="led led-azure led-pulse"></span>You're set</span>
+          <h2>Now make it yours.</h2>
+          <p>Add a replica, wire alerting to a webhook, swap MinIO for managed S3, and put the dashboard behind SSO. The control plane reconciles the rest.</p>
+          <div class="cta-actions">
+            <a class="btn btn-primary btn-lg" href="features.html">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+              Explore features
+            </a>
+            <a class="btn btn-secondary btn-lg" href="https://github.com/sagoresarker/pgfleet" rel="noopener">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.36 1.09 2.93.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.5 9.5 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.69-4.57 4.94.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></svg>
+              View on GitHub
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ===================== FOOTER ===================== -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div>
+          <a href="index.html" class="brand">
+            <span class="brand-mark" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
+            </span>
+            PgFleet
+          </a>
+          <p class="footer-about">A self-hosted, open-source control plane for managed Postgres. Provision, back up, recover, and observe your fleet on your own infrastructure.</p>
+        </div>
+        <div class="footer-col">
+          <h4>Product</h4>
+          <ul>
+            <li><a href="features.html">Features</a></li>
+            <li><a href="features.html#backups">Backups &amp; PITR</a></li>
+            <li><a href="features.html#ha">High availability</a></li>
+            <li><a href="features.html#remote">Remote backup</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Resources</h4>
+          <ul>
+            <li><a href="getting-started.html">Getting started</a></li>
+            <li><a href="faq.html">FAQ</a></li>
+            <li><a href="features.html#sso">Access &amp; SSO</a></li>
+            <li><a href="https://github.com/sagoresarker/pgfleet" rel="noopener">GitHub</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Status</h4>
+          <ul>
+            <li><span class="pill pill-healthy"><span class="led led-healthy"></span>open source</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bar">
+        <span>© 2026 PgFleet · Self-hosted managed Postgres</span>
+        <span>Built with Go + Next.js · pgBackRest · PgCat</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/main.js" defer></script>
+</body>
+</html>

@@ -27,9 +27,10 @@
       </button>
       <ul class="nav-links" id="nav-links">
         <li><a href="features.html">Features</a></li>
+        <li><a href="getting-started.html">Getting started</a></li>
         <li><a href="faq.html" aria-current="page">FAQ</a></li>
         <li><a href="https://github.com/sagoresarker/pgfleet" rel="noopener">GitHub</a></li>
-        <li class="nav-cta"><a class="btn btn-primary" href="https://github.com/sagoresarker/pgfleet" rel="noopener">
+        <li class="nav-cta"><a class="btn btn-primary" href="getting-started.html">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
           Get started
         </a></li>
@@ -116,8 +117,18 @@
           <details class="faq">
             <summary>Is the admin dashboard protected, and can I use SSO?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
             <div class="faq-body">
-              <p>Yes. The dashboard is a control plane for your whole fleet, so it should never sit open on the internet. The recommended pattern is to place it behind a reverse proxy or Cloudflare Tunnel with an identity provider — <strong>Authelia</strong> or any <strong>OIDC</strong> provider — enforcing authentication (and ideally MFA) before any request reaches PgFleet.</p>
-              <p>This gives you <strong>single sign-on</strong> with your existing accounts and centralizes access policy, rather than relying on the application to be your only gate.</p>
+              <p>Yes. Out of the box, PgFleet uses its own <strong>email + password login</strong> with a bootstrap admin seeded on first run — no external dependency required. The dashboard is a control plane for your whole fleet, so it should never sit open on the internet regardless.</p>
+              <p><strong>Single sign-on is optional and toggled by environment.</strong> Set <code>PGFLEET_SSO_EMAIL_HEADER</code> on the API and <code>NEXT_PUBLIC_OIDC_ENABLED=1</code> on the dashboard, and a “Sign in with SSO” button appears: PgFleet then trusts a forward-auth proxy (<strong>Authelia</strong> or any OIDC proxy) to authenticate, and maps the user’s groups to PgFleet <strong>admin / operator / viewer</strong> roles. Leave those unset and SSO is simply disabled. See the next question and the <a href="getting-started.html#sso">getting-started guide</a>.</p>
+            </div>
+          </details>
+
+          <!-- 7b -->
+          <details class="faq">
+            <summary>How exactly do I enable or disable SSO?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
+            <div class="faq-body">
+              <p><strong>Disabled (default):</strong> do not set <code>PGFLEET_SSO_EMAIL_HEADER</code>. PgFleet mounts no SSO endpoint and the login page only offers built-in email + password.</p>
+              <p><strong>Enabled:</strong> on the API set <code>PGFLEET_SSO_EMAIL_HEADER</code> (e.g. <code>Remote-Email</code>) plus the group-mapping vars <code>PGFLEET_SSO_GROUPS_HEADER</code>, <code>PGFLEET_SSO_ADMIN_GROUP</code>, and <code>PGFLEET_SSO_OPERATOR_GROUP</code>; on the dashboard set <code>NEXT_PUBLIC_OIDC_ENABLED=1</code>. PgFleet then trusts the email/groups headers <strong>injected by your proxy</strong> and issues a normal session.</p>
+              <p>Two invariants keep this safe: the proxy must <strong>strip client-supplied copies</strong> of those headers before forward-auth, and the API must be reachable <strong>only through the proxy</strong> (never published directly). <strong>Authelia</strong> adds MFA (TOTP) and brute-force regulation in front, and disabled PgFleet accounts are still rejected at the SSO exchange so off-boarding revokes access. Password login remains as a fallback.</p>
             </div>
           </details>
 
@@ -198,7 +209,7 @@
             <summary>What do I need to run it, and how do I get started?<span class="chev" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></span></summary>
             <div class="faq-body">
               <p>You need a host with <strong>Docker</strong> and an <strong>S3-compatible object store</strong> (managed S3 or a self-hosted MinIO). The control plane itself is a Go backend with a Next.js dashboard, packaged to run with Docker.</p>
-              <p>Clone the repository, start the control plane, point it at your bucket, and provision your first instance from the dashboard. From there, enable scheduled backups, add a replica, and run a restore drill to confirm everything is wired up. Start from the <a href="https://github.com/sagoresarker/pgfleet" rel="noopener">GitHub repo</a>.</p>
+              <p>Clone the repository, start the control plane, point it at your bucket, and provision your first instance from the dashboard. From there, enable scheduled backups, add a replica, and run a restore drill to confirm everything is wired up. Follow the step-by-step <a href="getting-started.html">getting-started guide</a>, or jump straight to the <a href="https://github.com/sagoresarker/pgfleet" rel="noopener">GitHub repo</a>.</p>
             </div>
           </details>
 
@@ -214,9 +225,9 @@
           <h2>The fastest answer is to run it.</h2>
           <p>Stand up the control plane with Docker, connect a bucket, and provision a recoverable Postgres instance in minutes.</p>
           <div class="cta-actions">
-            <a class="btn btn-primary btn-lg" href="https://github.com/sagoresarker/pgfleet" rel="noopener">
-              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.36 1.09 2.93.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.5 9.5 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.69-4.57 4.94.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></svg>
-              Get started on GitHub
+            <a class="btn btn-primary btn-lg" href="getting-started.html">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+              Get started
             </a>
             <a class="btn btn-secondary btn-lg" href="features.html">Explore features</a>
           </div>
@@ -251,6 +262,7 @@
         <div class="footer-col">
           <h4>Resources</h4>
           <ul>
+            <li><a href="getting-started.html">Getting started</a></li>
             <li><a href="faq.html">FAQ</a></li>
             <li><a href="features.html#restart">Restart &amp; ports</a></li>
             <li><a href="https://github.com/sagoresarker/pgfleet" rel="noopener">GitHub</a></li>
