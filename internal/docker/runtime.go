@@ -9,11 +9,19 @@ import (
 	"io"
 )
 
-// Label keys applied to every PgFleet-managed Docker resource.
+// Label keys applied to every PgFleet-managed Docker resource. The recovery
+// labels (name/stanza/repo/version/cluster) carry non-secret metadata so an
+// instance is identifiable and reconstructible from Docker alone if the meta
+// DB is lost.
 const (
-	LabelManaged  = "pgfleet.managed"  // always "true"
-	LabelInstance = "pgfleet.instance" // owning instance id
-	LabelRole     = "pgfleet.role"     // e.g. "postgres"
+	LabelManaged   = "pgfleet.managed"  // always "true"
+	LabelInstance  = "pgfleet.instance" // owning instance id
+	LabelRole      = "pgfleet.role"     // e.g. "postgres", "replica", "router"
+	LabelName      = "pgfleet.name"     // instance name
+	LabelStanza    = "pgfleet.stanza"   // pgBackRest stanza (== name)
+	LabelRepoType  = "pgfleet.repo"     // "s3" | "local"
+	LabelPGVersion = "pgfleet.pgversion"
+	LabelCluster   = "pgfleet.cluster" // owning cluster id, if any
 )
 
 // PortMapping maps a container port to a host port.

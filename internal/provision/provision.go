@@ -244,7 +244,7 @@ func (p *Provisioner) containerSpec(inst instance.Instance, password string, mou
 			"POSTGRES_PASSWORD": password,
 			"POSTGRES_DB":       "postgres",
 		},
-		Labels:        instanceLabels(inst.ID),
+		Labels:        recoveryLabels(inst),
 		Ports:         []docker.PortMapping{{ContainerPort: pgPort, HostPort: 0, HostIP: p.opts.BindAddress}},
 		Mounts:        mounts,
 		RestartPolicy: p.opts.RestartPolicy,
@@ -393,6 +393,29 @@ func instanceLabels(id string) map[string]string {
 		docker.LabelInstance: id,
 		docker.LabelRole:     "postgres",
 	}
+}
+
+// recoveryLabels stamps an instance container with non-secret identifying
+// metadata, so the instance can be recognised + reconstructed from Docker alone
+// (with its backup repo) if the meta DB is lost.
+func recoveryLabels(inst instance.Instance) map[string]string {
+	role := string(inst.Role)
+	if role == "" || role == string(instance.RoleStandalone) {
+		role = "postgres"
+	}
+	l := map[string]string{
+		docker.LabelManaged:   "true",
+		docker.LabelInstance:  inst.ID,
+		docker.LabelRole:      role,
+		docker.LabelName:      inst.Name,
+		docker.LabelStanza:    inst.Stanza,
+		docker.LabelRepoType:  string(inst.RepoType),
+		docker.LabelPGVersion: inst.PGVersion,
+	}
+	if inst.ClusterID != "" {
+		l[docker.LabelCluster] = inst.ClusterID
+	}
+	return l
 }
 
 func volumeName(kind, id string) string { return "pgfleet-" + kind + "-" + id }
