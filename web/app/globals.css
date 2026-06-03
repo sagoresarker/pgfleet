@@ -130,3 +130,20 @@ body {
   border: 2px solid var(--color-ink-900);
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--color-line-bright); }
+
+/* Hero glow + staggered reveal for the landing page. */
+.glow-text {
+  text-shadow: 0 0 32px rgba(91, 157, 255, 0.25);
+}
+.reveal {
+  animation: rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Honor reduced-motion across the whole app. */
+@media (prefers-reduced-motion: reduce) {
+  .rise,
+  .reveal,
+  .led-pulse::after {
+    animation: none !important;
+  }
+}
