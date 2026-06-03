@@ -29,7 +29,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure Pages
+        # enablement: true turns Pages on (build type = GitHub Actions) via the
+        # workflow's pages:write permission, so the repo doesn't need Pages
+        # toggled on manually in Settings first.
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - name: Upload static site artifact
         uses: actions/upload-pages-artifact@v3
