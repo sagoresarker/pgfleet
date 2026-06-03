@@ -192,7 +192,7 @@ func (p *Provisioner) containerSpec(inst instance.Instance, password string, mou
 		"-c", "shared_preload_libraries=pg_stat_statements",
 	}
 	spec := docker.ContainerSpec{
-		Name:  "pgfleet-pg-" + inst.Name,
+		Name:  InstanceContainerName(inst.Name),
 		Image: inst.Image,
 		Cmd:   cmd,
 		Env: map[string]string{
@@ -333,6 +333,10 @@ func instanceLabels(id string) map[string]string {
 }
 
 func volumeName(kind, id string) string { return "pgfleet-" + kind + "-" + id }
+
+// InstanceContainerName is the deterministic Docker container name for an
+// instance; on the shared network, peers reach it by this name.
+func InstanceContainerName(name string) string { return "pgfleet-pg-" + name }
 
 // asPostgres wraps a command so it runs as the postgres OS user. pgBackRest
 // must run as postgres so it connects to the cluster as the postgres role and
