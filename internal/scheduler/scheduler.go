@@ -72,10 +72,17 @@ func (s *Scheduler) Register(name string, interval time.Duration, fn JobFunc) {
 	s.jobs = append(s.jobs, job{name: name, interval: interval, run: fn})
 }
 
-// Start launches a goroutine per registered job. It returns immediately.
+// Start launches a goroutine per registered job. It returns immediately and is
+// idempotent: a second Start while already running is a no-op, so it cannot
+// orphan the first batch's cancel func (which would wedge Stop forever).
 func (s *Scheduler) Start(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	s.mu.Lock()
+	if s.cancel != nil {
+		s.mu.Unlock()
+		cancel() // discard the unused child context
+		return
+	}
 	s.cancel = cancel
 	jobs := s.jobs
 	s.mu.Unlock()

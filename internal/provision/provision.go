@@ -298,20 +298,33 @@ func (p *Provisioner) execOK(ctx context.Context, containerID string, cmd []stri
 }
 
 // redactSecrets scrubs pgBackRest S3 secret values from command output before
-// it is persisted or returned to clients.
+// it is persisted or returned to clients. The longest keys come first so a key
+// that is a prefix of another (repo1-s3-key vs repo1-s3-key-secret) does not
+// partially redact the longer one.
 func redactSecrets(s string) string {
 	for _, key := range []string{"repo1-s3-key-secret", "repo1-s3-key", "repo1-cipher-pass"} {
+		marker := key + "="
+		// Build the result left-to-right, advancing past each replacement. An
+		// in-place replace would loop forever, because the replacement value
+		// ("***") is still preceded by the marker we search for.
+		var b strings.Builder
+		rest := s
 		for {
-			i := strings.Index(s, key+"=")
+			i := strings.Index(rest, marker)
 			if i < 0 {
+				b.WriteString(rest)
 				break
 			}
-			end := strings.IndexByte(s[i:], '\n')
+			end := strings.IndexByte(rest[i:], '\n')
 			if end < 0 {
-				end = len(s) - i
+				end = len(rest) - i
 			}
-			s = s[:i] + key + "=***" + s[i+end:]
+			b.WriteString(rest[:i])
+			b.WriteString(marker)
+			b.WriteString("***")
+			rest = rest[i+end:]
 		}
+		s = b.String()
 	}
 	return s
 }
