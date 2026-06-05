@@ -34,3 +34,6 @@ bin/
 /pgfleet
 web/tsconfig.tsbuildinfo
 web/.next/
+
+# e2e test run logs
+logs/
