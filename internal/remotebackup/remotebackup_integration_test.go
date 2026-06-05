@@ -4,7 +4,6 @@ package remotebackup
 
 import (
 	"context"
-	"os/exec"
 	"testing"
 	"time"
 
@@ -74,12 +73,6 @@ func connFromDSN(t *testing.T, dsn string) RemoteConn {
 // the data survives the migrate-in flow. Requires pg_dump/pg_restore/psql on
 // PATH and Docker for testcontainers.
 func TestCaptureAndRestoreRoundTrip(t *testing.T) {
-	for _, bin := range []string{"psql", "pg_dump", "pg_restore"} {
-		if _, err := exec.LookPath(bin); err != nil {
-			t.Skipf("%s not found on PATH — install postgresql-client (apt/dnf) to run this test", bin)
-		}
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
