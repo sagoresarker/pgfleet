@@ -98,8 +98,11 @@ func TestCaptureAndRestoreRoundTrip(t *testing.T) {
 		t.Fatalf("captured dump is empty")
 	}
 
-	// Fresh target DB to restore into.
-	tgtDSN := testsupport.StartPostgres(t)
+	// Fresh target DB to restore into. Must be PG17+ because pg_restore 17+
+	// sends SET transaction_timeout = 0 on connect, a GUC that only exists
+	// from PG17 onwards — restoring into PG16 fails with "unrecognized
+	// configuration parameter". The source can be any version pg_dump supports.
+	tgtDSN := testsupport.StartPostgresImage(t, "postgres:17")
 	if err := svc.RestoreInto(ctx, entry.ID, tgtDSN); err != nil {
 		t.Fatalf("restore: %v", err)
 	}
