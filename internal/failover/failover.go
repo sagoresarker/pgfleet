@@ -238,6 +238,16 @@ func (c *Controller) failover(ctx context.Context, clu cluster.Cluster, oldPrima
 	// a dangerous mismatch (a later failover pass would try to fence the wrong
 	// node and re-promote). Can't roll back the promotion, so surface it loudly
 	// and mark the cluster degraded for operator attention.
+	//
+	// Demote the old primary FIRST so the one_primary_per_cluster unique index
+	// (role='primary' per cluster_id) does not block the SetRole below. If we
+	// set the new primary's role while the old primary still carries role='primary',
+	// the UPDATE violates the partial unique index and leaves both instances as
+	// 'replica' in the DB — the exact split-brain confusion we are trying to prevent.
+	if oldPrimary != nil {
+		_ = c.instances.SetStatus(ctx, oldPrimary.ID, instance.StatusError, "failed over; rebuild as a replica")
+		_ = c.instances.SetRole(ctx, oldPrimary.ID, instance.RoleReplica)
+	}
 	roleErr := c.instances.SetRole(ctx, newP.ID, instance.RolePrimary)
 	_ = c.instances.SetStatus(ctx, newP.ID, instance.StatusRunning, "")
 	primErr := c.clusters.SetPrimary(ctx, clu.ID, newP.ID)
@@ -246,10 +256,6 @@ func (c *Controller) failover(ctx context.Context, clu cluster.Cluster, oldPrima
 			"cluster", clu.ID, "new_primary", newP.ID, "set_role_err", roleErr, "set_primary_err", primErr)
 		_ = c.clusters.SetStatus(ctx, clu.ID, cluster.StatusDegraded,
 			"promoted "+newP.Name+" but failed to update primary metadata; manual check needed")
-	}
-	if oldPrimary != nil {
-		_ = c.instances.SetStatus(ctx, oldPrimary.ID, instance.StatusError, "failed over; rebuild as a replica")
-		_ = c.instances.SetRole(ctx, oldPrimary.ID, instance.RoleReplica)
 	}
 
 	// Reattach the OTHER replicas by re-cloning from the new primary (they
