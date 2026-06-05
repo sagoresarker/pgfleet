@@ -4,11 +4,16 @@ GO        ?= go
 PKG       := ./...
 BIN_DIR   := bin
 API_BIN   := $(BIN_DIR)/pgfleet-api
+GOLANGCI  := $(BIN_DIR)/golangci-lint
 
 .PHONY: help
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+
+.PHONY: e2e-test
+e2e-test: build ## Run the full production-readiness test suite (all 7 tiers, ~20 min wall-clock)
+	@bash scripts/e2e-test.sh
 
 .PHONY: certs
 certs: ## Generate self-signed TLS cert for the bundled MinIO (run once before `make run`)
@@ -37,20 +42,26 @@ run: build ## Run the API server, loading .env (copy .env.example first)
 
 .PHONY: test
 test: ## Run fast unit tests (no Docker)
-	$(GO) test -race $(PKG)
+	CGO_ENABLED=1 $(GO) test -race $(PKG)
 
 .PHONY: test-integration
 test-integration: ## Run integration tests (Docker required)
-	$(GO) test -race -tags=integration -timeout 20m $(PKG)
+	CGO_ENABLED=1 $(GO) test -race -tags=integration -timeout 20m $(PKG)
 
 .PHONY: cover
 cover: ## Run unit tests with coverage report
-	$(GO) test -race -coverprofile=coverage.out $(PKG)
+	CGO_ENABLED=1 $(GO) test -race -coverprofile=coverage.out $(PKG)
 	$(GO) tool cover -html=coverage.out -o coverage.html
 
+GOLANGCI_VERSION ?= latest
+
+$(GOLANGCI):
+	@mkdir -p $(BIN_DIR)
+	GOBIN=$(CURDIR)/$(BIN_DIR) go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_VERSION)
+
 .PHONY: lint
-lint: ## Run golangci-lint
-	golangci-lint run
+lint: $(GOLANGCI) ## Run golangci-lint
+	$(GOLANGCI) run
 
 .PHONY: fmt
 fmt: ## Format code
