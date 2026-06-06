@@ -227,6 +227,17 @@ func (p *Provisioner) runRestoreContainer(ctx context.Context, inst instance.Ins
 		// starts with archive_mode=on and flushes any pending archive (incl. the
 		// new .history) normally.
 		"gosu postgres pg_ctl -D " + pgDataPath + " -o '-c archive_mode=off' -w -t 600 start",
+		// CRITICAL: `pg_ctl -w start` returns as soon as the server accepts
+		// connections, which for a recovering server is at CONSISTENT-RECOVERY
+		// state (read-only) — BEFORE recovery reaches the PITR target and promotes.
+		// Stopping now interrupts the promotion and leaves recovery.signal in the
+		// data dir, so the swap/instance container re-runs recovery and replays
+		// PAST the target (resurrecting post-target data — a silent PITR data
+		// corruption). Wait until recovery has finished and the server has actually
+		// promoted (pg_is_in_recovery() = false) before stopping.
+		"i=0; while [ $i -lt 600 ]; do " +
+			"rec=$(gosu postgres psql -tAXc 'SELECT pg_is_in_recovery()' 2>/dev/null || echo t); " +
+			"[ \"$rec\" = f ] && break; i=$((i+1)); sleep 1; done",
 		"gosu postgres pg_ctl -D " + pgDataPath + " -m fast -w stop",
 	}, "\n")
 
