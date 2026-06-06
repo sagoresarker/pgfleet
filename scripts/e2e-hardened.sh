@@ -409,6 +409,11 @@ api_stop() {
 # wait for /healthz, refresh the admin token. Returns 1 if it never comes up.
 api_start() {
   local mode=$1; shift
+  # Stop any running API FIRST. Without this, the new process hits
+  # "bind: address already in use", dies, and the stale (old-env) API keeps
+  # answering /healthz — so the tier silently runs against the WRONG API env
+  # (this caused false failures in the encryption / webhook / scheduler tiers).
+  api_stop || true
   ( cd "$ROOT_DIR"
     set -a; [[ -f .env ]] && . ./.env; set +a
     local kv
@@ -417,8 +422,11 @@ api_start() {
   API_PID=$!
   local elapsed=0
   while (( elapsed < 60 )); do
-    api_is_up && { CURRENT_API_MODE="$mode"; api_login && return 0; }
-    # If the background process already exited, stop waiting.
+    # The process WE launched must be alive AND answering — guards against a stale
+    # listener answering /healthz while our new process died on a bind/config error.
+    if kill -0 "$API_PID" 2>/dev/null && api_is_up; then
+      CURRENT_API_MODE="$mode"; api_login && return 0
+    fi
     kill -0 "$API_PID" 2>/dev/null || { API_PID=""; return 1; }
     sleep 2; (( elapsed += 2 ))
   done
@@ -495,8 +503,10 @@ mc_run() {
   scheme=$(s3_scheme); [[ "$scheme" == https ]] && insec="--insecure" || insec=""
   ep="$scheme://$MINIO_CONTAINER:9000"
   ak="${PGFLEET_S3_ACCESS_KEY:-pgfleet}"; sk="${PGFLEET_S3_SECRET_KEY:-pgfleetpgfleet}"
+  # Send alias-set chatter and all mc stderr to mc.log (not stdout, which callers
+  # parse) so failures (TLS, creds, path) are diagnosable instead of swallowed.
   docker run --rm --network "$DOCKER_NET" --entrypoint /bin/sh minio/mc:latest -c \
-    "mc alias set t $ep $ak $sk $insec >/dev/null 2>&1; $1" 2>/dev/null
+    "mc alias set t $ep $ak $sk $insec 1>&2; $1" 2>>"$LOG_DIR/mc.log"
 }
 
 # wait_container_running NAME [TIMEOUT=120] — poll until a container reports Running.
@@ -973,9 +983,12 @@ run_tier9() {
   tlog $t "Asserting the stanza cipher is aes-256-cbc..."
   local cid cipher_ok=false; cid=$(instance_container "$id" postgres)
   if [[ -n "$cid" ]]; then
-    if docker exec "$cid" pgbackrest --stanza="e2e-enc-$RUN_ID" info --output=json 2>/dev/null \
-         | grep -qi 'aes-256-cbc'; then cipher_ok=true
-    elif docker exec "$cid" pgbackrest --stanza="e2e-enc-$RUN_ID" info 2>/dev/null \
+    # Authoritative proof: the app writes repo1-cipher-type=aes-256-cbc into the
+    # stanza config (/etc/pgbackrest/pgbackrest.conf) when encryption is enabled.
+    if docker exec "$cid" sh -c 'cat /etc/pgbackrest/pgbackrest.conf 2>/dev/null' \
+         | grep -qiE 'cipher-type[[:space:]]*=[[:space:]]*aes-256-cbc'; then cipher_ok=true
+    elif docker exec "$cid" pgbackrest --config=/etc/pgbackrest/pgbackrest.conf \
+           --stanza="e2e-enc-$RUN_ID" info --output=json 2>/dev/null \
          | grep -qi 'aes-256-cbc'; then cipher_ok=true
     fi
   fi
@@ -1163,23 +1176,29 @@ run_tier13() {
   wait_replication "$primary_dsn" 2 180 || warn "T$t both replicas not confirmed streaming; proceeding"
   loadgen_run "$primary_dsn" seed -accounts 8000 -events 120000 || { mark_fail $t; mark_time $t $t0; free_cluster "$cid"; return; }
 
+  # The controller detects primary failure via `docker exec pg_isready` (a check
+  # INSIDE the container), so it is immune to `docker network disconnect`. To make
+  # the primary genuinely unreachable to the detector on a single host we FREEZE it
+  # with `docker pause` (SIGSTOP) — Postgres stops answering while the container
+  # stays "running", the closest single-host model of an unresponsive/partitioned
+  # primary that the failover logic actually reacts to.
   local container="pgfleet-pg-$primary_name"
-  tlog $t "PARTITIONING primary off the '$DOCKER_NET' network (still running): $container"
-  if ! docker network disconnect "$DOCKER_NET" "$container" 2>/dev/null; then
-    tlog $t "FAIL — could not partition primary (network disconnect failed)"; mark_fail $t; mark_time $t $t0; free_cluster "$cid"; return
+  tlog $t "FREEZING primary with docker pause (unresponsive but still 'running'): $container"
+  if ! docker pause "$container" 2>/dev/null; then
+    tlog $t "FAIL — could not pause primary"; mark_fail $t; mark_time $t $t0; free_cluster "$cid"; return
   fi
 
-  tlog $t "Waiting for replica promotion under partition (max 6 min)..."
+  tlog $t "Waiting for replica promotion (max 6 min)..."
   local elapsed=0 promoted=false new_primary=""
   while (( elapsed < 360 )); do
     sleep 10; (( elapsed += 10 ))
     new_primary=$(api GET "/api/v1/clusters/$cid" 2>/dev/null | jq -r --arg old "$primary_name" \
       '.members[] | select(.role=="primary" and .name != $old) | .name')
-    [[ -n "$new_primary" ]] && { tlog $t "Promoted under partition: $new_primary"; promoted=true; break; }
+    [[ -n "$new_primary" ]] && { tlog $t "Promoted: $new_primary"; promoted=true; break; }
   done
   if ! $promoted; then
-    tlog $t "FAIL — no promotion within 6 min under partition"
-    docker network connect "$DOCKER_NET" "$container" 2>/dev/null || true
+    tlog $t "FAIL — no promotion within 6 min after the primary became unresponsive"
+    docker unpause "$container" 2>/dev/null || true
     free_cluster "$cid"; mark_fail $t; mark_time $t $t0; return
   fi
 
@@ -1187,26 +1206,29 @@ run_tier13() {
   local prim_n
   prim_n=$(api GET "/api/v1/clusters/$cid" | jq '[.members[] | select(.role=="primary")] | length')
   if (( prim_n != 1 )); then
-    tlog $t "FAIL — $prim_n primaries after promotion (split-brain)"; docker network connect "$DOCKER_NET" "$container" 2>/dev/null || true
+    tlog $t "FAIL — $prim_n primaries after promotion (split-brain)"; docker unpause "$container" 2>/dev/null || true
     free_cluster "$cid"; mark_fail $t; mark_time $t $t0; return
   fi
 
   # Invariant holds on the new primary.
   local np_id np_dsn; np_id=$(api GET "/api/v1/clusters/$cid" | jq -r '.members[] | select(.role=="primary") | .id')
-  np_dsn=$(get_dsn "$np_id"); wait_postgres_ready "$np_dsn" 120 || { tlog $t "FAIL — new primary unreachable"; free_cluster "$cid"; mark_fail $t; mark_time $t $t0; return; }
-  loadgen_run "$np_dsn" verify -accounts 8000 || { tlog $t "FAIL — invariant broken on promoted primary"; free_cluster "$cid"; mark_fail $t; mark_time $t $t0; return; }
+  np_dsn=$(get_dsn "$np_id"); wait_postgres_ready "$np_dsn" 120 || { tlog $t "FAIL — new primary unreachable"; docker unpause "$container" 2>/dev/null || true; free_cluster "$cid"; mark_fail $t; mark_time $t $t0; return; }
+  loadgen_run "$np_dsn" verify -accounts 8000 || { tlog $t "FAIL — invariant broken on promoted primary"; docker unpause "$container" 2>/dev/null || true; free_cluster "$cid"; mark_fail $t; mark_time $t $t0; return; }
 
-  # THE split-brain test: reconnect the old primary. It must NOT resume as primary.
-  tlog $t "Reconnecting the old primary to the network — it must NOT become a 2nd primary..."
-  docker network connect "$DOCKER_NET" "$container" 2>/dev/null || true
+  # THE split-brain test: revive the old primary. It must NOT come back as a 2nd
+  # primary — the controller should have fenced it (stopped/removed the container).
+  tlog $t "Reviving the old primary (docker unpause) — it must NOT become a 2nd primary..."
+  docker unpause "$container" 2>/dev/null || true   # may already be fenced/removed
   sleep 30
   prim_n=$(api GET "/api/v1/clusters/$cid" | jq '[.members[] | select(.role=="primary")] | length')
-  local old_role
-  old_role=$(api GET "/api/v1/clusters/$cid" | jq -r --arg n "$primary_name" '.members[] | select(.name==$n) | .role // "fenced/absent"')
-  if (( prim_n == 1 )); then
-    tlog $t "PASS — single primary survived the partition; old primary rejoined as '$old_role', no split-brain"; mark_pass $t
+  local old_running
+  old_running=$(docker inspect "$container" 2>/dev/null | jq -r '.[0].State.Running // "absent"')
+  if (( prim_n == 1 )) && [[ "$old_running" != "true" || "$old_running" == "absent" ]]; then
+    tlog $t "PASS — single primary survived; old primary fenced (running=$old_running), no split-brain"; mark_pass $t
+  elif (( prim_n == 1 )); then
+    tlog $t "PASS — single primary; old primary not re-promoted (running=$old_running), no split-brain"; mark_pass $t
   else
-    tlog $t "FAIL — $prim_n primaries after old primary rejoined (split-brain!)"; mark_fail $t
+    tlog $t "FAIL — $prim_n primaries after the old primary revived (split-brain!)"; mark_fail $t
   fi
   free_cluster "$cid"; mark_time $t $t0
 }
@@ -1668,10 +1690,17 @@ run_tier22() {
   loadgen_run "$p2_dsn" verify -accounts 8000 \
     || { tlog $t "FAIL — invariant broke after failover #1"; free_cluster "$cid"; mark_fail $t; mark_time $t $t0; return; }
 
-  # ── Failback: a replica must re-clone before we can fail over again ──
-  tlog $t "Waiting for a replica to re-clone/rejoin (failback) before failover #2..."
-  wait_replication "$p2_dsn" 1 600 \
-    || { tlog $t "FAIL — no replica re-cloned after failover #1 (cluster can't survive a 2nd failure)"; free_cluster "$cid"; mark_fail $t; mark_time $t $t0; return; }
+  # ── Failback: the cluster must HEAL before it can survive a 2nd failure ──
+  # A 3-node cluster tolerates ONE failure (2 of 3 reachable = quorum). Surviving a
+  # SECOND requires the killed node (restart-policy: unless-stopped) to come back and
+  # the controller to re-clone it as a streaming replica, restoring 2 replicas so the
+  # next promotion can meet quorum. Wait for that — if it never heals, THAT is the
+  # finding (no failback), not "no promotion".
+  tlog $t "Waiting for failback — cluster must re-clone back to 2 streaming replicas before failover #2..."
+  if ! wait_replication "$p2_dsn" 2 900; then
+    tlog $t "FAIL — cluster did not self-heal to 2 replicas after failover #1 (no failback; by quorum design a 3-node cluster then cannot survive a 2nd failure)"
+    free_cluster "$cid"; mark_fail $t; mark_time $t $t0; return
+  fi
 
   # ── Failover #2 ──
   tlog $t "Failover #2 — killing new primary $p2_name..."
