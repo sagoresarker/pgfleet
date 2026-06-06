@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # scripts/e2e-test.sh — PgFleet production-readiness test suite
 #
-# Runs all 7 tiers (tiers 1–6 in parallel, tier 7 sequential last).
+# Runs all 7 tiers strictly one at a time, so each gets the full machine
+# (concurrent tiers OOM-kill restore/cluster containers on a constrained host).
 # Exit 0 = all passed. Exit 1 = one or more failed.
 #
 # Configuration via env vars:
@@ -262,6 +263,33 @@ loadgen_run() {
   "$LOADGEN" -dsn "$dsn" -mode "$mode" "$@"
 }
 
+# free_instance ID / free_cluster ID — delete a tier's own resources as soon as
+# it finishes (best-effort), so the containers are released for later tiers
+# instead of all lingering until the final EXIT-trap cleanup. Without this, the
+# last tier in the chain restores on a box still loaded with every prior tier's
+# instances/clusters, and Postgres startup can exceed the 90s readyTimeout.
+free_instance() {
+  [[ -z "${1:-}" ]] && return 0
+  api DELETE "/api/v1/instances/$1" &>/dev/null || true
+}
+free_cluster() {
+  [[ -z "${1:-}" ]] && return 0
+  api DELETE "/api/v1/clusters/$1" &>/dev/null || true
+}
+
+# wait_router_ready DSN [TIMEOUT=120] — poll a cluster router DSN until a query
+# succeeds. After a failover the controller repoints PgCat to the new primary;
+# the new router needs a few seconds before it stops returning AllServersDown.
+wait_router_ready() {
+  local dsn=$1 timeout=${2:-120} elapsed=0
+  while (( elapsed < timeout )); do
+    psql "$dsn" -q -t -c "SELECT 1" &>/dev/null && return 0
+    sleep 3; (( elapsed += 3 ))
+  done
+  err "Router at $dsn did not become ready within ${timeout}s"
+  return 1
+}
+
 # ─── Pre-run teardown ─────────────────────────────────────────────────────────
 # Removes stale e2e-* instances/clusters left by a previous aborted run so
 # name conflicts don't cause instant provisioning failures.
@@ -371,6 +399,7 @@ run_tier3() {
     tlog $t "FAIL — consistency invariant violated (torn transaction)"
     mark_fail $t
   fi
+  free_instance "$id"   # release containers immediately for later tiers
   mark_time $t $t0
 }
 
@@ -394,7 +423,10 @@ run_tier4() {
   trigger_backup "$id" || { mark_fail $t; mark_time $t $t0; return; }
 
   tlog $t "Running post-backup churn (90 s)..."
-  loadgen_run "$dsn" churn -workers 6 -duration 90s \
+  # -accounts MUST match the seed (10000): loadgen generates event account_ids
+  # in [1,accounts]; defaulting to 100000 would create out-of-range ids and
+  # orphan events that the full verify (correctly) rejects.
+  loadgen_run "$dsn" churn -accounts 10000 -workers 6 -duration 90s \
     || { mark_fail $t; mark_time $t $t0; return; }
 
   tlog $t "Restoring from latest backup..."
@@ -406,23 +438,15 @@ run_tier4() {
   dsn=$(get_dsn "$id")
   wait_postgres_ready "$dsn" 120  || { mark_fail $t; mark_time $t $t0; return; }
 
-  tlog $t "Verifying money invariant after restore..."
-  # Use psql directly: the loadgen verify also checks for orphan events which
-  # is a known loadgen-internal issue unrelated to pgfleet's restore correctness.
-  # The money invariant (pot conserved, no negative balances) is what actually
-  # proves no data was lost or corrupted during the restore.
-  local result
-  result=$(psql "$dsn" -t -q -c \
-    "SELECT CASE WHEN sum(balance)=count(*)*1000 AND min(balance)>=0
-                 THEN 'PASS' ELSE 'FAIL:pot='||sum(balance)||'/want='||count(*)*1000||'/min='||min(balance)
-            END FROM loadgen_accounts" | tr -d '[:space:]')
-  if [[ "$result" == "PASS" ]]; then
-    tlog $t "PASS — pot conserved, no negative balances"
+  tlog $t "Verifying consistency after restore (full invariant: pot + balances + orphans)..."
+  if loadgen_run "$dsn" verify -accounts 10000; then
+    tlog $t "PASS — pot conserved, no negative balances, no orphan events"
     mark_pass $t
   else
-    tlog $t "FAIL — money invariant violated: $result"
+    tlog $t "FAIL — consistency invariant violated after restore"
     mark_fail $t
   fi
+  free_instance "$id"   # release before the next tier starts
   mark_time $t $t0
 }
 
@@ -445,14 +469,15 @@ run_tier5() {
   tlog $t "Taking full backup (WAL must archive before PITR target)..."
   trigger_backup "$id" || { mark_fail $t; mark_time $t $t0; return; }
 
-  # 5 s gap ensures batch-1 WAL is fully archived before the target timestamp.
-  # Use LOCAL time (no -u): Postgres interprets recovery_target_time in the
-  # server's local timezone. Passing UTC when the server is UTC+N makes the
-  # target appear N hours in the past, so recovery includes all post-backup WAL.
+  # Capture the PITR target from the SERVER'S OWN CLOCK (timezone-aware, e.g.
+  # 2026-06-06 04:19:19.42+00). Generating it on the test host with `date` is
+  # unreliable: the managed Postgres runs in UTC, so a host in UTC+N would yield
+  # a target N hours off, and recovery would over/undershoot. Using now() from
+  # the instance removes all host-vs-server timezone ambiguity.
   sleep 5
-  local pitr_time; pitr_time=$(date +'%Y-%m-%d %H:%M:%S')
-  tlog $t "PITR target timestamp: $pitr_time (local)"
-  sleep 5  # 5 s gap after target before inserting the canary
+  local pitr_time; pitr_time=$(psql "$dsn" -tAq -c "SELECT now()")
+  tlog $t "PITR target (server clock): $pitr_time"
+  sleep 5  # gap before the canary so the target is unambiguously before it
 
   # Insert a canary row that must NOT survive the PITR restore
   tlog $t "Inserting post-target canary row..."
@@ -462,7 +487,9 @@ run_tier5() {
     || { mark_fail $t; mark_time $t $t0; return; }
 
   tlog $t "Running batch 2 churn (60 s — must NOT survive restore)..."
-  loadgen_run "$dsn" churn -workers 4 -duration 60s \
+  # -accounts MUST match the seed (5000) so churn does not create out-of-range
+  # account_ids / orphan events that the full verify would reject.
+  loadgen_run "$dsn" churn -accounts 5000 -workers 4 -duration 60s \
     || { mark_fail $t; mark_time $t $t0; return; }
 
   # CRITICAL for PITR-from-S3: recovery replays WAL until it finds a commit
@@ -490,26 +517,22 @@ run_tier5() {
     -c "SELECT COUNT(*) FROM loadgen_events WHERE kind='pitr_canary'" \
     | tr -d '[:space:]')
 
-  # Check 2: money invariant must hold (pot conserved, no negative balances).
-  # Use psql directly — loadgen verify also checks orphan events which is a
-  # known loadgen-internal issue unrelated to PITR correctness.
-  tlog $t "Checking money invariant after PITR..."
-  local money_result
-  money_result=$(psql "$dsn" -t -q -c \
-    "SELECT CASE WHEN sum(balance)=count(*)*1000 AND min(balance)>=0
-                 THEN 'PASS' ELSE 'FAIL:pot='||sum(balance)||'/want='||count(*)*1000||'/min='||min(balance)
-            END FROM loadgen_accounts" | tr -d '[:space:]')
+  # Check 2: full consistency invariant must hold (pot + balances + orphans).
+  tlog $t "Checking full consistency invariant after PITR..."
+  local verify_ok=true
+  loadgen_run "$dsn" verify -accounts 5000 || verify_ok=false
 
-  if [[ "$canary_count" == "0" ]] && [[ "$money_result" == "PASS" ]]; then
-    tlog $t "PASS — PITR landed at correct point; canary absent; pot conserved"
+  if [[ "$canary_count" == "0" ]] && $verify_ok; then
+    tlog $t "PASS — PITR landed at correct point; canary absent; invariant holds"
     mark_pass $t
   elif [[ "$canary_count" != "0" ]]; then
     tlog $t "FAIL — canary row survived PITR (restore landed too late)"
     mark_fail $t
   else
-    tlog $t "FAIL — money invariant broken after PITR: $money_result"
+    tlog $t "FAIL — consistency invariant broken after PITR"
     mark_fail $t
   fi
+  free_instance "$id"
   mark_time $t $t0
 }
 
@@ -551,9 +574,10 @@ run_tier6() {
     | jq -r '.members[] | select(.role=="primary") | .name')
   tlog $t "Primary: $primary_name"
 
-  # Start churn in background
-  tlog $t "Starting background churn (5 min)..."
-  loadgen_run "$cluster_dsn" churn -workers 8 -duration 5m &
+  # Start churn in background (-accounts matches the seed so the full verify is
+  # valid). 3 min comfortably covers the kill-at-30s + up-to-6-min promotion poll.
+  tlog $t "Starting background churn (3 min)..."
+  loadgen_run "$cluster_dsn" churn -accounts 10000 -workers 8 -duration 3m &
   local churn_pid=$!
 
   # Let churn warm up, then kill the primary
@@ -590,22 +614,40 @@ run_tier6() {
 
   if ! $promoted; then
     tlog $t "FAIL — no replica promoted within 6 minutes"
-    mark_fail $t; mark_time $t $t0; return
+    free_cluster "$cluster_id"; mark_fail $t; mark_time $t $t0; return
   fi
 
-  # Allow PgCat to reconfigure before running verify
-  sleep 10
-  local new_dsn; new_dsn=$(get_cluster_dsn "$cluster_id")
+  # Data-safety check (AUTHORITATIVE): verify the money invariant against the NEW
+  # PRIMARY DIRECTLY. The promoted data lives on the primary itself, independent
+  # of the router — this is the real "no committed data lost" assertion.
+  local new_primary_id new_primary_dsn
+  new_primary_id=$(api GET "/api/v1/clusters/$cluster_id" \
+    | jq -r '.members[] | select(.role=="primary") | .id')
+  new_primary_dsn=$(get_dsn "$new_primary_id")
+  if ! wait_postgres_ready "$new_primary_dsn" 120; then
+    tlog $t "FAIL — new primary not accepting connections after promotion"
+    free_cluster "$cluster_id"; mark_fail $t; mark_time $t $t0; return
+  fi
+  tlog $t "Verifying full invariant on the promoted primary (direct)..."
+  if ! loadgen_run "$new_primary_dsn" verify -accounts 10000; then
+    tlog $t "FAIL — data lost or corrupted on the promoted primary"
+    free_cluster "$cluster_id"; mark_fail $t; mark_time $t $t0; return
+  fi
 
-  tlog $t "Verifying money invariant after failover..."
-  local fo_money
-  fo_money=$(psql "$new_dsn" -t -q -c \
-    "SELECT CASE WHEN sum(balance)=count(*)*1000 AND min(balance)>=0
-                 THEN 'PASS' ELSE 'FAIL:pot='||sum(balance)||'/want='||count(*)*1000
-            END FROM loadgen_accounts" | tr -d '[:space:]')
-  if [[ "$fo_money" != "PASS" ]]; then
-    tlog $t "FAIL — money invariant violated after failover: $fo_money"
-    mark_fail $t; mark_time $t $t0; return
+  # Router repoint check: the controller repoints PgCat to the new primary and
+  # marks the cluster RUNNING again. This is a hard assertion — if the repoint
+  # fails (e.g. router-name conflict) the cluster stays "degraded", which means
+  # the router was not actually reconfigured for the new topology even if PgCat's
+  # stale config happens to still serve reads from a surviving backend.
+  tlog $t "Waiting for cluster to return to running (router repointed)..."
+  if ! wait_cluster_status "$cluster_id" "running" 180; then
+    tlog $t "FAIL — cluster did not return to running after failover (repoint failed/degraded)"
+    free_cluster "$cluster_id"; mark_fail $t; mark_time $t $t0; return
+  fi
+  local new_dsn; new_dsn=$(get_cluster_dsn "$cluster_id")
+  if ! wait_router_ready "$new_dsn" 120; then
+    tlog $t "FAIL — router did not serve queries after failover (repoint)"
+    free_cluster "$cluster_id"; mark_fail $t; mark_time $t $t0; return
   fi
 
   # Confirm old primary is fenced (container must not be running)
@@ -619,6 +661,7 @@ run_tier6() {
     tlog $t "FAIL — old primary container is still running (split-brain risk)"
     mark_fail $t
   fi
+  free_cluster "$cluster_id"
   mark_time $t $t0
 }
 
@@ -628,23 +671,21 @@ run_tier7() {
   tlog $t "Starting: ${TIER_NAME[$t]}"
   cd "$ROOT_DIR"
 
-  # Snapshot instances that are BOTH marked running AND actually reachable right
-  # now. A tier that left a broken instance (e.g. a failed restore still marked
-  # running) must not fail this tier — we only assert that instances which were
-  # genuinely live before the API kill stay live across it.
-  local candidate_ids running_ids=() running_dsns=()
-  candidate_ids=$(api GET /api/v1/instances \
-    | jq -r '.instances[] | select(.status=="running") | .id')
+  # Provision a dedicated instance for this tier. Every other tier now frees its
+  # own resources on completion, so we can't rely on their leftovers — and a
+  # self-owned instance makes the resilience assertion deterministic.
+  local own_id; own_id=$(provision "e2e-cp-$RUN_ID" "s3") \
+    || { tlog $t "FAIL — could not provision probe instance"; mark_fail $t; mark_time $t $t0; return; }
+  tlog $t "Waiting for probe instance $own_id..."
+  wait_status "$own_id" "running" 600 \
+    || { tlog $t "FAIL — probe instance never came up"; free_instance "$own_id"; mark_fail $t; mark_time $t $t0; return; }
 
-  for id in $candidate_ids; do
-    local dsn; dsn=$(get_dsn "$id") || continue
-    if psql "$dsn" -q -t -c "SELECT 1" &>/dev/null; then
-      running_ids+=("$id"); running_dsns+=("$dsn")
-    else
-      tlog $t "  (skipping $id — not reachable before kill, likely another tier's leftover)"
-    fi
-  done
-  tlog $t "Snapshotted ${#running_dsns[@]} reachable instance(s)"
+  local running_ids=("$own_id") running_dsns=()
+  local own_dsn; own_dsn=$(get_dsn "$own_id")
+  wait_postgres_ready "$own_dsn" 120 \
+    || { tlog $t "FAIL — probe instance not accepting connections"; free_instance "$own_id"; mark_fail $t; mark_time $t $t0; return; }
+  running_dsns=("$own_dsn")
+  tlog $t "Probe instance ready; testing survival across an API restart"
 
   # Find and kill the API process
   local api_pid
@@ -709,37 +750,6 @@ run_tier7() {
     mark_fail $t
   fi
   mark_time $t $t0
-}
-
-# ─── Progress monitor ─────────────────────────────────────────────────────────
-monitor_parallel() {
-  local -n _pids=$1
-  local -n _tiers=$2
-  local -A reported=()
-
-  while true; do
-    local all_done=true
-    for i in "${!_pids[@]}"; do
-      local pid=${_pids[$i]} tn=${_tiers[$i]}
-      [[ "${reported[$tn]:-}" == "done" ]] && continue
-      if ! kill -0 "$pid" 2>/dev/null; then
-        reported[$tn]=done
-        local rc=1 dur=0
-        [[ -f "$LOG_DIR/tier${tn}.rc" ]]   && rc=$(cat "$LOG_DIR/tier${tn}.rc")
-        [[ -f "$LOG_DIR/tier${tn}.time" ]] && dur=$(cat "$LOG_DIR/tier${tn}.time")
-        local label; label=$(fmt_duration "$dur")
-        if [[ "$rc" == "0" ]]; then
-          log "Tier $tn (${TIER_NAME[$tn]}) — ${GREEN}PASS${RESET} [$label]"
-        else
-          log "Tier $tn (${TIER_NAME[$tn]}) — ${RED}FAIL${RESET} [$label]  → logs/e2e/tier${tn}.log"
-        fi
-      else
-        all_done=false
-      fi
-    done
-    $all_done && break
-    sleep 5
-  done
 }
 
 # ─── Summary ──────────────────────────────────────────────────────────────────
@@ -809,35 +819,25 @@ main() {
   api_login
   teardown_stale
 
-  log "Launching tiers 1–6 in parallel..."
-  run_tier1 > "$LOG_DIR/tier1.log" 2>&1 &  T1=$!
-  run_tier2 > "$LOG_DIR/tier2.log" 2>&1 &  T2=$!
-  run_tier3 > "$LOG_DIR/tier3.log" 2>&1 &  T3=$!
-  run_tier4 > "$LOG_DIR/tier4.log" 2>&1 &  T4=$!
-  run_tier5 > "$LOG_DIR/tier5.log" 2>&1 &  T5=$!
-  run_tier6 > "$LOG_DIR/tier6.log" 2>&1 &  T6=$!
-
-  # Monitor progress and print results as each tier finishes
-  pids=($T1 $T2 $T3 $T4 $T5 $T6)
-  tnums=(1 2 3 4 5 6)
-  monitor_parallel pids tnums
-
-  # Reap background processes
-  for pid in $T1 $T2 $T3 $T4 $T5 $T6; do
-    wait "$pid" 2>/dev/null || true
+  # Tiers run STRICTLY ONE AT A TIME. On a constrained host (7-8 GB) running
+  # tiers concurrently competes for RAM — restore/swap/cluster containers pile
+  # up and the kernel OOM-kills a container mid-operation (exit 137). Sequential
+  # execution gives every tier the entire box, and each tier frees its own
+  # instance/cluster before the next starts, so memory never accumulates.
+  log "Running tiers sequentially (one at a time — each gets the full box)..."
+  local spec tn fn rc dur
+  for spec in 1:run_tier1 2:run_tier2 3:run_tier3 4:run_tier4 \
+              5:run_tier5 6:run_tier6 7:run_tier7; do
+    tn=${spec%%:*}; fn=${spec#*:}
+    "$fn" > "$LOG_DIR/tier${tn}.log" 2>&1
+    rc=1; [[ -f "$LOG_DIR/tier${tn}.rc" ]]   && rc=$(cat "$LOG_DIR/tier${tn}.rc")
+    dur=0; [[ -f "$LOG_DIR/tier${tn}.time" ]] && dur=$(cat "$LOG_DIR/tier${tn}.time")
+    if [[ "$rc" == "0" ]]; then
+      log "Tier $tn (${TIER_NAME[$tn]}) — ${GREEN}PASS${RESET} [$(fmt_duration "$dur")]"
+    else
+      log "Tier $tn (${TIER_NAME[$tn]}) — ${RED}FAIL${RESET} [$(fmt_duration "$dur")]  → logs/e2e/tier${tn}.log"
+    fi
   done
-
-  log "Tiers 1–6 complete. Running Tier 7 (sequential — kills/restarts API)..."
-  run_tier7 > "$LOG_DIR/tier7.log" 2>&1
-  local rc=1
-  [[ -f "$LOG_DIR/tier7.rc" ]] && rc=$(cat "$LOG_DIR/tier7.rc")
-  local dur=0
-  [[ -f "$LOG_DIR/tier7.time" ]] && dur=$(cat "$LOG_DIR/tier7.time")
-  if [[ "$rc" == "0" ]]; then
-    log "Tier 7 (${TIER_NAME[7]}) — ${GREEN}PASS${RESET} [$(fmt_duration $dur)]"
-  else
-    log "Tier 7 (${TIER_NAME[7]}) — ${RED}FAIL${RESET} [$(fmt_duration $dur)]  → logs/e2e/tier7.log"
-  fi
 
   print_summary
 }
