@@ -100,9 +100,24 @@ func TestPgCatRouterRoutesQueries(t *testing.T) {
 	if _, err := conn.Exec(ctx, "INSERT INTO routed SELECT generate_series(1, 7)"); err != nil {
 		t.Fatalf("insert through router: %v", err)
 	}
+	// In transaction-pooling mode PgCat load-balances reads across the primary
+	// AND the replica, so a SELECT may land on the replica before it has replayed
+	// the INSERT (async streaming replication lag) — returning 0 rows, or erroring
+	// if even the CREATE TABLE has not arrived yet. Retry until the written rows
+	// are visible through the router or we time out. The assertion is unchanged
+	// (the data written through the router becomes readable through it); we only
+	// allow the replica time to catch up, which is the cluster's expected behavior.
 	var n int
-	if err := conn.QueryRow(ctx, "SELECT count(*) FROM routed").Scan(&n); err != nil || n != 7 {
-		t.Fatalf("read through router = %d (err %v), want 7", n, err)
+	readDeadline := time.Now().Add(30 * time.Second)
+	for {
+		err := conn.QueryRow(ctx, "SELECT count(*) FROM routed").Scan(&n)
+		if err == nil && n == 7 {
+			break
+		}
+		if time.Now().After(readDeadline) {
+			t.Fatalf("read through router = %d (err %v), want 7", n, err)
+		}
+		time.Sleep(time.Second)
 	}
 
 	// The write must have landed on the primary.
