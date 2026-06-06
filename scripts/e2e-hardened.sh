@@ -36,6 +36,15 @@ API_EMAIL="${PGFLEET_ADMIN_EMAIL:-admin@pgfleet.local}"
 API_PASSWORD="${PGFLEET_ADMIN_PASSWORD:-change-me-please}"
 RUN_TIERS="${RUN_TIERS:-all}"
 
+# Heavy-tier knobs (these tiers are long/large, so they're scaled or opt-in even
+# under RUN_TIERS=all, to keep the default run to a sane duration):
+CONCURRENT_N="${CONCURRENT_N:-4}"          # Tier 19: instances provisioned/loaded in parallel
+SOAK_HOURS="${SOAK_HOURS:-0}"              # Tier 20: hours of continuous churn; 0 = SKIP
+SCHED_INTERVAL="${SCHED_INTERVAL:-2m}"     # Tier 24: PGFLEET_BACKUP_INTERVAL for the cadence test
+BIG_DATA="${BIG_DATA:-0}"                  # Tier 26: 1 = run the large-scale test
+BIG_ACCOUNTS="${BIG_ACCOUNTS:-1000000}"    # Tier 26 scale (accounts)
+BIG_EVENTS="${BIG_EVENTS:-10000000}"       # Tier 26 scale (events)
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOG_DIR="$ROOT_DIR/logs/e2e-hardened"
@@ -79,8 +88,16 @@ declare -A TIER_NAME=(
   [16]="Alert → webhook delivery"
   [17]="Data-plane hostile input"
   [18]="Loopback binding (security)"
+  [19]="Concurrent multi-tenant load"
+  [20]="Multi-hour soak"
+  [21]="Reboot / restart durability"
+  [22]="Chained failover + failback"
+  [23]="Backup under load + concurrent"
+  [24]="Scheduled-backup cadence"
+  [25]="Corrupt backup fails safe"
+  [26]="Large-scale data (1M+)"
 )
-ALL_TIERS=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18)
+ALL_TIERS=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26)
 
 # ─── Colours ──────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -246,7 +263,7 @@ provision_cluster() {
 }
 
 wait_status() {
-  local id=$1 want=$2 timeout=${3:-600} elapsed=0 got
+  local id=$1 want=$2 timeout=${3:-600} elapsed=0 got hb=0
   while (( elapsed < timeout )); do
     got=$(api GET "/api/v1/instances/$id" 2>/dev/null | jq -r '.instance.status // empty')
     [[ "$got" == "$want" ]]  && return 0
@@ -256,6 +273,9 @@ wait_status() {
       err "Instance $id entered error state: $reason"
       return 1
     fi
+    if (( elapsed - hb >= 30 )); then
+      log "    … waiting for ${id:0:8} → '$want' (now: ${got:-?}, ${elapsed}s/${timeout}s)"; hb=$elapsed
+    fi
     sleep 5; (( elapsed += 5 ))
   done
   err "Instance $id did not reach '$want' in ${timeout}s (last: $got)"
@@ -263,7 +283,7 @@ wait_status() {
 }
 
 wait_cluster_status() {
-  local id=$1 want=$2 timeout=${3:-900} elapsed=0 got
+  local id=$1 want=$2 timeout=${3:-900} elapsed=0 got hb=0
   while (( elapsed < timeout )); do
     got=$(api GET "/api/v1/clusters/$id" 2>/dev/null | jq -r '.cluster.status // empty')
     [[ "$got" == "$want" ]] && return 0
@@ -273,24 +293,28 @@ wait_cluster_status() {
       err "Cluster $id entered error state: $reason"
       return 1
     fi
+    if (( elapsed - hb >= 30 )); then
+      log "    … waiting for cluster ${id:0:8} → '$want' (now: ${got:-?}, ${elapsed}s/${timeout}s)"; hb=$elapsed
+    fi
     sleep 5; (( elapsed += 5 ))
   done
   err "Cluster $id did not reach '$want' in ${timeout}s"
   return 1
 }
 
-# trigger_backup INSTANCE_ID [TYPE=full] → waits for catalog to grow
+# trigger_backup INSTANCE_ID [TYPE=full] [TIMEOUT=600] → waits for catalog to grow
 trigger_backup() {
-  local id=$1 type=${2:-full}
+  local id=$1 type=${2:-full} timeout=${3:-600}
   local before
   before=$(api GET "/api/v1/instances/$id/backups" | jq '.backups | length')
   api POST "/api/v1/instances/$id/backups" "{\"type\":\"$type\",\"annotation\":\"e2e-hardened\"}" >/dev/null \
     || return 1
-  local elapsed=0 timeout=600 after
+  local elapsed=0 after
   while (( elapsed < timeout )); do
     sleep 10; (( elapsed += 10 ))
     after=$(api GET "/api/v1/instances/$id/backups" 2>/dev/null | jq '.backups | length')
     (( after > before )) && return 0
+    (( elapsed % 60 == 0 )) && log "    … waiting for backup to appear in catalog (${elapsed}s/${timeout}s)"
   done
   err "Backup for $id did not appear in catalog within ${timeout}s"
   return 1
@@ -300,9 +324,12 @@ get_dsn()         { api GET "/api/v1/instances/$1/connection" | jq -r '.dsn // e
 get_cluster_dsn() { api GET "/api/v1/clusters/$1/connection"  | jq -r '.dsn // empty'; }
 
 wait_postgres_ready() {
-  local dsn=$1 timeout=${2:-120} elapsed=0
+  local dsn=$1 timeout=${2:-120} elapsed=0 hb=0
   while (( elapsed < timeout )); do
     psql "$dsn" -q -t -c "SELECT 1" &>/dev/null && return 0
+    if (( elapsed - hb >= 30 )); then
+      log "    … waiting for Postgres to accept connections (${elapsed}s/${timeout}s)"; hb=$elapsed
+    fi
     sleep 2; (( elapsed += 2 ))
   done
   err "Postgres at $dsn did not accept connections within ${timeout}s"
@@ -457,6 +484,42 @@ s3_scheme() {
   if curl -s  --max-time 4 "http://localhost:9000/minio/health/live"  >/dev/null 2>&1; then echo http;  return; fi
   if curl -sk --max-time 4 "https://localhost:9000/minio/health/live" >/dev/null 2>&1; then echo https; return; fi
   echo unknown
+}
+
+# mc_run "<mc shell>" → run minio/mc on the pgfleet network with alias 't' preset
+# to the bundled MinIO. Bodies should pass --insecure on each mc call (harmless on
+# http, required for the self-signed https the `make certs` setup uses). Prints the
+# command's stdout.
+mc_run() {
+  local scheme insec ep ak sk
+  scheme=$(s3_scheme); [[ "$scheme" == https ]] && insec="--insecure" || insec=""
+  ep="$scheme://$MINIO_CONTAINER:9000"
+  ak="${PGFLEET_S3_ACCESS_KEY:-pgfleet}"; sk="${PGFLEET_S3_SECRET_KEY:-pgfleetpgfleet}"
+  docker run --rm --network "$DOCKER_NET" --entrypoint /bin/sh minio/mc:latest -c \
+    "mc alias set t $ep $ak $sk $insec >/dev/null 2>&1; $1" 2>/dev/null
+}
+
+# wait_container_running NAME [TIMEOUT=120] — poll until a container reports Running.
+wait_container_running() {
+  local name=$1 timeout=${2:-120} e=0
+  while (( e < timeout )); do
+    [[ "$(docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null)" == "true" ]] && return 0
+    sleep 3; (( e += 3 ))
+  done
+  return 1
+}
+
+# wait_new_primary CLUSTER_ID OLD_PRIMARY_NAME [TIMEOUT=360] — poll until a primary
+# other than OLD appears; prints its name. Returns 1 on timeout.
+wait_new_primary() {
+  local cid=$1 old=$2 timeout=${3:-360} e=0 np
+  while (( e < timeout )); do
+    sleep 10; (( e += 10 ))
+    np=$(api GET "/api/v1/clusters/$cid" 2>/dev/null \
+      | jq -r --arg old "$old" '.members[] | select(.role=="primary" and .name != $old) | .name')
+    [[ -n "$np" ]] && { echo "$np"; return 0; }
+  done
+  return 1
 }
 
 # ─── Pre-run teardown ─────────────────────────────────────────────────────────
@@ -1028,7 +1091,12 @@ run_tier11() {
   fi
 
   tlog $t "Restoring the surviving backup ($survivor) to prove deletion didn't corrupt it..."
-  api POST "/api/v1/instances/$id/restore" "{\"type\":\"name\",\"target\":\"$survivor\",\"delta\":false}" >/dev/null \
+  # Select a SPECIFIC backup with the "set" field (→ pgbackrest --set=<label>
+  # --type=immediate --target-action=promote). NOT type:"name" — in pgBackRest
+  # "name" is a recovery_target_NAME (a pg_create_restore_point label), so passing
+  # a backup label there makes Postgres hunt for a restore point that never exists
+  # and hang in recovery forever (instance stuck "restoring").
+  api POST "/api/v1/instances/$id/restore" "{\"set\":\"$survivor\",\"delta\":false}" >/dev/null \
     || { tlog $t "FAIL — restore of survivor failed to start"; mark_fail $t; mark_time $t $t0; free_instance "$id"; return; }
   wait_status "$id" "running" 900 || { mark_fail $t; mark_time $t $t0; free_instance "$id"; return; }
   dsn=$(get_dsn "$id"); wait_postgres_ready "$dsn" 120 || { mark_fail $t; mark_time $t $t0; free_instance "$id"; return; }
@@ -1415,6 +1483,411 @@ run_tier18() {
   ensure_api_default
 }
 
+# ════════════════════════════════════════════════════════════════════════════
+#  SCALE & ENDURANCE TIERS (19–26) — what a single-tenant, sequential, short run
+#  can't see: concurrency, hours of soak, host reboots, chained failover, backups
+#  under load, real-scheduler cadence, corrupt-backup safety, and large datasets.
+# ════════════════════════════════════════════════════════════════════════════
+
+# Tier 19 — Concurrent multi-tenant load. The rest of the suite runs ONE instance
+# at a time; production runs many at once. Provision N instances in parallel and
+# drive seed→churn→verify on all of them simultaneously, asserting every tenant's
+# money-invariant holds. Surfaces control-plane concurrency: port/volume races,
+# meta-DB contention, reconciler under parallel state changes.
+run_tier19() {
+  local t=19 t0; t0=$(date +%s)
+  tlog $t "Starting: ${TIER_NAME[$t]} (N=$CONCURRENT_N)"; cd "$ROOT_DIR"
+  ensure_api_default || { mark_fail $t; mark_time $t $t0; return; }
+
+  local n="$CONCURRENT_N" i ids=() ppids=()
+  : > "$LOG_DIR/t19-ids.txt"
+  tlog $t "Provisioning $n instances in parallel..."
+  for ((i=1; i<=n; i++)); do
+    provision "e2e-mt-$RUN_ID-$i" "s3" >>"$LOG_DIR/t19-ids.txt" 2>/dev/null & ppids+=($!)
+  done
+  # Wait on the provision PIDs specifically — a bare `wait` would also block on the
+  # script-managed pgfleet-api background process, which never exits.
+  for p in "${ppids[@]}"; do wait "$p"; done
+  mapfile -t ids < <(sort -u "$LOG_DIR/t19-ids.txt"); rm -f "$LOG_DIR/t19-ids.txt"
+  if (( ${#ids[@]} != n )); then
+    tlog $t "FAIL — only ${#ids[@]}/$n instances were created (provisioning race?)"; mark_fail $t; mark_time $t $t0
+    for id in "${ids[@]}"; do free_instance "$id"; done; return
+  fi
+
+  tlog $t "Waiting for all $n instances to reach running (parallel)..."
+  local pids=() prov_fail=0
+  for id in "${ids[@]}"; do ( wait_status "$id" running 900 ) & pids+=($!); done
+  for p in "${pids[@]}"; do wait "$p" || (( prov_fail++ )); done
+  if (( prov_fail > 0 )); then
+    tlog $t "FAIL — $prov_fail/$n instances never reached running under concurrency"; mark_fail $t; mark_time $t $t0
+    for id in "${ids[@]}"; do free_instance "$id"; done; return
+  fi
+
+  tlog $t "Running seed→churn→verify on all $n instances simultaneously..."
+  local lpids=() load_fail=0
+  for id in "${ids[@]}"; do
+    local dsn; dsn=$(get_dsn "$id")
+    ( loadgen_run "$dsn" all -accounts 5000 -events 60000 -workers 6 -duration 90s ) & lpids+=($!)
+  done
+  for p in "${lpids[@]}"; do wait "$p" || (( load_fail++ )); done
+
+  for id in "${ids[@]}"; do free_instance "$id"; done
+  if (( load_fail == 0 )); then
+    tlog $t "PASS — $n tenants provisioned + loaded concurrently; every invariant held"; mark_pass $t
+  else
+    tlog $t "FAIL — $load_fail/$n tenants violated their invariant under concurrent load"; mark_fail $t
+  fi
+  mark_time $t $t0
+}
+
+# Tier 20 — Multi-hour soak (opt-in via SOAK_HOURS). Continuous churn for hours,
+# sampling DB size / WAL / slots periodically, then assert the invariant survived.
+# Catches the slow killers (WAL/slot bloat, autovacuum fallback, leaks) that a
+# 3-minute run never reaches.
+run_tier20() {
+  local t=20 t0; t0=$(date +%s)
+  tlog $t "Starting: ${TIER_NAME[$t]}"; cd "$ROOT_DIR"
+  if [[ -z "${SOAK_HOURS:-}" || "${SOAK_HOURS}" == "0" ]]; then
+    tlog $t "SKIP — set SOAK_HOURS=N (e.g. 3) to run the endurance soak"
+    mark_skip $t "SOAK_HOURS not set"; mark_time $t $t0; return
+  fi
+  ensure_api_default || { mark_fail $t; mark_time $t $t0; return; }
+  local id; id=$(provision "e2e-soak-$RUN_ID" "s3") || { mark_fail $t; mark_time $t $t0; return; }
+  wait_status "$id" running 600 || { mark_fail $t; mark_time $t $t0; return; }
+  local dsn; dsn=$(get_dsn "$id")
+  loadgen_run "$dsn" seed -accounts 20000 -events 300000 || { mark_fail $t; mark_time $t $t0; free_instance "$id"; return; }
+
+  tlog $t "Soaking ${SOAK_HOURS}h under continuous churn; sampling every 5 min..."
+  loadgen_run "$dsn" churn -accounts 20000 -workers 8 -duration "${SOAK_HOURS}h" &
+  local cp=$!
+  while kill -0 "$cp" 2>/dev/null; do
+    local dbsize slots walfiles
+    dbsize=$(psql "$dsn" -tAq -c "SELECT pg_size_pretty(pg_database_size(current_database()))" 2>/dev/null | tr -d '[:space:]')
+    slots=$(psql "$dsn"  -tAq -c "SELECT count(*) FROM pg_replication_slots" 2>/dev/null | tr -d '[:space:]')
+    walfiles=$(psql "$dsn" -tAq -c "SELECT count(*) FROM pg_ls_waldir()" 2>/dev/null | tr -d '[:space:]')
+    tlog $t "  sample: dbsize=${dbsize:-?} slots=${slots:-?} walfiles=${walfiles:-?}"
+    sleep 300
+  done
+  wait "$cp" 2>/dev/null || true
+
+  tlog $t "Soak complete; verifying the invariant survived ${SOAK_HOURS}h..."
+  if loadgen_run "$dsn" verify -accounts 20000; then
+    tlog $t "PASS — invariant held after ${SOAK_HOURS}h of continuous churn"; mark_pass $t
+  else
+    tlog $t "FAIL — invariant broke during the ${SOAK_HOURS}h soak"; mark_fail $t
+  fi
+  free_instance "$id"; mark_time $t $t0
+}
+
+# Tier 21 — Reboot / restart durability. Models a host reboot: make the dev-stack
+# containers restart-survivable, stop the API, restart the Docker daemon (so meta
+# DB + MinIO + the managed instance all bounce), bring the API back, and assert it
+# reconnects, reconciles the instance to running, and the data survived. Falls back
+# to bouncing just the instance container where systemd/docker isn't available.
+run_tier21() {
+  local t=21 t0; t0=$(date +%s)
+  tlog $t "Starting: ${TIER_NAME[$t]}"; cd "$ROOT_DIR"
+  if ! $API_CONTROLLABLE; then
+    tlog $t "SKIP — models a full host reboot; needs to own the API + restart Docker"
+    mark_skip $t "API externally supervised"; mark_time $t $t0; return
+  fi
+  ensure_api_default || { mark_fail $t; mark_time $t $t0; return; }
+  local id; id=$(provision "e2e-reboot-$RUN_ID" "s3") || { mark_fail $t; mark_time $t $t0; return; }
+  wait_status "$id" running 600 || { mark_fail $t; mark_time $t $t0; return; }
+  local dsn; dsn=$(get_dsn "$id")
+  loadgen_run "$dsn" seed -accounts 5000 -events 60000 || { mark_fail $t; mark_time $t $t0; free_instance "$id"; return; }
+  local expected; expected=$(psql "$dsn" -tAq -c "SELECT count(*) FROM loadgen_accounts" | tr -d '[:space:]')
+
+  local can_daemon=false
+  command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet docker 2>/dev/null && can_daemon=true
+
+  if $can_daemon; then
+    tlog $t "Host-reboot model: making dev-stack restart-survivable, stopping API, restarting Docker daemon..."
+    docker update --restart unless-stopped "$META_DB_CONTAINER" "$MINIO_CONTAINER" >/dev/null 2>&1 || true
+    api_stop || true
+    sudo systemctl restart docker || { tlog $t "FAIL — could not restart docker daemon"; mark_fail $t; mark_time $t $t0; return; }
+    local e=0; until docker info >/dev/null 2>&1 || (( e >= 60 )); do sleep 3; (( e += 3 )); done
+    wait_container_running "$META_DB_CONTAINER" 120 || { tlog $t "FAIL — meta-db did not return after daemon restart"; mark_fail $t; mark_time $t $t0; return; }
+    wait_container_running "$MINIO_CONTAINER" 120 || warn "T$t minio slow to return"
+  else
+    tlog $t "systemd/docker unit unavailable — bouncing the instance container instead (lighter model)..."
+    api_stop || true
+    local c0; c0=$(instance_container "$id" postgres)
+    [[ -n "$c0" ]] && docker restart "$c0" >/dev/null 2>&1 || warn "T$t could not restart instance container"
+  fi
+
+  tlog $t "Restarting API — it must reconnect to the meta DB and reconcile..."
+  api_start default || { tlog $t "FAIL — API did not come back after the reboot"; mark_fail $t; mark_time $t $t0; return; }
+
+  local status elapsed=0
+  while (( elapsed < 300 )); do
+    status=$(api GET "/api/v1/instances/$id" 2>/dev/null | jq -r '.instance.status // empty')
+    [[ "$status" == running ]] && break
+    sleep 10; (( elapsed += 10 ))
+  done
+  dsn=$(get_dsn "$id"); wait_postgres_ready "$dsn" 180 || { tlog $t "FAIL — instance not serving after reboot"; free_instance "$id"; mark_fail $t; mark_time $t $t0; return; }
+  local got; got=$(psql "$dsn" -tAq -c "SELECT count(*) FROM loadgen_accounts" | tr -d '[:space:]')
+  if [[ "$status" == running && "$got" == "$expected" ]] && loadgen_run "$dsn" verify -accounts 5000; then
+    tlog $t "PASS — survived restart: containers returned, API reconciled, data intact ($got accounts)"; mark_pass $t
+  else
+    tlog $t "FAIL — post-reboot status=$status accounts=$got (expected $expected) or invariant broke"; mark_fail $t
+  fi
+  free_instance "$id"; mark_time $t $t0
+}
+
+# Tier 22 — Chained failover + failback. The original failover tier stops after ONE
+# promotion. Here we fail over twice in a row (kill primary → promote → kill the new
+# primary → promote again), verifying the invariant each time, and — critically —
+# that demoted/killed nodes RE-CLONE and rejoin as streaming replicas (failback) so
+# the cluster can survive the second failure.
+run_tier22() {
+  local t=22 t0; t0=$(date +%s)
+  tlog $t "Starting: ${TIER_NAME[$t]}"; cd "$ROOT_DIR"
+  ensure_api_default || { mark_fail $t; mark_time $t $t0; return; }
+  local cid; cid=$(provision_cluster "e2e-cf-$RUN_ID" 2) || { mark_fail $t; mark_time $t $t0; return; }
+  tlog $t "3-node cluster $cid — waiting for running..."
+  wait_cluster_status "$cid" running 1200 || { mark_fail $t; mark_time $t $t0; free_cluster "$cid"; return; }
+  local p1_id p1_name p1_dsn
+  p1_id=$(api GET "/api/v1/clusters/$cid"   | jq -r '.members[] | select(.role=="primary") | .id')
+  p1_name=$(api GET "/api/v1/clusters/$cid" | jq -r '.members[] | select(.role=="primary") | .name')
+  p1_dsn=$(get_dsn "$p1_id")
+  wait_replication "$p1_dsn" 2 180 || warn "T$t replicas not fully streaming before seed"
+  loadgen_run "$p1_dsn" seed -accounts 8000 -events 120000 || { mark_fail $t; mark_time $t $t0; free_cluster "$cid"; return; }
+
+  # ── Failover #1 ──
+  tlog $t "Failover #1 — killing primary $p1_name..."
+  docker kill "pgfleet-pg-$p1_name" >/dev/null 2>&1 || true
+  local p2_name; p2_name=$(wait_new_primary "$cid" "$p1_name" 360) \
+    || { tlog $t "FAIL — no promotion after failover #1"; free_cluster "$cid"; mark_fail $t; mark_time $t $t0; return; }
+  tlog $t "Promoted #1: $p2_name"
+  wait_cluster_status "$cid" running 240 || warn "T$t cluster not 'running' after failover #1"
+  local p2_id p2_dsn
+  p2_id=$(api GET "/api/v1/clusters/$cid" | jq -r --arg n "$p2_name" '.members[] | select(.name==$n) | .id')
+  p2_dsn=$(get_dsn "$p2_id"); wait_postgres_ready "$p2_dsn" 120 \
+    || { tlog $t "FAIL — promoted primary #1 unreachable"; free_cluster "$cid"; mark_fail $t; mark_time $t $t0; return; }
+  loadgen_run "$p2_dsn" verify -accounts 8000 \
+    || { tlog $t "FAIL — invariant broke after failover #1"; free_cluster "$cid"; mark_fail $t; mark_time $t $t0; return; }
+
+  # ── Failback: a replica must re-clone before we can fail over again ──
+  tlog $t "Waiting for a replica to re-clone/rejoin (failback) before failover #2..."
+  wait_replication "$p2_dsn" 1 600 \
+    || { tlog $t "FAIL — no replica re-cloned after failover #1 (cluster can't survive a 2nd failure)"; free_cluster "$cid"; mark_fail $t; mark_time $t $t0; return; }
+
+  # ── Failover #2 ──
+  tlog $t "Failover #2 — killing new primary $p2_name..."
+  docker kill "pgfleet-pg-$p2_name" >/dev/null 2>&1 || true
+  local p3_name; p3_name=$(wait_new_primary "$cid" "$p2_name" 360) \
+    || { tlog $t "FAIL — no promotion after failover #2"; free_cluster "$cid"; mark_fail $t; mark_time $t $t0; return; }
+  tlog $t "Promoted #2: $p3_name"
+  wait_cluster_status "$cid" running 240 || warn "T$t cluster not 'running' after failover #2"
+  local p3_id p3_dsn
+  p3_id=$(api GET "/api/v1/clusters/$cid" | jq -r --arg n "$p3_name" '.members[] | select(.name==$n) | .id')
+  p3_dsn=$(get_dsn "$p3_id"); wait_postgres_ready "$p3_dsn" 120 \
+    || { tlog $t "FAIL — promoted primary #2 unreachable"; free_cluster "$cid"; mark_fail $t; mark_time $t $t0; return; }
+
+  # Final: exactly one primary, invariant holds, ≥1 streaming replica (full failback).
+  local prim_n repl_ok=false
+  prim_n=$(api GET "/api/v1/clusters/$cid" | jq '[.members[] | select(.role=="primary")] | length')
+  wait_replication "$p3_dsn" 1 600 && repl_ok=true
+  if (( prim_n == 1 )) && loadgen_run "$p3_dsn" verify -accounts 8000 && $repl_ok; then
+    tlog $t "PASS — 2 chained failovers survived; single primary; nodes re-cloned as streaming replicas; data intact"; mark_pass $t
+  else
+    tlog $t "FAIL — chained failover/failback broke (primaries=$prim_n replica_streaming=$repl_ok or invariant failed)"; mark_fail $t
+  fi
+  free_cluster "$cid"; mark_time $t $t0
+}
+
+# Tier 23 — Backup under load + concurrent. Take backups on several instances AT
+# ONCE while they're being actively written to, then restore each and verify — a
+# backup taken under churn must still be consistent. Stresses pgBackRest + MinIO
+# concurrency that the serial, idle-instance backups never touch.
+run_tier23() {
+  local t=23 t0; t0=$(date +%s)
+  tlog $t "Starting: ${TIER_NAME[$t]}"; cd "$ROOT_DIR"
+  ensure_api_default || { mark_fail $t; mark_time $t $t0; return; }
+  local n=3 i ids=()
+  tlog $t "Provisioning $n instances..."
+  for ((i=1; i<=n; i++)); do
+    local id; id=$(provision "e2e-bul-$RUN_ID-$i" "s3") || { mark_fail $t; mark_time $t $t0; for x in "${ids[@]}"; do free_instance "$x"; done; return; }
+    ids+=("$id")
+  done
+  for id in "${ids[@]}"; do wait_status "$id" running 900 || { mark_fail $t; mark_time $t $t0; for x in "${ids[@]}"; do free_instance "$x"; done; return; }; done
+
+  tlog $t "Seeding + starting background churn on each..."
+  local cpids=()
+  for id in "${ids[@]}"; do
+    local dsn; dsn=$(get_dsn "$id")
+    loadgen_run "$dsn" seed -accounts 4000 -events 60000 || { mark_fail $t; mark_time $t $t0; for x in "${ids[@]}"; do free_instance "$x"; done; return; }
+    ( loadgen_run "$dsn" churn -accounts 4000 -workers 4 -duration 120s ) & cpids+=($!)
+  done
+
+  tlog $t "Triggering backups on all $n instances CONCURRENTLY, under write load..."
+  local bpids=() bfail=0
+  for id in "${ids[@]}"; do ( trigger_backup "$id" full ) & bpids+=($!); done
+  for p in "${bpids[@]}"; do wait "$p" || (( bfail++ )); done
+  for p in "${cpids[@]}"; do wait "$p" 2>/dev/null || true; done
+  if (( bfail > 0 )); then
+    tlog $t "FAIL — $bfail/$n concurrent backups failed under load"; for x in "${ids[@]}"; do free_instance "$x"; done; mark_fail $t; mark_time $t $t0; return
+  fi
+
+  tlog $t "Restoring each backup-taken-under-load and verifying consistency..."
+  local rfail=0
+  for id in "${ids[@]}"; do
+    api POST "/api/v1/instances/$id/restore" '{"type":"","target":"","delta":false}' >/dev/null || { (( rfail++ )); continue; }
+    wait_status "$id" running 900 || { (( rfail++ )); continue; }
+    local dsn; dsn=$(get_dsn "$id"); wait_postgres_ready "$dsn" 120 || { (( rfail++ )); continue; }
+    loadgen_run "$dsn" verify -accounts 4000 || (( rfail++ ))
+  done
+  for x in "${ids[@]}"; do free_instance "$x"; done
+  if (( rfail == 0 )); then
+    tlog $t "PASS — $n concurrent backups taken under load all restore-verify cleanly"; mark_pass $t
+  else
+    tlog $t "FAIL — $rfail/$n backups taken under load failed restore-verify"; mark_fail $t
+  fi
+  mark_time $t $t0
+}
+
+# Tier 24 — Scheduled-backup cadence. Don't trust the scheduler — watch it. Restart
+# the API with a short PGFLEET_BACKUP_INTERVAL and confirm backups appear on cadence
+# with NO manual triggers (the rest of the suite only ever triggers backups by hand).
+run_tier24() {
+  local t=24 t0; t0=$(date +%s)
+  tlog $t "Starting: ${TIER_NAME[$t]}"; cd "$ROOT_DIR"
+  if ! $API_CONTROLLABLE; then
+    tlog $t "SKIP — needs to set PGFLEET_BACKUP_INTERVAL; API externally supervised"
+    mark_skip $t "API externally supervised"; mark_time $t $t0; return
+  fi
+  tlog $t "Restarting API with PGFLEET_BACKUP_INTERVAL=$SCHED_INTERVAL (real scheduler)..."
+  if ! api_start sched "PGFLEET_BACKUP_INTERVAL=$SCHED_INTERVAL" "PGFLEET_BACKUP_TYPE=full"; then
+    tlog $t "FAIL — API did not start with a short backup interval"; mark_fail $t; mark_time $t $t0; ensure_api_default; return
+  fi
+  local id; id=$(provision "e2e-sched-$RUN_ID" "s3") || { mark_fail $t; mark_time $t $t0; ensure_api_default; return; }
+  wait_status "$id" running 600 || { mark_fail $t; mark_time $t $t0; free_instance "$id"; ensure_api_default; return; }
+  local start_n; start_n=$(api GET "/api/v1/instances/$id/backups" | jq '.backups | length')
+
+  tlog $t "Watching the scheduler (no manual triggers) — want ≥3 new backups..."
+  local target=3 elapsed=0 now_n="$start_n"
+  while (( elapsed < 720 )); do
+    sleep 30; (( elapsed += 30 ))
+    now_n=$(api GET "/api/v1/instances/$id/backups" 2>/dev/null | jq '.backups | length')
+    (( now_n - start_n >= target )) && break
+    (( elapsed % 120 == 0 )) && tlog $t "  [${elapsed}s] scheduled backups so far: $(( now_n - start_n ))/$target"
+  done
+  free_instance "$id"
+  if (( now_n - start_n >= target )); then
+    tlog $t "PASS — scheduler produced $(( now_n - start_n )) backups on a $SCHED_INTERVAL cadence, no manual triggers"; mark_pass $t
+  else
+    tlog $t "FAIL — only $(( now_n - start_n )) scheduled backups in ${elapsed}s (expected ≥$target)"; mark_fail $t
+  fi
+  mark_time $t $t0
+  ensure_api_default
+}
+
+# Tier 25 — Corrupt/missing backup fails safe. Take a backup, then destroy its
+# objects in the store (out-of-band, so the catalog still references it), and attempt
+# a restore. The restore MUST fail loudly (no silently-corrupt DB), and the live
+# instance's data MUST remain intact (restore-into-fresh-volume protects it).
+run_tier25() {
+  local t=25 t0; t0=$(date +%s)
+  tlog $t "Starting: ${TIER_NAME[$t]}"; cd "$ROOT_DIR"
+  ensure_api_default || { mark_fail $t; mark_time $t $t0; return; }
+  if ! docker inspect "$MINIO_CONTAINER" &>/dev/null; then
+    tlog $t "SKIP — needs the bundled MinIO to corrupt a backup object"
+    mark_skip $t "MinIO absent"; mark_time $t $t0; return
+  fi
+  local id; id=$(provision "e2e-corrupt-$RUN_ID" "s3") || { mark_fail $t; mark_time $t $t0; return; }
+  wait_status "$id" running 600 || { mark_fail $t; mark_time $t $t0; free_instance "$id"; return; }
+  local dsn; dsn=$(get_dsn "$id")
+  loadgen_run "$dsn" seed -accounts 4000 -events 60000 || { mark_fail $t; mark_time $t $t0; free_instance "$id"; return; }
+  local count_before; count_before=$(psql "$dsn" -tAq -c "SELECT count(*) FROM loadgen_accounts" | tr -d '[:space:]')
+  tlog $t "Taking a backup, then destroying its objects in the store..."
+  trigger_backup "$id" full || { mark_fail $t; mark_time $t $t0; free_instance "$id"; return; }
+  local label; label=$(api GET "/api/v1/instances/$id/backups" | jq -r '.backups | sort_by(.label) | .[-1].label')
+  local stanza="e2e-corrupt-$RUN_ID" bucket="${PGFLEET_S3_BUCKET:-pgbackrest}"
+
+  # Locate the stanza's objects (repo layout varies: <bucket>/<stanza>/ or <bucket>/backup/<stanza>/).
+  local prefix="" cnt=0
+  for cand in "t/$bucket/$stanza" "t/$bucket/backup/$stanza" "t/$bucket/$stanza/backup"; do
+    cnt=$(mc_run "mc ls --recursive --insecure $cand 2>/dev/null | wc -l" | tr -d '[:space:]')
+    [[ "$cnt" =~ ^[0-9]+$ ]] && (( cnt > 0 )) && { prefix="$cand"; break; }
+  done
+  if [[ -z "$prefix" ]]; then
+    tlog $t "SKIP — could not locate this stanza's backup objects in the store"
+    mark_skip $t "backup objects not found"; free_instance "$id"; mark_time $t $t0; return
+  fi
+  tlog $t "Destroying $cnt objects under $prefix ..."
+  mc_run "mc rm --recursive --force --insecure $prefix >/dev/null 2>&1; true"
+
+  tlog $t "Attempting restore from the destroyed backup ($label) — it MUST fail, not silently succeed..."
+  # Use "set" to target the specific (now-destroyed) backup: pgbackrest --set=<label>
+  # fails fast when the set's objects are gone. (type:"name" would instead hang on an
+  # unreachable recovery target — see Tier 11.)
+  api POST "/api/v1/instances/$id/restore" "{\"set\":\"$label\",\"delta\":false}" >/dev/null 2>&1 || true
+  local s elapsed=0
+  while (( elapsed < 600 )); do
+    s=$(api GET "/api/v1/instances/$id" 2>/dev/null | jq -r '.instance.status // empty')
+    [[ "$s" == "error" ]] && break
+    [[ "$s" == "running" ]] && (( elapsed >= 60 )) && break
+    sleep 10; (( elapsed += 10 ))
+  done
+  tlog $t "Post-restore status: ${s:-unknown}"
+
+  local pass=false
+  if [[ "$s" == "error" ]]; then
+    pass=true; tlog $t "  restore correctly entered an error state (no silent corruption)"
+  else
+    # Restore reported running — the LIVE data must still be intact (rollback protected it).
+    dsn=$(get_dsn "$id")
+    if wait_postgres_ready "$dsn" 120; then
+      local count_after; count_after=$(psql "$dsn" -tAq -c "SELECT count(*) FROM loadgen_accounts" 2>/dev/null | tr -d '[:space:]')
+      if [[ -n "$count_after" && "$count_after" == "$count_before" ]] && loadgen_run "$dsn" verify -accounts 4000; then
+        pass=true; tlog $t "  restore failed safe — live data untouched ($count_after accounts), invariant holds"
+      else
+        tlog $t "  live data changed/broke after the failed restore ($count_before → ${count_after:-?})"
+      fi
+    fi
+  fi
+  free_instance "$id"
+  if $pass; then
+    tlog $t "PASS — corrupt/missing backup did not yield a silently-corrupt DB; live data protected"; mark_pass $t
+  else
+    tlog $t "FAIL — restore from a destroyed backup did not fail safe (possible silent corruption / data loss)"; mark_fail $t
+  fi
+  mark_time $t $t0
+}
+
+# Tier 26 — Large-scale data (opt-in via BIG_DATA=1). Backup→churn→restore→verify at
+# 1M+ accounts / 10M+ events, validating the pipeline (and readyTimeout) beyond toy
+# sizes that mask scaling problems.
+run_tier26() {
+  local t=26 t0; t0=$(date +%s)
+  tlog $t "Starting: ${TIER_NAME[$t]}"; cd "$ROOT_DIR"
+  if [[ "${BIG_DATA:-0}" != "1" ]]; then
+    tlog $t "SKIP — set BIG_DATA=1 to run the large-scale test ($BIG_ACCOUNTS accts / $BIG_EVENTS events)"
+    mark_skip $t "BIG_DATA not set"; mark_time $t $t0; return
+  fi
+  ensure_api_default || { mark_fail $t; mark_time $t $t0; return; }
+  local id; id=$(provision "e2e-big-$RUN_ID" "s3") || { mark_fail $t; mark_time $t $t0; return; }
+  wait_status "$id" running 600 || { mark_fail $t; mark_time $t $t0; return; }
+  local dsn; dsn=$(get_dsn "$id")
+  tlog $t "Seeding $BIG_ACCOUNTS accounts / $BIG_EVENTS events (this takes a while)..."
+  loadgen_run "$dsn" seed -accounts "$BIG_ACCOUNTS" -events "$BIG_EVENTS" || { mark_fail $t; mark_time $t $t0; free_instance "$id"; return; }
+  tlog $t "Full backup at scale (timeout 30m)..."
+  trigger_backup "$id" full 1800 || { mark_fail $t; mark_time $t $t0; free_instance "$id"; return; }
+  tlog $t "Churn at scale (2m)..."
+  loadgen_run "$dsn" churn -accounts "$BIG_ACCOUNTS" -workers 8 -duration 2m || { mark_fail $t; mark_time $t $t0; free_instance "$id"; return; }
+  tlog $t "Restore at scale (timeout 30m)..."
+  api POST "/api/v1/instances/$id/restore" '{"type":"","target":"","delta":false}' >/dev/null || { mark_fail $t; mark_time $t $t0; free_instance "$id"; return; }
+  wait_status "$id" running 1800 || { mark_fail $t; mark_time $t $t0; free_instance "$id"; return; }
+  dsn=$(get_dsn "$id"); wait_postgres_ready "$dsn" 300 || { mark_fail $t; mark_time $t $t0; free_instance "$id"; return; }
+  if loadgen_run "$dsn" verify -accounts "$BIG_ACCOUNTS"; then
+    tlog $t "PASS — backup→churn→restore verified at $BIG_ACCOUNTS accounts / $BIG_EVENTS events"; mark_pass $t
+  else
+    tlog $t "FAIL — invariant broke at scale after restore"; mark_fail $t
+  fi
+  free_instance "$id"; mark_time $t $t0
+}
+
 # ─── Summary ──────────────────────────────────────────────────────────────────
 fmt_duration() {
   local s=$1
@@ -1454,7 +1927,9 @@ print_summary() {
     echo -e "  ${GREEN}Proven on this host: durability under churn, PITR fidelity, HA failover,${RESET}"
     echo -e "  ${GREEN}control-plane DR, encrypted-backup round-trip, RBAC enforcement, backup${RESET}"
     echo -e "  ${GREEN}retention, restore drills, split-brain safety, crash recovery, no resource${RESET}"
-    echo -e "  ${GREEN}leaks, live alerting, hostile-input safety, and loopback binding.${RESET}"
+    echo -e "  ${GREEN}leaks, live alerting, hostile-input safety, loopback binding, concurrent${RESET}"
+    echo -e "  ${GREEN}multi-tenant load, chained failover/failback, backups-under-load, real${RESET}"
+    echo -e "  ${GREEN}scheduler cadence, corrupt-backup safety, and reboot durability.${RESET}"
   else
     echo -e "  ${RED}${BOLD}✗ NOT production ready — fix the failing tier(s) above.${RESET}"
   fi
@@ -1464,8 +1939,9 @@ print_summary() {
   echo -e "  ${BOLD}Honest calibration — NOT covered by this single-host run:${RESET}"
   echo -e "    • True 24h JWT expiry (only tamper/absent-token rejection is tested live)"
   echo -e "    • Multi-HOST split-brain (a single Docker host can't model a real cross-machine partition)"
-  echo -e "    • Multi-hour soak: slot bloat, WAL accumulation, autovacuum fallback, memory creep"
-  echo -e "    • Sustained concurrent multi-tenant load (tiers run one at a time by design)"
+  echo -e "    • Multi-hour soak — covered ONLY if you set SOAK_HOURS (Tier 20); otherwise skipped"
+  echo -e "    • Large-scale data — covered ONLY if you set BIG_DATA=1 (Tier 26); otherwise skipped"
+  echo -e "    • Disk-full / out-of-space handling (not implemented this round)"
   echo -e "  ${BOLD}Treat green here as 'production-ready on the dimensions above', not a blanket stamp.${RESET}"
   echo ""
   return "$total_fail"
@@ -1512,21 +1988,35 @@ main() {
   setup_api_control      # decide ownership + bring API up in default mode
   teardown_stale
 
-  log "Running tiers sequentially (one at a time — each gets the full box)..."
-  local spec tn fn
+  # Count selected tiers so we can show "[idx/total]" progress.
+  local total_sel=0 _x
+  for _x in "${ALL_TIERS[@]}"; do should_run "$_x" && (( total_sel++ )); done
+  log "Running $total_sel tier(s) sequentially — ${BOLD}live output below${RESET} (also saved per-tier to logs/e2e-hardened/)."
+  echo -e "  ${CYAN}tip: in a second tmux pane, run 'tail -f $LOG_DIR/api.log' to watch the API server live.${RESET}"
+
+  local spec tn fn idx=0
   for spec in 1:run_tier1 2:run_tier2 3:run_tier3 4:run_tier4 5:run_tier5 \
               6:run_tier6 7:run_tier7 8:run_tier8 9:run_tier9 10:run_tier10 \
               11:run_tier11 12:run_tier12 13:run_tier13 14:run_tier14 \
-              15:run_tier15 16:run_tier16 17:run_tier17 18:run_tier18; do
+              15:run_tier15 16:run_tier16 17:run_tier17 18:run_tier18 \
+              19:run_tier19 20:run_tier20 21:run_tier21 22:run_tier22 \
+              23:run_tier23 24:run_tier24 25:run_tier25 26:run_tier26; do
     tn=${spec%%:*}; fn=${spec#*:}
     should_run "$tn" || continue
-    "$fn" > "$LOG_DIR/tier${tn}.log" 2>&1
+    (( idx++ ))
+    echo ""
+    echo -e "${BOLD}${CYAN}▶ [$idx/$total_sel] Tier $tn — ${TIER_NAME[$tn]}${RESET}   ${CYAN}$(date '+%H:%M:%S')${RESET}"
+    echo -e "${CYAN}──────────────────────────────────────────────────────────${RESET}"
+    # Stream live to the terminal AND save to the per-tier log. Process substitution
+    # (verified) keeps the tier function in the CURRENT shell — no subshell — so the
+    # API_PID / TOKEN / CURRENT_API_MODE globals still persist across tiers.
+    "$fn" > >(tee "$LOG_DIR/tier${tn}.log") 2>&1
     local rc=1; [[ -f "$LOG_DIR/tier${tn}.rc" ]] && rc=$(cat "$LOG_DIR/tier${tn}.rc")
     local dur=0; [[ -f "$LOG_DIR/tier${tn}.time" ]] && dur=$(cat "$LOG_DIR/tier${tn}.time")
     case "$rc" in
-      0) log "Tier $tn (${TIER_NAME[$tn]}) — ${GREEN}PASS${RESET} [$(fmt_duration "$dur")]" ;;
-      2) log "Tier $tn (${TIER_NAME[$tn]}) — ${YELLOW}SKIP${RESET}" ;;
-      *) log "Tier $tn (${TIER_NAME[$tn]}) — ${RED}FAIL${RESET} [$(fmt_duration "$dur")]  → logs/e2e-hardened/tier${tn}.log" ;;
+      0) log "✔ [$idx/$total_sel] Tier $tn (${TIER_NAME[$tn]}) — ${GREEN}PASS${RESET} [$(fmt_duration "$dur")]" ;;
+      2) log "∅ [$idx/$total_sel] Tier $tn (${TIER_NAME[$tn]}) — ${YELLOW}SKIP${RESET}" ;;
+      *) log "✗ [$idx/$total_sel] Tier $tn (${TIER_NAME[$tn]}) — ${RED}FAIL${RESET} [$(fmt_duration "$dur")]  → logs/e2e-hardened/tier${tn}.log" ;;
     esac
   done
 
