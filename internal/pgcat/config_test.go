@@ -94,6 +94,23 @@ func TestGenerateReadWriteSplitAndRoles(t *testing.T) {
 	}
 }
 
+// TestGeneratePrimaryOnlyEnablesPrimaryReads guards the failover regression: a
+// pool with NO replicas (e.g. a single-replica cluster whose only replica was
+// promoted to primary) must enable primary_reads_enabled, or read/write
+// splitting routes every SELECT to the empty replica role and PgCat returns
+// AllServersDown, making the router unusable.
+func TestGeneratePrimaryOnlyEnablesPrimaryReads(t *testing.T) {
+	got := Generate(Config{
+		Database: "postgres", User: "u", Password: "p",
+		Servers: []Server{
+			{Host: "pgfleet-pg-c-r1", Port: 5432, Role: "primary"},
+		},
+	})
+	if !strings.Contains(got, "primary_reads_enabled = true") {
+		t.Errorf("primary-only pool must enable primary reads:\n%s", got)
+	}
+}
+
 func TestGenerateHealthCheckAndBanConfig(t *testing.T) {
 	got := Generate(Config{
 		Database: "postgres", User: "u", Password: "p",

@@ -96,15 +96,29 @@ func Generate(c Config) string {
 	fmt.Fprintf(&b, "shutdown_timeout = %d\n", defaultShutdownTimeout)
 	b.WriteString("\n")
 
+	// Count replica backends. When a pool has NO replicas — e.g. after a
+	// single-replica cluster fails over and its only replica is promoted, leaving
+	// a primary-only pool — read/write splitting with primary_reads_enabled=false
+	// would route every SELECT to the (now empty) replica role and PgCat returns
+	// AllServersDown, making the router unusable. In that case the primary must
+	// serve reads too.
+	replicaCount := 0
+	for _, s := range c.Servers {
+		if s.Role == "replica" {
+			replicaCount++
+		}
+	}
+	primaryReads := replicaCount == 0
+
 	fmt.Fprintf(&b, "[pools.%s]\n", poolKey)
 	b.WriteString("pool_mode = \"" + tomlEscape(poolMode) + "\"\n")
 	// Read/write split: the query parser inspects each statement and routes
 	// writes to the primary while load-balancing reads across replicas. With
-	// primary_reads_enabled = false, reads prefer replicas and only the primary
-	// receives writes (and replica-less reads).
+	// replicas present primary_reads_enabled stays false so reads prefer the
+	// replicas; with no replicas it is enabled so the primary serves reads too.
 	b.WriteString("query_parser_enabled = true\n")
 	b.WriteString("query_parser_read_write_splitting = true\n")
-	b.WriteString("primary_reads_enabled = false\n")
+	fmt.Fprintf(&b, "primary_reads_enabled = %t\n", primaryReads)
 	// load_balancing_mode accepts only "random" or "loc" (least outstanding
 	// connections); "random" distributes reads across replicas. An invalid value
 	// makes PgCat reject the config and exit on startup.

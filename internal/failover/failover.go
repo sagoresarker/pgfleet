@@ -315,6 +315,15 @@ func (c *Controller) repointRouter(ctx context.Context, clu cluster.Cluster, new
 	// Derive the same admin password clusterctl uses, so live pool stats keep
 	// working after the router is repointed to the new primary.
 	adminPassword := provision.RouterAdminPass(c.masterKey, clu.ID)
+	// Remove the OLD router BEFORE starting the new one. StartRouter names the
+	// container "pgfleet-router-<cluster>" — the SAME name as the existing router
+	// — so creating it while the old one is still present fails with a Docker name
+	// conflict, the repoint never completes, and the cluster is left degraded with
+	// its router still pointing at the dead (fenced) primary. The old router is
+	// useless after the primary is fenced, so removing it first is safe.
+	if clu.RouterContainerID != "" {
+		_ = c.router.RemoveContainer(context.Background(), clu.RouterContainerID, true)
+	}
 	routerID, port, err := c.prov.StartRouter(ctx, provision.RouterSpec{
 		ClusterID:     clu.ID,
 		ClusterName:   clu.Name,
@@ -329,9 +338,6 @@ func (c *Controller) repointRouter(ctx context.Context, clu cluster.Cluster, new
 	}, nil)
 	if err != nil {
 		return err
-	}
-	if clu.RouterContainerID != "" {
-		_ = c.router.RemoveContainer(context.Background(), clu.RouterContainerID, true)
 	}
 	return c.clusters.SetRouter(ctx, clu.ID, routerID, port)
 }
