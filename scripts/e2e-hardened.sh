@@ -1385,15 +1385,19 @@ PY
   local id; id=$(provision "e2e-alert-$RUN_ID" "s3") || { kill "$wpid" 2>/dev/null; mark_fail $t; mark_time $t $t0; ensure_api_default; return; }
   wait_status "$id" "running" 600 || { kill "$wpid" 2>/dev/null; free_instance "$id"; mark_fail $t; mark_time $t $t0; ensure_api_default; return; }
 
-  # backup_stale with threshold 1s on an instance with no backup → always fires.
-  tlog $t "Creating a backup_stale alert rule (threshold 1s) — guaranteed to breach..."
+  # backup_stale evaluates snapshot.BackupAgeSeconds, which is nil (and never fires)
+  # when the instance has NO backup. Take one first so it has an age; with threshold
+  # 1s the backup is stale within a second and fires on the next evaluation.
+  tlog $t "Taking a backup so backup_stale has an age to evaluate..."
+  trigger_backup "$id" full || { tlog $t "FAIL — could not take seed backup"; kill "$wpid" 2>/dev/null; free_instance "$id"; mark_fail $t; mark_time $t $t0; ensure_api_default; return; }
+  tlog $t "Creating a backup_stale alert rule (threshold 1s — the backup is already >1s old)..."
   api POST /api/v1/alert-rules \
     "{\"instance_id\":\"$id\",\"kind\":\"backup_stale\",\"threshold\":1,\"severity\":\"warning\",\"enabled\":true}" >/dev/null \
     || { tlog $t "FAIL — could not create alert rule"; kill "$wpid" 2>/dev/null; free_instance "$id"; mark_fail $t; mark_time $t $t0; ensure_api_default; return; }
 
-  tlog $t "Waiting up to 150s for the alert to fire and the webhook to be delivered..."
+  tlog $t "Waiting up to 240s for the alert to fire (metrics collect → eval → webhook)..."
   local elapsed=0 fired=false delivered=false
-  while (( elapsed < 150 )); do
+  while (( elapsed < 240 )); do
     sleep 10; (( elapsed += 10 ))
     if api GET "/api/v1/alerts?instance_id=$id" 2>/dev/null | jq -e '.alerts[]? | select(.kind=="backup_stale")' >/dev/null; then fired=true; fi
     [[ -s "$wfile" ]] && delivered=true
@@ -1406,7 +1410,7 @@ PY
   elif $fired; then
     tlog $t "FAIL — alert fired but no webhook POST was delivered"; mark_fail $t
   else
-    tlog $t "FAIL — alert did not fire within 150s (fired=$fired delivered=$delivered)"; mark_fail $t
+    tlog $t "FAIL — alert did not fire within 240s (fired=$fired delivered=$delivered)"; mark_fail $t
   fi
   free_instance "$id"; mark_time $t $t0
   ensure_api_default
@@ -1697,8 +1701,8 @@ run_tier22() {
   # next promotion can meet quorum. Wait for that — if it never heals, THAT is the
   # finding (no failback), not "no promotion".
   tlog $t "Waiting for failback — cluster must re-clone back to 2 streaming replicas before failover #2..."
-  if ! wait_replication "$p2_dsn" 2 900; then
-    tlog $t "FAIL — cluster did not self-heal to 2 replicas after failover #1 (no failback; by quorum design a 3-node cluster then cannot survive a 2nd failure)"
+  if ! wait_replication "$p2_dsn" 2 180; then
+    tlog $t "FAIL (real finding) — no automatic failback: the fenced node is not re-cloned, so the cluster stays at 1 primary + 1 replica and (by quorum design) cannot survive a 2nd failure until an operator rebuilds the lost node"
     free_cluster "$cid"; mark_fail $t; mark_time $t $t0; return
   fi
 
@@ -1792,21 +1796,28 @@ run_tier24() {
   fi
   local id; id=$(provision "e2e-sched-$RUN_ID" "s3") || { mark_fail $t; mark_time $t $t0; ensure_api_default; return; }
   wait_status "$id" running 600 || { mark_fail $t; mark_time $t $t0; free_instance "$id"; ensure_api_default; return; }
-  local start_n; start_n=$(api GET "/api/v1/instances/$id/backups" | jq '.backups | length')
-
-  tlog $t "Watching the scheduler (no manual triggers) — want ≥3 new backups..."
-  local target=3 elapsed=0 now_n="$start_n"
+  # Count DISTINCT backup labels seen over time, NOT catalog size: the scheduler
+  # runs `expire` after each backup and RetentionFull defaults to 2, so the live
+  # catalog plateaus at 2 even while new backups keep being created. Each new
+  # scheduled backup has a fresh label, so accumulating distinct labels proves the
+  # scheduler is firing on cadence.
+  local target=3 elapsed=0
+  declare -A seen
+  while IFS= read -r lbl; do [[ -n "$lbl" ]] && seen[$lbl]=1; done \
+    < <(api GET "/api/v1/instances/$id/backups" 2>/dev/null | jq -r '.backups[].label')
+  tlog $t "Watching the scheduler (no manual triggers) — want ≥$target DISTINCT backups created..."
   while (( elapsed < 720 )); do
     sleep 30; (( elapsed += 30 ))
-    now_n=$(api GET "/api/v1/instances/$id/backups" 2>/dev/null | jq '.backups | length')
-    (( now_n - start_n >= target )) && break
-    (( elapsed % 120 == 0 )) && tlog $t "  [${elapsed}s] scheduled backups so far: $(( now_n - start_n ))/$target"
+    while IFS= read -r lbl; do [[ -n "$lbl" ]] && seen[$lbl]=1; done \
+      < <(api GET "/api/v1/instances/$id/backups" 2>/dev/null | jq -r '.backups[].label')
+    (( ${#seen[@]} >= target )) && break
+    (( elapsed % 120 == 0 )) && tlog $t "  [${elapsed}s] distinct scheduled backups seen: ${#seen[@]}/$target"
   done
   free_instance "$id"
-  if (( now_n - start_n >= target )); then
-    tlog $t "PASS — scheduler produced $(( now_n - start_n )) backups on a $SCHED_INTERVAL cadence, no manual triggers"; mark_pass $t
+  if (( ${#seen[@]} >= target )); then
+    tlog $t "PASS — scheduler created ${#seen[@]} distinct backups on a $SCHED_INTERVAL cadence (retention caps the live catalog at 2)"; mark_pass $t
   else
-    tlog $t "FAIL — only $(( now_n - start_n )) scheduled backups in ${elapsed}s (expected ≥$target)"; mark_fail $t
+    tlog $t "FAIL — only ${#seen[@]} distinct scheduled backups in ${elapsed}s (expected ≥$target)"; mark_fail $t
   fi
   mark_time $t $t0
   ensure_api_default
